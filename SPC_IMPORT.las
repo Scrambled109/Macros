@@ -1,0 +1,966 @@
+  0
+LAYERSTATEDICTIONARY
+  0
+LAYERSTATE
+  1
+SPC_IMPORT
+ 91
+2047
+301
+
+290
+0
+302
+CUT - OUTSIDE STRAIGHT
+  8
+VDS 22.5
+ 90
+8
+ 62
+71
+370
+-3
+  6
+Continuous
+  2
+Color_71
+440
+0
+  8
+VAS 45
+ 90
+8
+ 62
+72
+370
+-3
+  6
+Continuous
+  2
+Color_72
+440
+0
+  8
+VAS 30
+ 90
+8
+ 62
+72
+370
+-3
+  6
+Continuous
+  2
+Color_72
+440
+0
+  8
+VAS 22.5
+ 90
+8
+ 62
+72
+370
+-3
+  6
+Continuous
+  2
+Color_72
+440
+0
+  8
+YDS 45 D125
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 45 D250
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 45 D375
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 45 D500
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 30 D250
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 30 D375
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 30 D500
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YAS 45 D250
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 45 D375
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 45 D500
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+X VDS 45 AS 45 D250
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+X VDS 45 AS 45 D375
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+X VDS 30 AS 30 D125
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+X VDS 30 AS 30 D250
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+Defpoints
+ 90
+0
+ 62
+255
+370
+-3
+  6
+Continuous
+  2
+Color_255
+440
+0
+  8
+CUT - INSIDE STRAIGHT
+ 90
+8
+ 62
+5
+370
+-3
+  6
+Continuous
+  2
+Color_5
+440
+0
+  8
+K VDS 30 AS 30 S125 D250
+ 90
+8
+ 62
+232
+370
+-3
+  6
+Continuous
+  2
+Color_232
+440
+0
+  8
+K VDS 45 AS 45 S125 D250
+ 90
+8
+ 62
+232
+370
+-3
+  6
+Continuous
+  2
+Color_232
+440
+0
+  8
+YDS 22.5 D375
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 30 D125
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+CUT - OUTSIDE STRAIGHT
+ 90
+8
+ 62
+1
+370
+-3
+  6
+Continuous
+  2
+Color_1
+440
+0
+  8
+PIN STAMP TEXT
+ 90
+8
+ 62
+7
+370
+-3
+  6
+Continuous
+  2
+Color_7
+440
+0
+  8
+YDS 22.5 D875
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+X VDS 45 AS 45 D125
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+YDS 45 D625
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 45 D750
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+K VDS 22.5 AS 22.5 S125 D250
+ 90
+8
+ 62
+232
+370
+-3
+  6
+Continuous
+  2
+Color_232
+440
+0
+  8
+YAS 30 D625
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+PIN STAMP LINE MARKING
+ 90
+8
+ 62
+3
+370
+-3
+  6
+Continuous
+  2
+Color_3
+440
+0
+  8
+YDS 22.5 D125
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YAS 22.5 D125
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+X VDS 22.5 AS 22.5 D125
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+VDS 30
+ 90
+8
+ 62
+71
+370
+-3
+  6
+Continuous
+  2
+Color_71
+440
+0
+  8
+VDS 45
+ 90
+8
+ 62
+71
+370
+-3
+  6
+Continuous
+  2
+Color_71
+440
+0
+  8
+YDS 22.5 D250
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 22.5 D500
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 22.5 D625
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 22.5 D750
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 30 D625
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 30 D750
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 30 D875
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YDS 45 D875
+ 90
+8
+ 62
+141
+370
+-3
+  6
+Continuous
+  2
+Color_141
+440
+0
+  8
+YAS 22.5 D250
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 22.5 D375
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 22.5 D500
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 22.5 D625
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 22.5 D750
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 22.5 D875
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 30 D125
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 30 D250
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 30 D375
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 30 D500
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 30 D750
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 30 D875
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 45 D125
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 45 D625
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 45 D750
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+YAS 45 D875
+ 90
+8
+ 62
+142
+370
+-3
+  6
+Continuous
+  2
+Color_142
+440
+0
+  8
+X VDS 22.5 AS 22.5 D250
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+X VDS 22.5 AS 22.5 D375
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+X VDS 30 AS 30 D375
+ 90
+8
+ 62
+231
+370
+-3
+  6
+Continuous
+  2
+Color_231
+440
+0
+  8
+PLOT
+ 90
+8
+ 62
+2
+370
+-3
+  6
+Continuous
+  2
+Color_2
+440
+0
+  8
+SCRIBE
+ 90
+8
+ 62
+6
+370
+-3
+  6
+Continuous
+  2
+Color_6
+440
+0
+  8
+0
+ 90
+8
+ 62
+255
+370
+-3
+  6
+Continuous
+  2
+Color_255
+440
+0

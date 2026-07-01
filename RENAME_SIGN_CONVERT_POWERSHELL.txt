@@ -1,0 +1,61 @@
+Write-Host "=== STARTING RENAME SCRIPT ===" -ForegroundColor Cyan
+
+Get-ChildItem -Directory | ForEach-Object {
+    $folder = $_
+    Write-Host "Scanning Folder: $($folder.Name)" -ForegroundColor Yellow
+    
+    # Extract the number from the folder name
+    if ($folder.Name -match '^(\d+)') {
+        $folderNumber = $Matches[1]
+    } else {
+        $folderNumber = $null
+    }
+    
+    # Get files inside the folder
+    $files = Get-ChildItem -Path $folder.FullName -File
+    if ($files.Count -eq 0) { Write-Host "  -> No files found in this folder." -ForegroundColor DarkGray }
+
+    $files | ForEach-Object {
+        $originalName = $_.Name
+        $workingName = $_.BaseName
+        $changed = $false
+        
+        # STEP 1: Replace hashtags
+        if ($workingName -match '#') {
+            $workingName = $workingName -replace '#', '-'
+            $changed = $true
+        }
+        
+        # STEP 2: Append folder number
+        if ($folderNumber -and $workingName -notlike "*_$folderNumber*") {
+            $workingName = "${workingName}_${folderNumber}_1"
+            $changed = $true
+        }
+
+        # STEP 3A: Clean up invisible spaces before underscores (e.g. " _250" -> "_250")
+        if ($workingName -match '\s+_') {
+            $workingName = $workingName -replace '\s+(_)', '$1'
+            $changed = $true
+        }
+        
+        # STEP 3B: Clean up duplicates with the same base number 
+        # This matches a block like _250_4 and removes ANY following blocks that also start with _250
+        $duplicatePattern = '((_\d+)_\d+)(?:\2_\d+)+'
+        if ($workingName -match $duplicatePattern) {
+            $workingName = $workingName -replace $duplicatePattern, '$1'
+            $changed = $true
+        }
+        
+        # STEP 4: Rename
+        $finalName = "${workingName}$($_.Extension)"
+        
+        if ($changed -and ($finalName -ne $originalName)) {
+            Write-Host "  [RENAMING] $originalName  ->  $finalName" -ForegroundColor Green
+            Rename-Item -Path $_.FullName -NewName $finalName
+        } else {
+            Write-Host "  [SKIPPING] $originalName (No changes needed)" -ForegroundColor DarkGray
+        }
+    }
+}
+
+Write-Host "=== SCRIPT FINISHED ===" -ForegroundColor Cyan

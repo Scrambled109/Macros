@@ -1,0 +1,3 @@
+SPC Layer Import -> (^C^C-LA;A;I;"U:/Engineering/CAD Services/Engineering Reference/SPC_IMPORT.las";R;"SPC_IMPORT";;^C^C) copy in parathesis 
+
+set by layer -? (^C^C-SETBYLAYER;_ALL;;y;y;^C^C) copy in parathesis 
