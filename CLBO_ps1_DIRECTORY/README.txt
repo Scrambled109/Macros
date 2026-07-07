@@ -56,7 +56,9 @@ powershell -ExecutionPolicy Bypass -File .\Master_Orchestrator.ps1
 Once the script starts, it requires minimal input. Watch the PowerShell terminal for color-coded status updates.
 
 The Background Auto-Pilot (Green)
-If a part does not contain a bevel flag (K, V, or BEVEL), the terminal will display [+] Clean Part. The script will use accoreconsole.exe to invisibly open the part, inject the layers, swap hashtags to dashes, save the file as a DWG, and move it to a sorted folder (e.g., 250-DH-36). No action is required.
+If a part does not contain a bevel flag (K, V, or BEVEL) in its TEXT/MTEXT notes, the terminal will display [+] Clean Part. The script will use accoreconsole.exe to invisibly open the part, inject the layers, swap hashtags to dashes, save the file as a DWG, and move it to a sorted folder (e.g., 250-DH-36). No action is required. (Bevel detection now reads only the drawing's text entities, so stray K/V characters elsewhere in the file no longer force an unnecessary manual gate.)
+
+If a headless job fails or hangs, the script logs it (see _ORCHESTRATOR_LOGS), keeps the original DXF, and moves on to the next part instead of stalling the whole batch. A per-job timeout (default 180s, set via $ConsoleTimeoutSec) guards against a wedged accoreconsole.
 
 The Manual Review Gate (Magenta/Cyan)
 If the script detects a bevel flag in the DXF, it will pause the background processing and launch the full graphical AutoCAD application.
@@ -67,11 +69,17 @@ Review the bevel notes on the drawing.
 
 CRITICAL: Do not use "Save" or "Save As". When you are finished reviewing the part, simply type FINISH into the AutoCAD command line and press Enter.
 
-The custom FINISH command will automatically save the file to the correct sorted directory, close the drawing tab, and signal PowerShell to instantly load the next part for your review.
+The custom FINISH command will automatically save the file to the correct sorted directory and QUIT AutoCAD. The orchestrator watches for that saved DWG and immediately loads the next part for your review. Because FINISH now fully closes AutoCAD (rather than just the drawing tab), you no longer accumulate orphaned AutoCAD windows across a batch.
+
+If you close or quit AutoCAD WITHOUT typing FINISH (or AutoCAD crashes), the orchestrator now detects that AutoCAD exited, marks the part as failed (original DXF kept for retry), and continues -- it will no longer wait forever for a save that is never coming.
 
 6. Output and Data Safety
 Sorted Output: Processed parts will appear in newly generated folders at the root of your workspace named according to the spreadsheet data (e.g., 500-A-36, 250-DH-36).
 
 Appended Naming: The final .dwg files will automatically append the target folder name and the spreadsheet quantity to the filename (e.g., PartName_250-DH-36_5.dwg).
 
-The Archive Failsafe: The script will never delete your original .dxf files. Once a file is successfully processed and the DWG size is validated, the original raw DXF is moved into a _PROCESSED_DXF_ARCHIVE folder. If a batch fails or requires re-processing, you can always retrieve the pristine original files from the archive.
+The Archive Failsafe: The script will never delete your original .dxf files. Once a file is successfully processed and the DWG size is validated (and AutoCAD has fully released its lock on the new DWG), the original raw DXF is moved into a _PROCESSED_DXF_ARCHIVE folder. If a batch fails or requires re-processing, you can always retrieve the pristine original files from the archive.
+
+Diagnostics: Each headless conversion writes its console output to _ORCHESTRATOR_LOGS\<part>.log (and .err.log for errors), so a failed clean part can be diagnosed instead of just reporting "DWG missing." The run ends with a summary line counting Clean / Bevel / Failed parts.
+
+Pre-flight checks: Before doing any work, the script verifies that the seed DWG, ColorToLayer.lsp, accoreconsole.exe, and acad.exe all exist at the configured paths, and aborts with a clear message if any are missing. The parts.csv remains optional -- without it, parts still convert but land in an "Unsorted" folder with a quantity of 1.
