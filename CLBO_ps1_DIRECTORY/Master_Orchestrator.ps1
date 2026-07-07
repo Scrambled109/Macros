@@ -23,6 +23,39 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Forc
 
 function Test-ValidDwg($p) { (Test-Path $p) -and ((Get-Item $p).Length -gt 1024) }
 
+# Normalize a thickness cell to thousandths-of-an-inch (the "500" in 500-HSLA-65).
+# Handles plain decimals (0.5 -> 500) AND fractions, because shop travelers list
+# stock as "1/2", "3/8", "1-1/2", etc. A raw "1/2" left untouched would put a
+# forward slash into the folder/DWG name, and AutoCAD's SAVEAS reads that slash
+# as a directory separator -> "path does not exist" and the whole script desyncs.
+function Convert-ThicknessToMils($raw) {
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $raw }
+    $t = $raw.Trim()
+    # Pure decimal inches: 0.5, .375  ->  thousandths
+    if ($t -match '^\d*\.\d+$') {
+        return ([double]$t * 1000).ToString("F0")
+    }
+    # Fraction, with an optional whole part: 1/2, 3/8, 1-1/2, 1 1/2
+    if ($t -match '^(?:(\d+)[-\s])?(\d+)\s*/\s*(\d+)$') {
+        $whole = if ($matches[1]) { [double]$matches[1] } else { 0 }
+        $num   = [double]$matches[2]
+        $den   = [double]$matches[3]
+        if ($den -ne 0) {
+            return (($whole + ($num / $den)) * 1000).ToString("F0")
+        }
+    }
+    # Anything else (already-formatted "500", odd data): leave as-is.
+    return $t
+}
+
+# Strip characters that are illegal in Windows filenames or that AutoCAD's
+# SAVEAS would misinterpret as path separators. Belt-and-suspenders so no
+# stray '/' or ':' from spreadsheet data can ever break the save again.
+function Get-SafeName($name) {
+    if ($null -eq $name) { return $name }
+    return ($name -replace '[\\/:*?"<>|]', '-')
+}
+
 # Wait until a file has fully finished being written: it must exist, be a sane
 # size, keep the SAME size across two checks, and be openable with NO other
 # process holding a lock. This replaces the old fixed Start-Sleep guesses and
@@ -162,16 +195,15 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
         $partData = $PartLookup[$workingName]
         if ($partData) {
             $quantity = $partData.Quantity
-            if ($partData.Thickness -match '^\d*\.\d+$') {
-                $thickStr = ([double]$partData.Thickness * 1000).ToString("F0")
-            } else {
-                $thickStr = $partData.Thickness
-            }
+            $thickStr = Convert-ThicknessToMils $partData.Thickness
             $targetFolderName = "${thickStr}-$($partData.Material)"
         } else {
             $quantity = "1"
             $targetFolderName = "Unsorted"
         }
+
+        # Guarantee the folder/DWG name can never carry a path-breaking char.
+        $targetFolderName = Get-SafeName $targetFolderName
 
         # Safe filename string replacements
         if ($workingName -match '#') { $workingName = $workingName -replace '#', '-' }
@@ -182,6 +214,7 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
 
         # Append the correct target folder and quantity
         $workingName = "${workingName}_${targetFolderName}_$quantity"
+        $workingName = Get-SafeName $workingName
 
         $targetFolderPath = Join-Path (Get-Location).Path $targetFolderName
         if (-not (Test-Path $targetFolderPath)) {
