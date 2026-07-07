@@ -107,6 +107,14 @@ Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
     End If
     r.ExtrudeOK = True
 
+    ' --- Add the words as a native sketch on the part (un-extruded) ---------
+    If TextMarking.MarkCount() > 0 Then
+        r.TextOK = TextMarking.ApplyTextMarks(swModel)
+        If Not r.TextOK Then r.Message = "Base part OK but text sketch failed."
+    Else
+        r.TextOK = True
+    End If
+
     ' --- Step 8: rebuild and save the SLDPRT (overwrite) --------------------
     swModel.ForceRebuild3 False
 

@@ -52,6 +52,7 @@ Public Sub LogResult(ByRef r As TFileResult)
     WriteLog "AutoCAD filter    : " & OkText(r.AutoCadOK)
     WriteLog "SolidWorks import : " & OkText(r.ImportOK)
     WriteLog "Extrusion         : " & OkText(r.ExtrudeOK)
+    WriteLog "Text marks        : " & r.TextCount & " word(s) - " & OkText(r.TextOK)
     WriteLog "Save SLDPRT       : " & OkText(r.SaveOK)
     If Len(r.LockedLayers) > 0 Then _
         WriteLog "Locked layers     : " & r.LockedLayers
@@ -194,6 +195,8 @@ Public Sub ClearResult(ByRef r As TFileResult)
     r.AutoCadOK = False
     r.ImportOK = False
     r.ExtrudeOK = False
+    r.TextCount = 0
+    r.TextOK = False
     r.SaveOK = False
     r.OpenContour = False
     r.LockedLayers = vbNullString

@@ -89,6 +89,7 @@ Public Sub RunBatch()
 
     For i = 0 To fileCount - 1
         ClearResult result
+        TextMarking.ClearMarks           ' fresh word list for this file
         ProcessOneFile acadApp, swApp, files(i), result
         LogResult result
 

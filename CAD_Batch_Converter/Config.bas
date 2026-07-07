@@ -35,6 +35,18 @@ Public Const OUTPUT_FOLDER As String = _
 ' Only geometry on this layer survives the AutoCAD filter step.
 Public Const TARGET_LAYER As String = "CUT-OUTSIDE STRAIGHT"
 
+' Layer that holds the words / part marking text (TEXT and MTEXT). The strings
+' are harvested from this layer BEFORE the filter deletes it, then recreated on
+' the part as a native SolidWorks sketch (see TextMarking.bas).
+'   >>> SET THIS to the exact layer name that holds the words. <<<
+' Leave it empty ("") to disable text marking entirely.
+Public Const TEXT_LAYER As String = ""
+
+' DWG drawing units expressed in meters, used to place the harvested text at the
+' same location as the imported outline. 0.0254 = inches, 0.001 = millimeters.
+' If the words land in the wrong spot, this is the one value to change.
+Public Const DWG_UNITS_TO_METERS As Double = 0.0254
+
 ' Extrusion depth, expressed in METERS because the SolidWorks API is always SI.
 ' 0.00635 m = 6.35 mm = 0.25 in.
 Public Const EXTRUDE_DEPTH_METERS As Double = 0.00635
@@ -110,6 +122,18 @@ Public Const SW_IMPORT_ARGS As String = "r"
 ' Feature type name reported by an imported/normal 2D sketch.
 Public Const SW_SKETCH_TYPENAME As String = "ProfileFeature"
 
+' Feature type name reported by a reference plane (Front/Top/Right). The first
+' one in the tree is the Front plane - locale independent, unlike its name.
+Public Const SW_REFPLANE_TYPENAME As String = "RefPlane"
+
+' Sketch-text formatting passed to InsertSketchText.
+' swTextAlign_e.swTextAlignLeft
+Public Const SW_TEXT_ALIGN_LEFT As Long = 0
+' Width / spacing / height as a percentage of the document font (100 = default).
+Public Const SW_TEXT_WIDTH_PCT As Long = 100
+Public Const SW_TEXT_SPACING_PCT As Long = 100
+Public Const SW_TEXT_HEIGHT_PCT As Long = 100
+
 '------------------------------------------------------------------------------
 ' 7. STRUCTURED PER-FILE RESULT
 '    Passed by reference through the pipeline and then serialised to the log,
@@ -120,9 +144,24 @@ Public Type TFileResult
     AutoCadOK As Boolean        ' filter + audit + purge + save succeeded
     ImportOK As Boolean         ' SolidWorks import produced a part + sketch
     ExtrudeOK As Boolean        ' blind extrusion feature was created
+    TextCount As Long           ' number of words harvested from TEXT_LAYER
+    TextOK As Boolean           ' text sketch created on the part
     SaveOK As Boolean           ' SLDPRT written to the staging folder
     OpenContour As Boolean      ' open-contour detection flagged this sketch
     LockedLayers As String      ' comma-separated list of locked layers found
     Message As String           ' first error / diagnostic message, if any
     ElapsedSeconds As Double     ' wall-clock processing time for this file
+End Type
+
+'------------------------------------------------------------------------------
+' 8. HARVESTED TEXT MARK
+'    One word/label captured from the DWG text layer, carried from the AutoCAD
+'    stage to the SolidWorks stage. Coordinates are in raw DWG units.
+'------------------------------------------------------------------------------
+Public Type TTextMark
+    Text As String              ' the string (MTEXT formatting codes stripped)
+    X As Double                 ' insertion point X, DWG units
+    Y As Double                 ' insertion point Y, DWG units
+    Height As Double            ' text height, DWG units
+    Rotation As Double          ' rotation, radians
 End Type
