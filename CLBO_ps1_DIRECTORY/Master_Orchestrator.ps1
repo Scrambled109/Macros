@@ -8,19 +8,80 @@ $LspPath         = "U:\Engineering\CAD Services\Engineering Reference\CLBO_ps1_D
 $SeedPath        = "U:\Engineering\CAD Services\Engineering Reference\CLBO_ps1_DIRECTORY\SPC_Seed.dwg"
 $AcadConsolePath = "C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
 $AcadGuiPath     = "C:\Program Files\Autodesk\AutoCAD 2026\acad.exe"
+
+# How long (seconds) to wait for a headless (accoreconsole) job before giving up on it.
+$ConsoleTimeoutSec = 180
 # ---------------------------
 
 $ArchiveDir = Join-Path (Get-Location).Path "_PROCESSED_DXF_ARCHIVE"
 if (-not (Test-Path $ArchiveDir)) { New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null }
 
+$LogDir = Join-Path (Get-Location).Path "_ORCHESTRATOR_LOGS"
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
+
+# --- HELPERS ------------------------------------------------------------------
+
 function Test-ValidDwg($p) { (Test-Path $p) -and ((Get-Item $p).Length -gt 1024) }
 
-if (-not (Test-Path $SeedPath)) {
-    Write-Host "ERROR: Seed DWG not found at $SeedPath. Build it first. Script aborted." -ForegroundColor Red
-    Exit
+# Wait until a file has fully finished being written: it must exist, be a sane
+# size, keep the SAME size across two checks, and be openable with NO other
+# process holding a lock. This replaces the old fixed Start-Sleep guesses and
+# stops us from moving/archiving while AutoCAD is still flushing the DWG.
+function Wait-FileStable($path, $timeoutSec = 30) {
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastLen = -1
+    while ($sw.Elapsed.TotalSeconds -lt $timeoutSec) {
+        if (Test-Path $path) {
+            $len = (Get-Item $path).Length
+            if ($len -gt 1024 -and $len -eq $lastLen) {
+                try {
+                    $fs = [System.IO.File]::Open($path, 'Open', 'Read', 'None')
+                    $fs.Close()
+                    return $true   # size settled AND no lock held -> safe to touch
+                } catch { }        # still locked; keep waiting
+            }
+            $lastLen = $len
+        }
+        Start-Sleep -Milliseconds 400
+    }
+    return $false
 }
 
+# Decide whether a DXF is "beveled" (needs a human) by looking ONLY at the text
+# stored in TEXT / MTEXT entities. The old version regex-matched the entire raw
+# DXF, so any stray 'K' or 'V' in a style name, block name, or structural field
+# forced an unnecessary manual review. In ASCII DXF every group code sits on its
+# own line followed by its value line, so we walk the pairs, track the current
+# entity type from group 0, and only test the group 1 / 3 strings of text
+# entities against the bevel flags.
+function Test-BeveledDxf($path) {
+    try { $lines = [System.IO.File]::ReadAllLines($path) } catch { return $false }
+    $curType = ''
+    for ($i = 0; $i -lt ($lines.Count - 1); $i += 2) {
+        $code = $lines[$i].Trim()
+        $val  = $lines[$i + 1]
+        if ($code -eq '0') {
+            $curType = $val.Trim().ToUpper()
+        } elseif (($code -eq '1' -or $code -eq '3') -and ($curType -eq 'TEXT' -or $curType -eq 'MTEXT')) {
+            if ($val -match '(?i)\b(BEVEL|K|V)\b') { return $true }
+        }
+    }
+    return $false
+}
+
+# --- PRE-FLIGHT VALIDATION ----------------------------------------------------
+# Fail loudly and early if the pieces AutoCAD needs aren't where we think they
+# are, instead of launching AutoCAD against a missing seed / lisp / exe.
+$fatal = $false
+if (-not (Test-Path $SeedPath))        { Write-Host "ERROR: Seed DWG not found at $SeedPath" -ForegroundColor Red;        $fatal = $true }
+if (-not (Test-Path $LspPath))         { Write-Host "ERROR: ColorToLayer LISP not found at $LspPath" -ForegroundColor Red; $fatal = $true }
+if (-not (Test-Path $AcadConsolePath)) { Write-Host "ERROR: accoreconsole.exe not found at $AcadConsolePath" -ForegroundColor Red; $fatal = $true }
+if (-not (Test-Path $AcadGuiPath))     { Write-Host "ERROR: acad.exe not found at $AcadGuiPath" -ForegroundColor Red;     $fatal = $true }
+if ($fatal) { Write-Host "One or more required paths are missing. Fix the CONFIGURATION PATHS section. Script aborted." -ForegroundColor Red; Exit 1 }
+
 # 1. LOAD AND PARSE SPREADSHEET DATA
+# CSV is OPTIONAL (per the README): without it, parts still convert, they just
+# land in an "Unsorted" folder with a quantity of 1 instead of being renamed.
 $PartLookup = @{}
 if (Test-Path $CsvPath) {
     Import-Csv -Path $CsvPath | ForEach-Object {
@@ -38,8 +99,7 @@ if (Test-Path $CsvPath) {
     }
     Write-Host "Successfully loaded data for $($PartLookup.Count) parts from CSV." -ForegroundColor Green
 } else {
-    Write-Host "ERROR: CSV file not found at $CsvPath. Script aborted." -ForegroundColor Red
-    Exit
+    Write-Host "WARNING: CSV not found at $CsvPath. Parts will be converted but left in 'Unsorted' with qty 1." -ForegroundColor Yellow
 }
 
 $escapedLspPath  = $LspPath.Replace('\', '/')
@@ -72,6 +132,11 @@ $h2dLspContent = @"
 "@
 $h2dLspContent | Out-File -FilePath $h2dLspPath -Encoding ascii -Force
 
+# Running tallies for the end-of-run summary. Script-scoped so the increments
+# inside the ForEach-Object pipeline block below actually persist out here.
+$script:cleanCount = 0
+$script:bevelCount = 0
+$script:failCount  = 0
 
 # 2. SCAN NUMBERED DIRECTORIES
 Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -notmatch '^\d+-[a-zA-Z]' } | ForEach-Object {
@@ -90,9 +155,8 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
 
         Write-Host "  Processing: $originalName..." -ForegroundColor White
 
-        # 3. PRE-SCAN FOR BEVEL INDICATORS
-        $fileContent = [System.IO.File]::ReadAllText($file.FullName)
-        $isBeveled = $fileContent -match '(?i)\b([KV]|BEVEL)\b'
+        # 3. PRE-SCAN FOR BEVEL INDICATORS (text entities only)
+        $isBeveled = Test-BeveledDxf $file.FullName
 
         # 4. DATA LOOKUP & FILENAME CLEANUP
         $partData = $PartLookup[$workingName]
@@ -113,8 +177,8 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
         if ($workingName -match '#') { $workingName = $workingName -replace '#', '-' }
         if ($workingName -match '\s+_') { $workingName = $workingName -replace '\s+(_)', '$1' }
 
-        $workingName = $workingName -replace '_\d+-[A-Za-z0-9-]+_\d+$', '' 
-        $workingName = $workingName -replace '_\d+_\d+$', ''               
+        $workingName = $workingName -replace '_\d+-[A-Za-z0-9-]+_\d+$', ''
+        $workingName = $workingName -replace '_\d+_\d+$', ''
 
         # Append the correct target folder and quantity
         $workingName = "${workingName}_${targetFolderName}_$quantity"
@@ -144,8 +208,11 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
         if ($isBeveled) {
             Write-Host "    [!] BEVEL DETECTED. Loading into AutoCAD for manual check..." -ForegroundColor Magenta
 
-            # custom FINISH command changed to _.CLOSE instead of _.QUIT
-            $finishLisp = "(defun c:FINISH () (setvar `"FILEDIA`" 0) (if (findfile `"$escapedDwgPath`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`" `"Y`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`")) (command `"_.CLOSE`") (princ))"
+            # FINISH saves to the sorted path, then QUITs the AutoCAD application.
+            # QUIT (not CLOSE) matters: it fully exits acad.exe so (a) we don't
+            # pile up an orphaned AutoCAD window for every beveled part, and
+            # (b) the orchestrator gets a real process-exit signal to react to.
+            $finishLisp = "(defun c:FINISH () (setvar `"FILEDIA`" 0) (if (findfile `"$escapedDwgPath`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`" `"Y`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`")) (command `"_.QUIT`") (princ))"
 
             $ScrContent = $InjectLayers + @(
                 $finishLisp,
@@ -155,22 +222,37 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
             )
             $ScrContent | Out-File -FilePath $ScrPath -Encoding ascii -Force
 
-            # Removed -Wait and .WaitForExit() methods so PowerShell can move to the file watcher
-            Start-Process $AcadGuiPath -ArgumentList "`"$($file.FullName)`" /b `"$ScrPath`"" 
+            # -PassThru gives us the process object so we can watch AutoCAD's life,
+            # not just the filesystem.
+            $proc = Start-Process $AcadGuiPath -ArgumentList "`"$($file.FullName)`" /b `"$ScrPath`"" -PassThru
 
-            Write-Host "    --> Waiting for you to type FINISH in AutoCAD..." -ForegroundColor Cyan
-            
-            # THE FILE WATCHER: Loops silently until the DWG physically exists
-            while (-not (Test-ValidDwg $finalDwgPath)) {
+            Write-Host "    --> Review in AutoCAD, then type FINISH (Enter) to save & sort..." -ForegroundColor Cyan
+
+            # THE HANDSHAKE: wait for EITHER the saved DWG to appear (FINISH ran)
+            # OR AutoCAD to exit. If AutoCAD exits without producing the DWG, the
+            # operator closed/quit it without typing FINISH (or it crashed) --
+            # report it and move on instead of looping forever like the old
+            # file-only watcher did.
+            $saved = $false
+            while ($true) {
+                if (Test-ValidDwg $finalDwgPath) { $saved = $true; break }
+                if ($proc.HasExited) {
+                    Start-Sleep -Milliseconds 500  # let a final flush land
+                    $saved = (Test-ValidDwg $finalDwgPath)
+                    break
+                }
                 Start-Sleep -Milliseconds 500
             }
 
-            # Give AutoCAD a half-second to fully release the file lock after closing the tab
-            Start-Sleep -Milliseconds 500
+            if ($saved -and (Wait-FileStable $finalDwgPath)) {
+                Move-Item -Path $file.FullName -Destination (Join-Path $ArchiveDir $file.Name) -Force -ErrorAction SilentlyContinue
+                Write-Host "    [SUCCESS] Saved and sorted to $targetFolderName" -ForegroundColor Green
+                $script:bevelCount++
+            } else {
+                Write-Host "    [X] AutoCAD closed before FINISH ran (or save failed). Original DXF kept for retry." -ForegroundColor Red
+                $script:failCount++
+            }
 
-            Move-Item -Path $file.FullName -Destination (Join-Path $ArchiveDir $file.Name) -Force -ErrorAction SilentlyContinue
-            Write-Host "    [SUCCESS] Saved and sorted to $targetFolderName" -ForegroundColor Green
-            
         } else {
             Write-Host "    [+] Clean Part. Running in background core console..." -ForegroundColor Green
 
@@ -182,13 +264,30 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
             )
             $ScrContent | Out-File -FilePath $ScrPath -Encoding ascii -Force
 
-            Start-Process $AcadConsolePath -ArgumentList "/i `"$($file.FullName)`" /s `"$ScrPath`"" -Wait -NoNewWindow
-            Start-Sleep -Seconds 1
+            # Capture stdout/stderr so a failed headless job is diagnosable
+            # instead of just "DWG missing". Watch the exit code and enforce a
+            # timeout so a wedged accoreconsole can't stall the whole batch.
+            $logPath = Join-Path $LogDir "$($file.BaseName).log"
+            $errPath = Join-Path $LogDir "$($file.BaseName).err.log"
+            $proc = Start-Process $AcadConsolePath `
+                -ArgumentList "/i `"$($file.FullName)`" /s `"$ScrPath`"" `
+                -NoNewWindow -PassThru `
+                -RedirectStandardOutput $logPath -RedirectStandardError $errPath
 
-            if (Test-ValidDwg $finalDwgPath) {
+            if (-not $proc.WaitForExit($ConsoleTimeoutSec * 1000)) {
+                try { $proc.Kill() } catch { }
+                Write-Host "    [X] TIMEOUT after ${ConsoleTimeoutSec}s. Killed accoreconsole. See $logPath. Original DXF kept." -ForegroundColor Red
+                $script:failCount++
+                continue  # move on to the next file
+            }
+
+            if (($proc.ExitCode -eq 0) -and (Wait-FileStable $finalDwgPath)) {
                 Move-Item -Path $file.FullName -Destination (Join-Path $ArchiveDir $file.Name) -Force -ErrorAction SilentlyContinue
+                Write-Host "    [SUCCESS] Converted and sorted to $targetFolderName" -ForegroundColor Green
+                $script:cleanCount++
             } else {
-                Write-Host "    [X] ERROR: DWG missing or too small. Original DXF kept." -ForegroundColor Red
+                Write-Host "    [X] ERROR: exit=$($proc.ExitCode); DWG missing or too small. Original DXF kept. Log: $logPath" -ForegroundColor Red
+                $script:failCount++
             }
         }
     }
@@ -199,5 +298,7 @@ if (Test-Path $h2dLspPath) { Remove-Item $h2dLspPath -Force }
 
 Write-Host "`n====================================================" -ForegroundColor Cyan
 Write-Host "===   ALL PARTS PROCESSED, SORTED, AND SAVED!    ===" -ForegroundColor Cyan
+Write-Host ("===   Clean: {0,-3}  Bevel: {1,-3}  Failed: {2,-3}         ==" -f $cleanCount, $bevelCount, $failCount) -ForegroundColor Cyan
 Write-Host "===   Originals archived in _PROCESSED_DXF_ARCHIVE ==" -ForegroundColor Cyan
+if ($failCount -gt 0) { Write-Host "===   Some parts FAILED - see _ORCHESTRATOR_LOGS   ==" -ForegroundColor Red }
 Write-Host "====================================================" -ForegroundColor Cyan
