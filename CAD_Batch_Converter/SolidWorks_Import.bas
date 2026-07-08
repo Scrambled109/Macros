@@ -33,6 +33,10 @@ Attribute VB_Name = "SolidWorks_Import"
 '   fails before it starts. ExitSketchEditMode (SketchManager.InsertSketch
 '   True) is therefore called right after the import, and again as a retry
 '   inside ExtrudeSketch if the first selection attempt fails.
+' * If the whole-sketch extrude creates no feature, ExtrudeByContours retries
+'   with only the sketch's CLOSED contours selected (UseAutoSelect = False) -
+'   the API equivalent of the "Selected Contours" box in the Boss-Extrude
+'   PropertyManager, which is what succeeds interactively on these imports.
 ' * Open contours are detected geometrically by pairing up sketch-segment end
 '   points: any end point that is not shared by a second segment is a free end,
 '   which means the profile is open. This is logged; small gaps are already
@@ -391,8 +395,18 @@ Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
         SW_START_SKETCH_PLANE, 0#, False)
 
     swModel.ClearSelection2 True
+
+    ' Fallback: extrude by selected CLOSED CONTOURS. This mirrors what works
+    ' interactively - the Boss-Extrude PropertyManager accepting the profile
+    ' as "Selected Contours" (e.g. Model-Contour<1>) even when the sketch as a
+    ' whole is rejected because of stray/duplicate segments from the DWG.
     If swFeat Is Nothing Then
-        reason = "FeatureExtrusion3 created no feature - the profile is not" & _
+        Set swFeat = ExtrudeByContours(swModel, sketchName, depth)
+    End If
+
+    If swFeat Is Nothing Then
+        reason = "FeatureExtrusion3 created no feature (whole sketch AND" & _
+                 " closed-contour selection both tried) - the profile is not" & _
                  " extrudable (open, self-intersecting or empty)."
     End If
     ExtrudeSketch = Not (swFeat Is Nothing)
@@ -404,6 +418,68 @@ errHandler:
     swModel.ClearSelection2 True
     On Error GoTo 0
     ExtrudeSketch = False
+End Function
+
+'------------------------------------------------------------------------------
+' Fallback extrude: select every CLOSED contour in the sketch and extrude those
+' (FeatureExtrusion3 with UseAutoSelect = False, so only the selected contours
+' are used). This is the API equivalent of dropping the profile into the
+' "Selected Contours" box of the Boss-Extrude PropertyManager, which succeeds
+' on imported DWG sketches that the whole-sketch extrude rejects. Open contours
+' (stray construction lines, unclosed fragments) are simply not selected, so
+' they can no longer poison the extrude. Returns the feature or Nothing.
+'------------------------------------------------------------------------------
+Private Function ExtrudeByContours(ByVal swModel As SldWorks.ModelDoc2, _
+                                   ByVal sketchName As String, _
+                                   ByVal depth As Double) As SldWorks.Feature
+    On Error GoTo cleanup
+
+    Dim feat As SldWorks.Feature
+    Set feat = FindFeatureByName(swModel, sketchName)
+    If feat Is Nothing Then Exit Function
+
+    Dim sk As Object                 ' SldWorks.Sketch
+    Set sk = feat.GetSpecificFeature2
+    If sk Is Nothing Then Exit Function
+
+    Dim vContours As Variant
+    vContours = sk.GetSketchContours
+    If IsEmpty(vContours) Then Exit Function
+    If Not IsArray(vContours) Then Exit Function
+
+    ' Select (append) every closed contour; skip open ones.
+    swModel.ClearSelection2 True
+    Dim i As Long
+    Dim selCount As Long
+    Dim ct As Object                 ' SldWorks.SketchContour
+    For i = LBound(vContours) To UBound(vContours)
+        Set ct = vContours(i)
+        If Not ct Is Nothing Then
+            If ct.IsClosed Then
+                If ct.Select2(True, Nothing) Then selCount = selCount + 1
+            End If
+        End If
+        Set ct = Nothing
+    Next i
+    If selCount = 0 Then GoTo cleanup
+
+    Set ExtrudeByContours = swModel.FeatureManager.FeatureExtrusion3( _
+        True, False, False, _
+        SW_END_COND_BLIND, SW_END_COND_BLIND, _
+        depth, 0#, _
+        False, False, _
+        False, False, _
+        0#, 0#, _
+        False, False, _
+        False, False, _
+        True, _
+        True, False, _
+        SW_START_SKETCH_PLANE, 0#, False)
+
+cleanup:
+    On Error Resume Next
+    swModel.ClearSelection2 True
+    On Error GoTo 0
 End Function
 
 '------------------------------------------------------------------------------
