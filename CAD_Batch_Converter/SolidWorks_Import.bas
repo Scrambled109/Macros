@@ -31,12 +31,18 @@ Attribute VB_Name = "SolidWorks_Import"
 ' * CRITICAL: the part-sketch import leaves the imported sketch OPEN IN EDIT
 '   MODE. An active sketch cannot be selected as a feature, so the extrude
 '   fails before it starts. ExitSketchEditMode (SketchManager.InsertSketch
-'   True) is therefore called right after the import, and again as a retry
-'   inside ExtrudeSketch if the first selection attempt fails.
-' * If the whole-sketch extrude creates no feature, ExtrudeByContours retries
-'   with only the sketch's CLOSED contours selected (UseAutoSelect = False) -
-'   the API equivalent of the "Selected Contours" box in the Boss-Extrude
-'   PropertyManager, which is what succeeds interactively on these imports.
+'   True) is therefore called right after the import and again at the top of
+'   ExtrudeSketch. The imported part is also (re)activated (ActivateDoc3)
+'   because selection acts on the ACTIVE document.
+' * The sketch is selected as a feature OBJECT (IFeature::Select2), because
+'   the name-based SelectByID2 lookup proved unreliable on the imported
+'   "Model" sketch, notably with the app hidden. SelectByID2 remains only as
+'   a secondary attempt.
+' * If the whole-sketch extrude creates no feature - or the sketch cannot be
+'   selected at all - ExtrudeByContours retries with only the sketch's CLOSED
+'   contours selected (UseAutoSelect = False): the API equivalent of the
+'   "Selected Contours" box in the Boss-Extrude PropertyManager, which is what
+'   succeeds interactively on these imports.
 ' * Open contours are detected geometrically by pairing up sketch-segment end
 '   points: any end point that is not shared by a second segment is a free end,
 '   which means the profile is open. This is logged; small gaps are already
@@ -118,6 +124,12 @@ Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
         Exit Function
     End If
     r.ImportOK = True
+
+    ' Selection APIs act on the ACTIVE document. Make sure the freshly
+    ' imported part is it (guarded - failing just means it already was).
+    On Error Resume Next
+    swApp.ActivateDoc3 swModel.GetTitle, False, SW_ACTIVATE_NO_REBUILD, errs
+    On Error GoTo errHandler
 
     ' The part-sketch import leaves the new sketch OPEN IN EDIT MODE. A sketch
     ' that is being edited cannot be selected as a feature, so the extrude
@@ -349,22 +361,22 @@ Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
     On Error GoTo errHandler
     reason = vbNullString
 
+    ExitSketchEditMode swModel
     swModel.ClearSelection2 True
+
+    ' Select the sketch FEATURE OBJECT directly (IFeature::Select2). The
+    ' name-based SelectByID2 lookup proved unreliable on the imported "Model"
+    ' sketch ("could not select sketch 'Model'"), notably with the app hidden.
+    ' Object selection has no name/locale/visibility dependency; SelectByID2
+    ' is kept only as a secondary attempt.
+    Dim skFeat As SldWorks.Feature
+    Set skFeat = FindFeatureByName(swModel, sketchName)
+
     Dim selected As Boolean
-    selected = swModel.Extension.SelectByID2(sketchName, "SKETCH", _
-                                             0#, 0#, 0#, False, 0, Nothing, 0)
+    If Not skFeat Is Nothing Then selected = skFeat.Select2(False, 0)
     If Not selected Then
-        ' The usual cause is a sketch still open in edit mode (an active sketch
-        ' is not selectable as a feature) - exit edit mode and try once more.
-        ExitSketchEditMode swModel
-        swModel.ClearSelection2 True
         selected = swModel.Extension.SelectByID2(sketchName, "SKETCH", _
                                                  0#, 0#, 0#, False, 0, Nothing, 0)
-    End If
-    If Not selected Then
-        reason = "could not select sketch '" & sketchName & "' for the extrude."
-        ExtrudeSketch = False
-        Exit Function
     End If
 
     ' FeatureExtrusion3 argument map (single-ended blind boss, merge = True):
@@ -380,21 +392,25 @@ Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
     '   UseFeatScope, UseAutoSelect       -> True, True
     '   T0 (start condition)              -> Sketch plane
     '   StartOffset, FlipStartOffset      -> 0, False
+    ' A sketch that could not be selected is NOT fatal any more - the
+    ' closed-contour fallback below selects contour OBJECTS, not the sketch by
+    ' name, so it is attempted either way.
     Dim swFeat As SldWorks.Feature
-    Set swFeat = swModel.FeatureManager.FeatureExtrusion3( _
-        True, False, False, _
-        SW_END_COND_BLIND, SW_END_COND_BLIND, _
-        depth, 0#, _
-        False, False, _
-        False, False, _
-        0#, 0#, _
-        False, False, _
-        False, False, _
-        True, _
-        True, True, _
-        SW_START_SKETCH_PLANE, 0#, False)
-
-    swModel.ClearSelection2 True
+    If selected Then
+        Set swFeat = swModel.FeatureManager.FeatureExtrusion3( _
+            True, False, False, _
+            SW_END_COND_BLIND, SW_END_COND_BLIND, _
+            depth, 0#, _
+            False, False, _
+            False, False, _
+            0#, 0#, _
+            False, False, _
+            False, False, _
+            True, _
+            True, True, _
+            SW_START_SKETCH_PLANE, 0#, False)
+        swModel.ClearSelection2 True
+    End If
 
     ' Fallback: extrude by selected CLOSED CONTOURS. This mirrors what works
     ' interactively - the Boss-Extrude PropertyManager accepting the profile
@@ -405,9 +421,14 @@ Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
     End If
 
     If swFeat Is Nothing Then
-        reason = "FeatureExtrusion3 created no feature (whole sketch AND" & _
-                 " closed-contour selection both tried) - the profile is not" & _
-                 " extrudable (open, self-intersecting or empty)."
+        If selected Then
+            reason = "FeatureExtrusion3 created no feature (whole sketch AND" & _
+                     " closed-contour selection both tried) - the profile is" & _
+                     " not extrudable (open, self-intersecting or empty)."
+        Else
+            reason = "could not select sketch '" & sketchName & "', and the" & _
+                     " closed-contour fallback also created no feature."
+        End If
     End If
     ExtrudeSketch = Not (swFeat Is Nothing)
     Exit Function

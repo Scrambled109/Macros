@@ -138,14 +138,23 @@ batch continues.
 
 ## Why the extrude used to fail right after import
 
-The DWG part-sketch import leaves the imported sketch **open in edit mode**,
-and an active sketch cannot be selected as a feature — so the extrude failed
-before it started. The converter now exits sketch edit mode immediately after
-the import (`SketchManager.InsertSketch True`, the API equivalent of clicking
-*Exit Sketch*) and retries once inside the extrude helper if selection still
-fails. If an extrude fails now, the log states the exact reason: the sketch
-could not be selected, `FeatureExtrusion3` created no feature (profile open /
-self-intersecting / empty), or a runtime error with its description.
+Two stacked causes, both fixed:
+
+1. The DWG part-sketch import leaves the imported sketch **open in edit mode**,
+   and an active sketch cannot be selected as a feature. The converter now
+   exits sketch edit mode right after the import (`SketchManager.InsertSketch
+   True`, the API equivalent of clicking *Exit Sketch*) and re-activates the
+   imported part (`ActivateDoc3`), since selection acts on the active document.
+2. Selecting the imported sketch **by name** (`SelectByID2("Model", "SKETCH",
+   …)`) proved unreliable — the log showed `could not select sketch 'Model'` —
+   notably with SolidWorks hidden (`APP_VISIBLE = False`). The sketch is now
+   selected as a **feature object** (`IFeature::Select2`), which has no
+   name/visibility dependency; `SelectByID2` remains only as a backup.
+
+If an extrude fails now, the log states the exact reason: the sketch could not
+be selected (and the contour fallback also failed), `FeatureExtrusion3` created
+no feature (profile open / self-intersecting / empty), or a runtime error with
+its description.
 
 If the whole-sketch extrude is rejected, the converter automatically retries by
 selecting only the sketch's **closed contours** and extruding those — the API
