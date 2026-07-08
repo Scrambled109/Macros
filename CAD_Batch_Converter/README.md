@@ -75,10 +75,11 @@ Instead (`TextMarking.bas`):
 1. **AutoCAD** reads every `TEXT`/`MTEXT` on `TEXT_LAYER` *before* the strip and
    captures each word's string, position, height and rotation as plain data
    (MTEXT formatting codes are cleaned off).
-2. **SolidWorks** recreates each word as **native sketch text** on the part's
-   **Front plane** (coincident with the imported outline, so the words line up
-   in plan), and **leaves the sketch un-extruded** — the words are just there
-   for modeling, per your spec (depth 0, not cut, not embossed).
+2. **SolidWorks** recreates each word as **native sketch text** on the **top
+   face of the extruded part** (auto-detected — the planar face whose normal is
+   +Z, at the greatest Z; it falls back to the Front plane if the top face
+   can't be found), and **leaves the sketch un-extruded** — the words are just
+   there for modeling, per your spec (depth 0, not cut, not embossed).
 
 Each file's log line shows how many words were placed:
 

@@ -126,6 +126,12 @@ Public Const SW_SKETCH_TYPENAME As String = "ProfileFeature"
 ' one in the tree is the Front plane - locale independent, unlike its name.
 Public Const SW_REFPLANE_TYPENAME As String = "RefPlane"
 
+' swBodyType_e.swSolidBody - used when fetching the extruded solid's faces.
+Public Const SW_SOLID_BODY As Long = 0
+
+' A face counts as "the top" when its normal is within this of +Z (0,0,1).
+Public Const FACE_NORMAL_TOL As Double = 0.001
+
 ' Sketch-text formatting passed to InsertSketchText.
 ' swTextAlign_e.swTextAlignLeft
 Public Const SW_TEXT_ALIGN_LEFT As Long = 0
