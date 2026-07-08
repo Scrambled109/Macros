@@ -132,6 +132,9 @@ Public Const SW_DOC_PART As Long = 1
 Public Const SW_DOC_DRAWING As Long = 3
 ' swOpenDocOptions_e.swOpenDocOptions_Silent
 Public Const SW_OPEN_SILENT As Long = 1
+' swRebuildOnActivation_e.swDontRebuildActiveDoc - used when (re)activating the
+' imported part before selection, since selection acts on the active document.
+Public Const SW_ACTIVATE_NO_REBUILD As Long = 1
 ' Feature type name reported by an imported/normal 2D sketch.
 Public Const SW_SKETCH_TYPENAME As String = "ProfileFeature"
 
