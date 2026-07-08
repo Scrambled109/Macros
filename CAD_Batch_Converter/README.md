@@ -136,6 +136,26 @@ batch continues.
 
 ---
 
+## Why the extrude used to fail right after import
+
+The DWG part-sketch import leaves the imported sketch **open in edit mode**,
+and an active sketch cannot be selected as a feature — so the extrude failed
+before it started. The converter now exits sketch edit mode immediately after
+the import (`SketchManager.InsertSketch True`, the API equivalent of clicking
+*Exit Sketch*) and retries once inside the extrude helper if selection still
+fails. If an extrude fails now, the log states the exact reason: the sketch
+could not be selected, `FeatureExtrusion3` created no feature (profile open /
+self-intersecting / empty), or a runtime error with its description.
+
+If the whole-sketch extrude is rejected, the converter automatically retries by
+selecting only the sketch's **closed contours** and extruding those — the API
+equivalent of dropping the profile into the **Selected Contours** box of the
+Boss-Extrude PropertyManager (e.g. `Model-Contour<1>`), which is exactly what
+works when the extrude is done by hand on these imports. Open fragments and
+stray segments are simply left unselected, so they can't block the extrude.
+
+---
+
 ## How open contours are handled
 
 Small gaps are merged on import (`IMPORT_MERGE_METERS`). Open contours are then

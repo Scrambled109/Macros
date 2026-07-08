@@ -28,6 +28,15 @@ Attribute VB_Name = "SolidWorks_Import"
 ' * Optional import flags (merge coincident points, no dimensions) are set
 '   defensively and individually guarded so a member that differs between
 '   service packs cannot abort the batch.
+' * CRITICAL: the part-sketch import leaves the imported sketch OPEN IN EDIT
+'   MODE. An active sketch cannot be selected as a feature, so the extrude
+'   fails before it starts. ExitSketchEditMode (SketchManager.InsertSketch
+'   True) is therefore called right after the import, and again as a retry
+'   inside ExtrudeSketch if the first selection attempt fails.
+' * If the whole-sketch extrude creates no feature, ExtrudeByContours retries
+'   with only the sketch's CLOSED contours selected (UseAutoSelect = False) -
+'   the API equivalent of the "Selected Contours" box in the Boss-Extrude
+'   PropertyManager, which is what succeeds interactively on these imports.
 ' * Open contours are detected geometrically by pairing up sketch-segment end
 '   points: any end point that is not shared by a second segment is a free end,
 '   which means the profile is open. This is logged; small gaps are already
@@ -110,6 +119,12 @@ Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
     End If
     r.ImportOK = True
 
+    ' The part-sketch import leaves the new sketch OPEN IN EDIT MODE. A sketch
+    ' that is being edited cannot be selected as a feature, so the extrude
+    ' would fail before it even starts - close edit mode first (this keeps the
+    ' geometry; it is the API equivalent of clicking "Exit Sketch").
+    ExitSketchEditMode swModel
+
     ' --- Step 5: locate the imported sketch ---------------------------------
     Dim sketchName As String
     sketchName = FindImportedSketch(swModel)
@@ -125,9 +140,10 @@ Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
     RepairSketch swModel, sketchName
 
     ' --- Step 7: blind extrude, merge result, normal direction --------------
-    If Not ExtrudeSketch(swModel, sketchName, EXTRUDE_DEPTH_METERS) Then
-        r.Message = "Extrusion failed" & _
-                    IIf(r.OpenContour, " - open contour detected.", ".")
+    Dim extrudeReason As String
+    If Not ExtrudeSketch(swModel, sketchName, EXTRUDE_DEPTH_METERS, extrudeReason) Then
+        r.Message = "Extrusion failed: " & extrudeReason & _
+                    IIf(r.OpenContour, " Open contour detected.", "")
         CloseModel swApp, swModel
         ImportAndExtrude = False
         Exit Function
@@ -324,17 +340,29 @@ End Sub
 ' Select the sketch and create a single-ended, blind, merged, normal extrusion
 ' of the requested depth. Returns True only if a feature was created (a Nothing
 ' return means the profile could not be extruded, e.g. an open contour).
+' On failure, `reason` says exactly which step failed so the log is diagnostic.
 '------------------------------------------------------------------------------
 Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
                               ByVal sketchName As String, _
-                              ByVal depth As Double) As Boolean
+                              ByVal depth As Double, _
+                              ByRef reason As String) As Boolean
     On Error GoTo errHandler
+    reason = vbNullString
 
     swModel.ClearSelection2 True
     Dim selected As Boolean
     selected = swModel.Extension.SelectByID2(sketchName, "SKETCH", _
                                              0#, 0#, 0#, False, 0, Nothing, 0)
     If Not selected Then
+        ' The usual cause is a sketch still open in edit mode (an active sketch
+        ' is not selectable as a feature) - exit edit mode and try once more.
+        ExitSketchEditMode swModel
+        swModel.ClearSelection2 True
+        selected = swModel.Extension.SelectByID2(sketchName, "SKETCH", _
+                                                 0#, 0#, 0#, False, 0, Nothing, 0)
+    End If
+    If Not selected Then
+        reason = "could not select sketch '" & sketchName & "' for the extrude."
         ExtrudeSketch = False
         Exit Function
     End If
@@ -367,15 +395,106 @@ Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
         SW_START_SKETCH_PLANE, 0#, False)
 
     swModel.ClearSelection2 True
+
+    ' Fallback: extrude by selected CLOSED CONTOURS. This mirrors what works
+    ' interactively - the Boss-Extrude PropertyManager accepting the profile
+    ' as "Selected Contours" (e.g. Model-Contour<1>) even when the sketch as a
+    ' whole is rejected because of stray/duplicate segments from the DWG.
+    If swFeat Is Nothing Then
+        Set swFeat = ExtrudeByContours(swModel, sketchName, depth)
+    End If
+
+    If swFeat Is Nothing Then
+        reason = "FeatureExtrusion3 created no feature (whole sketch AND" & _
+                 " closed-contour selection both tried) - the profile is not" & _
+                 " extrudable (open, self-intersecting or empty)."
+    End If
     ExtrudeSketch = Not (swFeat Is Nothing)
     Exit Function
 
 errHandler:
+    reason = "runtime error - " & Err.Description
     On Error Resume Next
     swModel.ClearSelection2 True
     On Error GoTo 0
     ExtrudeSketch = False
 End Function
+
+'------------------------------------------------------------------------------
+' Fallback extrude: select every CLOSED contour in the sketch and extrude those
+' (FeatureExtrusion3 with UseAutoSelect = False, so only the selected contours
+' are used). This is the API equivalent of dropping the profile into the
+' "Selected Contours" box of the Boss-Extrude PropertyManager, which succeeds
+' on imported DWG sketches that the whole-sketch extrude rejects. Open contours
+' (stray construction lines, unclosed fragments) are simply not selected, so
+' they can no longer poison the extrude. Returns the feature or Nothing.
+'------------------------------------------------------------------------------
+Private Function ExtrudeByContours(ByVal swModel As SldWorks.ModelDoc2, _
+                                   ByVal sketchName As String, _
+                                   ByVal depth As Double) As SldWorks.Feature
+    On Error GoTo cleanup
+
+    Dim feat As SldWorks.Feature
+    Set feat = FindFeatureByName(swModel, sketchName)
+    If feat Is Nothing Then Exit Function
+
+    Dim sk As Object                 ' SldWorks.Sketch
+    Set sk = feat.GetSpecificFeature2
+    If sk Is Nothing Then Exit Function
+
+    Dim vContours As Variant
+    vContours = sk.GetSketchContours
+    If IsEmpty(vContours) Then Exit Function
+    If Not IsArray(vContours) Then Exit Function
+
+    ' Select (append) every closed contour; skip open ones.
+    swModel.ClearSelection2 True
+    Dim i As Long
+    Dim selCount As Long
+    Dim ct As Object                 ' SldWorks.SketchContour
+    For i = LBound(vContours) To UBound(vContours)
+        Set ct = vContours(i)
+        If Not ct Is Nothing Then
+            If ct.IsClosed Then
+                If ct.Select2(True, Nothing) Then selCount = selCount + 1
+            End If
+        End If
+        Set ct = Nothing
+    Next i
+    If selCount = 0 Then GoTo cleanup
+
+    Set ExtrudeByContours = swModel.FeatureManager.FeatureExtrusion3( _
+        True, False, False, _
+        SW_END_COND_BLIND, SW_END_COND_BLIND, _
+        depth, 0#, _
+        False, False, _
+        False, False, _
+        0#, 0#, _
+        False, False, _
+        False, False, _
+        True, _
+        True, False, _
+        SW_START_SKETCH_PLANE, 0#, False)
+
+cleanup:
+    On Error Resume Next
+    swModel.ClearSelection2 True
+    On Error GoTo 0
+End Function
+
+'------------------------------------------------------------------------------
+' Leave sketch edit mode if a sketch is active, keeping its geometry (the API
+' equivalent of "Exit Sketch"). The DWG part-sketch import leaves the imported
+' sketch open for editing, which blocks feature selection and the extrude.
+' Guarded: safe to call when no sketch is active.
+'------------------------------------------------------------------------------
+Private Sub ExitSketchEditMode(ByVal swModel As SldWorks.ModelDoc2)
+    On Error Resume Next
+    If Not swModel.SketchManager.ActiveSketch Is Nothing Then
+        swModel.SketchManager.InsertSketch True
+    End If
+    On Error GoTo 0
+End Sub
 
 '------------------------------------------------------------------------------
 ' Return the feature whose name matches, or Nothing.
