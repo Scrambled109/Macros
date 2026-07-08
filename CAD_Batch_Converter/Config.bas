@@ -118,12 +118,18 @@ Public Const SW_START_SKETCH_PLANE As Long = 0
 Public Const SW_SAVEAS_CURRENT As Long = 0
 ' swSaveAsOptions_e.swSaveAsOptions_Silent
 Public Const SW_SAVE_SILENT As Long = 1
-' Import DWG/DXF to a new part as a 2D sketch (default import method).
-Public Const SW_IMPORT_TO_NEW_PART As Long = 0
+' NOTE: the DWG import method is NOT a numeric constant here on purpose.
+' SolidWorks_Import uses the real swconst enum swImportDxfDwg_ImportToPartSketch
+' (SOLIDWORKS Constant Type Library, swconst.tlb - see README "Setup"), because
+' a wrong numeric guess silently falls back to the DWG default, which is
+' "create new DRAWING" - exactly the failure this project must never have.
 ' Argument string passed to LoadFile4 for a DWG/DXF import.
 Public Const SW_IMPORT_ARGS As String = "r"
-' swDocumentTypes_e.swDocPART - used when re-opening an SLDPRT in the text pass.
+' swDocumentTypes_e.swDocPART - used when re-opening an SLDPRT in the text pass
+' and to verify the DWG import actually produced a part.
 Public Const SW_DOC_PART As Long = 1
+' swDocumentTypes_e.swDocDRAWING - what the import must NOT produce.
+Public Const SW_DOC_DRAWING As Long = 3
 ' swOpenDocOptions_e.swOpenDocOptions_Silent
 Public Const SW_OPEN_SILENT As Long = 1
 ' Feature type name reported by an imported/normal 2D sketch.

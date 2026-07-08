@@ -35,9 +35,14 @@ stage has structured error handling, and every file is logged.
 1. Open the VBA IDE in your host application (AutoCAD: `VBAIDE`; or SolidWorks:
    **Tools ▸ Macro ▸ Edit**). The project runs from **either** host.
 2. **Import all seven `.bas` files** (File ▸ Import File…).
-3. Add **both** references (Tools ▸ References…):
+3. Add **all three** references (Tools ▸ References…):
    - **AutoCAD 2026 Type Library**
-   - **SOLIDWORKS 2025 Type Library** (`SldWorks.tlb`)
+   - **SOLIDWORKS 2025 Type Library** (`sldworks.tlb`)
+   - **SOLIDWORKS 2025 Constant Type Library** (`swconst.tlb`) — **required**:
+     the import method is set with the real `swImportDxfDwg_ImportToPartSketch`
+     enum so a wrong numeric guess can never silently import the DWG as a
+     drawing. If this reference is missing the project will not compile
+     (`Variable not defined` on that name), which is intentional.
 4. Run the two stages **in order**:
    1. **`Main.RunBatch`** — converts every DWG to an extruded `SLDPRT`.
    2. **`TextStamp.RunTextStamp`** — stamps the words onto the finished parts.
@@ -153,13 +158,20 @@ use — both are isolated and clearly commented:
   ProgIDs (`AutoCAD.Application`, `SldWorks.Application`) are tried next, so the
   batch still runs; adjust the versioned strings only if you want to pin a
   specific install.
-- **Import options** (`SolidWorks_Import.ConfigureImportData`): each property
-  (`ImportMethod`, `MergePoint`, `MergePointDistance`, `ImportDimensions`,
-  `ImportSketchAsConstruction`, `EntitiesToImport`) is set under
-  `On Error Resume Next`. Any property your SP names differently is simply
-  skipped — SolidWorks then applies its default (new-part 2D sketch), which is
-  exactly the behaviour we want. Use the Object Browser (`F2`) on
-  `ImportDwgDxfData` to confirm names if you want every option enforced.
+- **Import method** (`SolidWorks_Import.SetPartImportMethod`): the DWG
+  **default** import method is *create new drawing*, so this setting is the
+  one thing that is **never** guarded or defaulted. `ImportMethod` is an
+  **indexed** property — `ImportMethod(sheetName)` — and is set to
+  `swImportDxfDwg_ImportToPartSketch` (from `swconst.tlb`) with sheet index
+  `""` first and the file path as fallback. If neither form is accepted the
+  file **fails loudly** in the log instead of quietly becoming a drawing, and
+  after `LoadFile4` the document type is verified to be a part (`swDocPART`).
+- **Optional import options** (`SolidWorks_Import.ConfigureImportOptions`):
+  `SetMergePoints` (merge coincident end points within `IMPORT_MERGE_METERS`)
+  and `ImportDimensions = False` are set under `On Error Resume Next` — these
+  are nice-to-haves, and a member your SP names differently is simply skipped.
+  Use the Object Browser (`F2`) on `ImportDxfDwgData` to confirm names if you
+  want every option enforced.
 
 The `FeatureExtrusion3` and `IModelDocExtension.SaveAs` signatures used are the
 long-stable ones and require no adjustment.
