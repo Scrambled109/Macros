@@ -536,9 +536,10 @@ End Function
 '------------------------------------------------------------------------------
 ' Close the document without prompting. Uses the current title (which reflects
 ' the saved file name after SaveAs). Errors are ignored so cleanup is safe.
+' Public: the native-sketch workaround (NativeSketch.bas) reuses it.
 '------------------------------------------------------------------------------
-Private Sub CloseModel(ByVal swApp As SldWorks.SldWorks, _
-                       ByRef swModel As SldWorks.ModelDoc2)
+Public Sub CloseModel(ByVal swApp As SldWorks.SldWorks, _
+                      ByRef swModel As SldWorks.ModelDoc2)
     On Error Resume Next
     Dim title As String
     title = swModel.GetTitle

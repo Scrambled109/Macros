@@ -72,6 +72,11 @@ Public Const IMPORT_MERGE_METERS As Double = 0.000254
 ' Points closer than this are treated as the same vertex. 0.00001 m = 0.01 mm.
 Public Const POINT_TOLERANCE_METERS As Double = 0.00001
 
+' Lengths below this (in raw DWG units) are treated as zero by the
+' native-sketch workaround: zero-length segments are skipped and a polyline
+' bulge smaller than this is drawn as a straight line.
+Public Const GEOM_EPS_DWG As Double = 0.0000001
+
 '------------------------------------------------------------------------------
 ' 4. COM PROGIDS
 '    Versioned ProgIDs are tried first; the generic ProgID is the fallback so
@@ -135,6 +140,9 @@ Public Const SW_OPEN_SILENT As Long = 1
 ' swRebuildOnActivation_e.swDontRebuildActiveDoc - used when (re)activating the
 ' imported part before selection, since selection acts on the active document.
 Public Const SW_ACTIVATE_NO_REBUILD As Long = 1
+' swUserPreferenceStringValue_e.swDefaultTemplatePart - the user's default part
+' template, used by the native-sketch workaround to create a fresh empty part.
+Public Const SW_PREF_DEFAULT_PART_TEMPLATE As Long = 8
 ' Feature type name reported by an imported/normal 2D sketch.
 Public Const SW_SKETCH_TYPENAME As String = "ProfileFeature"
 
@@ -176,7 +184,30 @@ Public Type TFileResult
 End Type
 
 '------------------------------------------------------------------------------
-' 8. HARVESTED TEXT MARK
+' 8. OUTLINE SEGMENT (native-sketch workaround)
+'    One line / arc / circle harvested from the filtered DWG via AutoCAD COM,
+'    carried to SolidWorks and redrawn as native sketch geometry. Coordinates
+'    are in raw DWG units; the SolidWorks side scales by DWG_UNITS_TO_METERS.
+'------------------------------------------------------------------------------
+' TSegment.Kind values:
+Public Const SEG_LINE As Long = 0
+Public Const SEG_ARC As Long = 1
+Public Const SEG_CIRCLE As Long = 2
+
+Public Type TSegment
+    Kind As Long                ' SEG_LINE / SEG_ARC / SEG_CIRCLE
+    X1 As Double                ' start point (line/arc)
+    Y1 As Double
+    X2 As Double                ' end point (line/arc)
+    Y2 As Double
+    CX As Double                ' centre (arc/circle)
+    CY As Double
+    Radius As Double            ' circle only
+    Direction As Long           ' arc only: +1 = counter-clockwise, -1 = CW
+End Type
+
+'------------------------------------------------------------------------------
+' 9. HARVESTED TEXT MARK
 '    One word/label captured from the DWG text layer, carried from the AutoCAD
 '    stage to the SolidWorks stage. Coordinates are in raw DWG units.
 '------------------------------------------------------------------------------

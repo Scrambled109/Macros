@@ -24,6 +24,7 @@ stage has structured error handling, and every file is logged.
 | `Utilities.bas`         | Logging, folder creation, timing, result serialisation, small helpers. Host-independent. |
 | `AutoCAD_Filter.bas`    | Connect to AutoCAD; open → strip non-target layers → AUDIT → PURGE → SaveAs → close. |
 | `SolidWorks_Import.bas` | Connect to SolidWorks; import DWG → find sketch → detect open contour → extrude → save → close. |
+| `NativeSketch.bas`      | The DWG-import **workaround**: harvest the outline coordinates from AutoCAD and redraw them as a **native** SolidWorks sketch, then extrude. Runs automatically whenever the import path fails. |
 | `TextMarking.bas`       | Harvest the words from the text layer (AutoCAD) and recreate them as native sketch text on the part's top face (SolidWorks). |
 | `TextStamp.bas`         | `RunTextStamp()` entry point — the separate, re-runnable pass that stamps the words onto finished parts. |
 | `Main.bas`              | `RunBatch()` entry point, orchestration, progress, summary, cleanup. |
@@ -34,7 +35,7 @@ stage has structured error handling, and every file is logged.
 
 1. Open the VBA IDE in your host application (AutoCAD: `VBAIDE`; or SolidWorks:
    **Tools ▸ Macro ▸ Edit**). The project runs from **either** host.
-2. **Import all seven `.bas` files** (File ▸ Import File…).
+2. **Import all eight `.bas` files** (File ▸ Import File…).
 3. Add **all three** references (Tools ▸ References…):
    - **AutoCAD 2026 Type Library**
    - **SOLIDWORKS 2025 Type Library** (`sldworks.tlb`)
@@ -162,6 +163,32 @@ equivalent of dropping the profile into the **Selected Contours** box of the
 Boss-Extrude PropertyManager (e.g. `Model-Contour<1>`), which is exactly what
 works when the extrude is done by hand on these imports. Open fragments and
 stray segments are simply left unselected, so they can't block the extrude.
+
+---
+
+## The native-sketch workaround (no DWG import at all)
+
+The unattended DWG import (`LoadFile4`) has proven flaky: it drops the part
+into the interactive **2D-to-3D** / sketch-edit state, and has produced an
+unselectable or even **blank** `Model` sketch — while the same profiles import
+and extrude fine by hand. So the converter now carries a second, import-free
+route (`NativeSketch.bas`), used automatically whenever the import path fails
+to deliver a saved part:
+
+1. **AutoCAD** reopens the filtered DWG read-only and reads the outline out as
+   plain coordinates: lines, polylines (bulges converted to true arcs), arcs
+   and circles.
+2. **SolidWorks** creates a fresh part from the default part template and
+   **redraws** that geometry as a native sketch on the front plane (scaled by
+   `DWG_UNITS_TO_METERS`), then extrudes and saves as usual. Native sketches
+   have none of the import quirks — they extrude exactly like one drawn by
+   hand.
+
+When this route rescues a file, its log block ends with
+`Recovered via native-sketch workaround (outline redrawn from AutoCAD
+geometry).` Splines/ellipses are not redrawn; if a drawing contains them on
+the cut layer, they are reported by name in the log and the file fails loudly
+rather than producing a wrong outline.
 
 ---
 
