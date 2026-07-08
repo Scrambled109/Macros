@@ -196,7 +196,8 @@ End Function
 ' silently (the old code swallowed a wrong-argument-count error and reported
 ' OK while placing nothing). Returns True when at least one word was placed
 ' (and True when there was nothing to place).
-Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
+Public Function ApplyTextMarks(ByVal swApp As SldWorks.SldWorks, _
+                               ByVal swModel As SldWorks.ModelDoc2, _
                                ByRef placedCount As Long) As Boolean
     placedCount = 0
     If mCount = 0 Then
@@ -204,20 +205,49 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
         Exit Function
     End If
 
+    placedCount = PlaceAllWords(swModel)
+
+    ' Wholesale failure with the app hidden: InsertSketchText is a legacy,
+    ' UI-adjacent call that can refuse to work without a visible, active
+    ' document (same family of quirk as the selection APIs). Make the app
+    ' visible, re-activate the part, try once more, then restore visibility.
+    If placedCount = 0 And Not swApp Is Nothing Then
+        Dim wasVisible As Boolean
+        Dim errs As Long
+        On Error Resume Next
+        wasVisible = swApp.Visible
+        swApp.Visible = True
+        swApp.ActivateDoc3 swModel.GetTitle, False, SW_ACTIVATE_NO_REBUILD, errs
+        On Error GoTo 0
+
+        placedCount = PlaceAllWords(swModel)
+
+        On Error Resume Next
+        swApp.Visible = wasVisible
+        On Error GoTo 0
+    End If
+
+    ApplyTextMarks = (placedCount > 0)
+End Function
+
+'------------------------------------------------------------------------------
+' One complete placement attempt: select the top face (Front-plane fallback),
+' open a sketch ON it, insert every harvested word, close the sketch. Returns
+' the number of words that actually landed. Verifies the sketch really opened
+' (SketchManager.ActiveSketch) instead of assuming.
+'------------------------------------------------------------------------------
+Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2) As Long
+    Dim placed As Long
     On Error GoTo errHandler
 
     ' Select the top face of the extrusion; fall back to the Front plane.
-    Dim onTopFace As Boolean
-    onTopFace = SelectTopFace(swModel)
-    If Not onTopFace Then
-        If Not SelectFrontPlane(swModel) Then
-            ApplyTextMarks = False
-            Exit Function
-        End If
+    If Not SelectTopFace(swModel) Then
+        If Not SelectFrontPlane(swModel) Then Exit Function
     End If
 
-    ' Open a new sketch on the selected face / plane.
+    ' Open a new sketch on the selected face / plane - and verify it opened.
     swModel.SketchManager.InsertSketch True
+    If swModel.SketchManager.ActiveSketch Is Nothing Then Exit Function
 
     ' Place each word. Coordinates are scaled from DWG units to meters so they
     ' land on top of the imported outline; the DWG text height is honoured the
@@ -230,7 +260,7 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
                              mMarks(i).Y * DWG_UNITS_TO_METERS, _
                              mMarks(i).Text, _
                              mMarks(i).Height * DWG_UNITS_TO_METERS) Then
-                placedCount = placedCount + 1
+                placed = placed + 1
             End If
         End If
     Next i
@@ -239,7 +269,7 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
 
-    ApplyTextMarks = (placedCount > 0)
+    PlaceAllWords = placed
     Exit Function
 
 errHandler:
@@ -247,7 +277,7 @@ errHandler:
     swModel.SketchManager.InsertSketch True   ' make sure sketch mode is closed
     swModel.ClearSelection2 True
     On Error GoTo 0
-    ApplyTextMarks = (placedCount > 0)
+    PlaceAllWords = placed
 End Function
 
 '------------------------------------------------------------------------------

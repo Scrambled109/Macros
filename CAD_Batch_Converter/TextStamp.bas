@@ -209,9 +209,15 @@ Private Function StampPart(ByVal swApp As SldWorks.SldWorks, _
         Exit Function
     End If
 
+    ' Selection and sketch-text APIs act on the ACTIVE document - make sure
+    ' the freshly opened part is it (guarded; failing means it already was).
+    On Error Resume Next
+    swApp.ActivateDoc3 swModel.GetTitle, False, SW_ACTIVATE_NO_REBUILD, errs
+    On Error GoTo errHandler
+
     Dim placed As Long
     Dim applied As Boolean
-    applied = TextMarking.ApplyTextMarks(swModel, placed)
+    applied = TextMarking.ApplyTextMarks(swApp, swModel, placed)
     If Not applied Then
         r.Message = "No words could be placed (" & r.TextCount & _
                     " harvested) - text sketch/InsertSketchText failed."
