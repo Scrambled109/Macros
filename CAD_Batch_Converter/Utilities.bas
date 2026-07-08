@@ -52,12 +52,23 @@ Public Sub LogResult(ByRef r As TFileResult)
     WriteLog "AutoCAD filter    : " & OkText(r.AutoCadOK)
     WriteLog "SolidWorks import : " & OkText(r.ImportOK)
     WriteLog "Extrusion         : " & OkText(r.ExtrudeOK)
-    WriteLog "Text marks        : " & r.TextCount & " word(s) - " & OkText(r.TextOK)
     WriteLog "Save SLDPRT       : " & OkText(r.SaveOK)
     If Len(r.LockedLayers) > 0 Then _
         WriteLog "Locked layers     : " & r.LockedLayers
     If r.OpenContour Then _
         WriteLog "Open contour      : YES (small gaps merged on import)"
+    If Len(r.Message) > 0 Then _
+        WriteLog "Message           : " & r.Message
+    WriteLog "Processing time   : " & Format$(r.ElapsedSeconds, "0.00") & " s"
+End Sub
+
+' Serialise a text-stamp-pass result (a focused subset of TFileResult).
+Public Sub LogStampResult(ByRef r As TFileResult)
+    WriteLog String(67, "-")
+    WriteLog "Timestamp         : " & TimeStamp()
+    WriteLog "File              : " & r.FileName
+    WriteLog "Words found       : " & r.TextCount
+    WriteLog "Text stamped      : " & OkText(r.TextOK)
     If Len(r.Message) > 0 Then _
         WriteLog "Message           : " & r.Message
     WriteLog "Processing time   : " & Format$(r.ElapsedSeconds, "0.00") & " s"
@@ -130,6 +141,36 @@ Public Function EnsureFolder(ByVal folderPath As String) As Boolean
 
 failed:
     EnsureFolder = False
+End Function
+
+' Enumerate every file matching fileSpec in a folder into a 0-based array. Full
+' paths are stored so the caller does not depend on the Dir() cursor once the
+' loop begins. Returns the number of files found.
+Public Function CollectFiles(ByVal folderPath As String, _
+                             ByVal fileSpec As String, _
+                             ByRef arr() As String) As Long
+    Const GROW As Long = 256
+    Dim count As Long
+    ReDim arr(0 To GROW - 1)
+
+    Dim name As String
+    name = Dir$(folderPath & fileSpec, vbNormal)
+    Do While Len(name) > 0
+        If count > UBound(arr) Then
+            ReDim Preserve arr(0 To UBound(arr) + GROW)
+        End If
+        arr(count) = folderPath & name
+        count = count + 1
+        name = Dir$
+    Loop
+
+    If count > 0 Then
+        ReDim Preserve arr(0 To count - 1)
+    Else
+        Erase arr
+    End If
+
+    CollectFiles = count
 End Function
 
 ' Strip the directory and extension, returning just the base file name.

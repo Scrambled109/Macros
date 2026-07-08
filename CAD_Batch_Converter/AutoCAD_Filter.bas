@@ -62,10 +62,6 @@ Public Function FilterDwg(ByVal acadApp As AcadApplication, _
     ' --- Step 1: open the source drawing ------------------------------------
     Set doc = acadApp.Documents.Open(srcPath)
 
-    ' --- Harvest the words from TEXT_LAYER BEFORE anything is deleted --------
-    TextMarking.HarvestTextMarks doc
-    r.TextCount = TextMarking.MarkCount()
-
     ' --- Locked-layer handling (report; optionally unlock) ------------------
     r.LockedLayers = UnlockAndReportLayers(doc)
 

@@ -55,7 +55,7 @@ Public Sub RunBatch()
     ' --- Snapshot the DWG list ----------------------------------------------
     Dim files() As String
     Dim fileCount As Long
-    fileCount = CollectDwgFiles(SOURCE_FOLDER, files)
+    fileCount = CollectFiles(SOURCE_FOLDER, DWG_FILESPEC, files)
     If fileCount = 0 Then
         WriteLog "No DWG files found in the source folder. Nothing to do."
         CloseLog
@@ -89,7 +89,6 @@ Public Sub RunBatch()
 
     For i = 0 To fileCount - 1
         ClearResult result
-        TextMarking.ClearMarks           ' fresh word list for this file
         ProcessOneFile acadApp, swApp, files(i), result
         LogResult result
 
@@ -162,42 +161,12 @@ errHandler:
 End Sub
 
 '------------------------------------------------------------------------------
-' Enumerate every DWG in a folder into a 0-based array. Full paths are stored so
-' the caller does not depend on the Dir() cursor once the loop begins. Returns
-' the number of files found.
-'------------------------------------------------------------------------------
-Private Function CollectDwgFiles(ByVal folderPath As String, _
-                                 ByRef arr() As String) As Long
-    Const GROW As Long = 256
-    Dim count As Long
-    ReDim arr(0 To GROW - 1)
-
-    Dim name As String
-    name = Dir$(folderPath & DWG_FILESPEC, vbNormal)
-    Do While Len(name) > 0
-        If count > UBound(arr) Then
-            ReDim Preserve arr(0 To UBound(arr) + GROW)
-        End If
-        arr(count) = folderPath & name
-        count = count + 1
-        name = Dir$
-    Loop
-
-    If count > 0 Then
-        ReDim Preserve arr(0 To count - 1)
-    Else
-        Erase arr
-    End If
-
-    CollectDwgFiles = count
-End Function
-
-'------------------------------------------------------------------------------
 ' Optionally quit the applications, then release both references. Guarded so a
-' failure here never masks the batch result.
+' failure here never masks the batch result. Public so the text-stamp pass can
+' reuse it.
 '------------------------------------------------------------------------------
-Private Sub ShutdownApps(ByRef acadApp As AcadApplication, _
-                         ByRef swApp As SldWorks.SldWorks)
+Public Sub ShutdownApps(ByRef acadApp As AcadApplication, _
+                        ByRef swApp As SldWorks.SldWorks)
     On Error Resume Next
     If QUIT_APPS_ON_FINISH Then
         If Not acadApp Is Nothing Then acadApp.Quit

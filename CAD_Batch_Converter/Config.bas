@@ -40,7 +40,7 @@ Public Const TARGET_LAYER As String = "CUT-OUTSIDE STRAIGHT"
 ' the part as a native SolidWorks sketch (see TextMarking.bas).
 '   >>> SET THIS to the exact layer name that holds the words. <<<
 ' Leave it empty ("") to disable text marking entirely.
-Public Const TEXT_LAYER As String = ""
+Public Const TEXT_LAYER As String = "PIN STAMP TEXT"
 
 ' DWG drawing units expressed in meters, used to place the harvested text at the
 ' same location as the imported outline. 0.0254 = inches, 0.001 = millimeters.
@@ -53,6 +53,9 @@ Public Const EXTRUDE_DEPTH_METERS As Double = 0.00635
 
 ' File mask used to enumerate the source folder.
 Public Const DWG_FILESPEC As String = "*.dwg"
+
+' File mask used by the text-stamp pass to enumerate finished parts.
+Public Const SLDPRT_FILESPEC As String = "*.SLDPRT"
 
 ' Name of the batch log file (written into OUTPUT_FOLDER).
 Public Const LOG_FILE_NAME As String = "BatchLog.txt"
@@ -119,6 +122,10 @@ Public Const SW_SAVE_SILENT As Long = 1
 Public Const SW_IMPORT_TO_NEW_PART As Long = 0
 ' Argument string passed to LoadFile4 for a DWG/DXF import.
 Public Const SW_IMPORT_ARGS As String = "r"
+' swDocumentTypes_e.swDocPART - used when re-opening an SLDPRT in the text pass.
+Public Const SW_DOC_PART As Long = 1
+' swOpenDocOptions_e.swOpenDocOptions_Silent
+Public Const SW_OPEN_SILENT As Long = 1
 ' Feature type name reported by an imported/normal 2D sketch.
 Public Const SW_SKETCH_TYPENAME As String = "ProfileFeature"
 
