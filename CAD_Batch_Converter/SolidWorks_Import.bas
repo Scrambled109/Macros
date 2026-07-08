@@ -15,13 +15,19 @@ Attribute VB_Name = "SolidWorks_Import"
 '
 ' Design notes
 ' ------------
-' * The DWG is imported with LoadFile4 + an ImportData object obtained from
-'   GetImportFileData. Supplying that object suppresses the interactive
-'   DWG/DXF import wizard, so the run stays unattended. The default import
-'   method creates a NEW PART with the geometry as a 2D sketch (never a
-'   drawing). Optional import flags (no dimensions, merge coincident points,
-'   no construction geometry) are set defensively and are individually guarded
-'   so a property that differs between service packs cannot abort the batch.
+' * The DWG is imported with LoadFile4 + an IImportDxfDwgData object obtained
+'   from GetImportFileData. Supplying that object suppresses the interactive
+'   DWG/DXF import wizard, so the run stays unattended.
+' * CRITICAL: the DWG DEFAULT import method is "create new DRAWING". To get a
+'   part, ImportMethod - a per-sheet INDEXED property, ImportMethod(sheetName) -
+'   must be explicitly set to swImportDxfDwg_ImportToPartSketch (swconst.tlb).
+'   Setting it is therefore NOT guarded: if it cannot be set, the file fails
+'   loudly instead of silently converting to a drawing. After LoadFile4 the
+'   document type is verified to be a part (swDocPART); a drawing is closed
+'   and reported as a failure.
+' * Optional import flags (merge coincident points, no dimensions) are set
+'   defensively and individually guarded so a member that differs between
+'   service packs cannot abort the batch.
 ' * Open contours are detected geometrically by pairing up sketch-segment end
 '   points: any end point that is not shared by a second segment is a free end,
 '   which means the profile is open. This is logged; small gaps are already
@@ -67,17 +73,38 @@ Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
     On Error GoTo errHandler
 
     ' --- Step 4: import the DWG as a new-part 2D sketch ---------------------
-    Dim importData As Object
+    Dim importData As SldWorks.ImportDxfDwgData
     Set importData = swApp.GetImportFileData(dwgPath)
-    ConfigureImportData importData
+    If importData Is Nothing Then
+        r.Message = "GetImportFileData returned nothing - cannot import as a part."
+        ImportAndExtrude = False
+        Exit Function
+    End If
+
+    ' The one setting that decides part vs drawing. Never guarded, never
+    ' defaulted: without it SolidWorks converts the DWG to a new DRAWING.
+    If Not SetPartImportMethod(importData, dwgPath) Then
+        r.Message = "Could not set ImportMethod = swImportDxfDwg_ImportToPartSketch" & _
+                    " - aborting this file rather than importing it as a drawing."
+        ImportAndExtrude = False
+        Exit Function
+    End If
+
+    ConfigureImportOptions importData, dwgPath
 
     Set swModel = swApp.LoadFile4(dwgPath, SW_IMPORT_ARGS, importData, errs)
     If swModel Is Nothing Then
-        ' Retry once letting SolidWorks apply its own default import settings.
-        Set swModel = swApp.LoadFile4(dwgPath, SW_IMPORT_ARGS, Nothing, errs)
-    End If
-    If swModel Is Nothing Then
         r.Message = "SolidWorks import failed (LoadFile4 error code " & errs & ")."
+        ImportAndExtrude = False
+        Exit Function
+    End If
+
+    ' Verify a PART actually came back; a drawing is useless downstream.
+    If swModel.GetType <> SW_DOC_PART Then
+        r.Message = "DWG imported as document type " & swModel.GetType & _
+                    IIf(swModel.GetType = SW_DOC_DRAWING, " (a DRAWING)", "") & _
+                    " instead of a part - ImportMethod was not honoured."
+        CloseModel swApp, swModel
         ImportAndExtrude = False
         Exit Function
     End If
@@ -135,20 +162,46 @@ errHandler:
 End Function
 
 '------------------------------------------------------------------------------
-' Apply the requested import options. Every assignment is individually guarded
-' because the exact IImportDwgDxfData member set varies slightly across service
-' packs - an unknown property is simply skipped, never fatal.
+' Force the import method to "part sketch". ImportMethod is an INDEXED property
+' keyed by sheet name - "" (all/default) per the community-verified examples,
+' with the file path as the documented fallback index. The plain assignment
+' d.ImportMethod = x compiles late-bound but fails at runtime, which is exactly
+' how the old code silently fell back to the DWG default of "new drawing".
+' Returns True only if one of the two forms was accepted.
 '------------------------------------------------------------------------------
-Private Sub ConfigureImportData(ByVal d As Object)
+Private Function SetPartImportMethod(ByVal d As SldWorks.ImportDxfDwgData, _
+                                     ByVal dwgPath As String) As Boolean
+    On Error Resume Next
+
+    Err.Clear
+    d.ImportMethod("") = swImportDxfDwg_ImportToPartSketch
+    SetPartImportMethod = (Err.Number = 0)
+
+    If Not SetPartImportMethod Then
+        Err.Clear
+        d.ImportMethod(dwgPath) = swImportDxfDwg_ImportToPartSketch
+        SetPartImportMethod = (Err.Number = 0)
+    End If
+
+    On Error GoTo 0
+End Function
+
+'------------------------------------------------------------------------------
+' Apply the optional (nice-to-have) import options. These only exist for the
+' part-sketch import path and are individually guarded because member names
+' vary slightly across service packs - an unknown member is skipped, never
+' fatal. Both sheet-name index forms are attempted, mirroring the method above.
+'------------------------------------------------------------------------------
+Private Sub ConfigureImportOptions(ByVal d As Object, ByVal dwgPath As String)
     If d Is Nothing Then Exit Sub
 
     On Error Resume Next
-    d.ImportMethod = SW_IMPORT_TO_NEW_PART      ' new part, 2D sketch (not a drawing)
-    d.MergePoint = True                          ' snap coincident end points...
-    d.MergePointDistance = IMPORT_MERGE_METERS   ' ...within this gap (closes tiny gaps)
-    d.ImportDimensions = False                   ' do NOT import dimensions
-    d.ImportSketchAsConstruction = False         ' do NOT import as construction geometry
-    d.EntitiesToImport = 0                        ' import model-space geometry only
+    ' Snap coincident end points within IMPORT_MERGE_METERS (closes tiny gaps).
+    d.SetMergePoints "", True, IMPORT_MERGE_METERS
+    d.SetMergePoints dwgPath, True, IMPORT_MERGE_METERS
+    ' Do NOT import dimensions.
+    d.ImportDimensions("") = False
+    d.ImportDimensions(dwgPath) = False
     On Error GoTo 0
 End Sub
 
