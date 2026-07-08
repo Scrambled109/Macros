@@ -581,9 +581,9 @@ End Function
 
 ' True when outPath exists and was written at/after saveStart (small clock
 ' slack allowed), i.e. by the save attempt just made - never a stale file
-' left in staging by an earlier run.
-Private Function FreshFileOnDisk(ByVal outPath As String, _
-                                 ByVal saveStart As Date) As Boolean
+' left in staging by an earlier run. Public: the text-stamp pass reuses it.
+Public Function FreshFileOnDisk(ByVal outPath As String, _
+                                ByVal saveStart As Date) As Boolean
     On Error Resume Next
     If FileExists(outPath) Then
         FreshFileOnDisk = (FileDateTime(outPath) >= DateAdd("s", -10, saveStart))

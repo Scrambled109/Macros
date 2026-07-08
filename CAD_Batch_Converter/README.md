@@ -105,14 +105,17 @@ Text stamped      : OK
 **If the words land in the wrong place**, `DWG_UNITS_TO_METERS` is the single
 knob — it must match the drawing's units (inches by default).
 
-**One version note:** the actual `InsertSketchText` call is late-bound and
-isolated in `TextMarking.InsertOneText`, and its exact argument list has varied
-between SolidWorks releases. If a word fails to place, record a one-line macro
-of "insert sketch text" on your install and match that argument order in that
-one helper — nothing else needs to change. Sketch text uses the document font
-size (absolute height from the DWG is not enforced); adjust the document font or
-that helper if you need the DWG height honoured. Rotation is captured but text
-is placed horizontal by default.
+**Why the words used to silently not appear:** `InsertSketchText` was being
+called with **10 arguments**, but the documented `IModelDoc2::InsertSketchText`
+signature takes **nine** (`X, Y, Z, Text, Alignment, FlipDir, MirrorDir,
+WidthFactor, SpacingFactor` — height is not an argument). The wrong argument
+count raised an error that the guard swallowed, so every word vanished while
+the pass reported OK. The call now uses the correct 9-argument form, **verifies
+the `ISketchText` object it returns** (the 10-argument variant is kept only as
+a guarded fallback), and applies the DWG text height through the returned
+object's `ITextFormat`. The log now reports `Placed X of Y words` whenever
+anything fails to land, so a silent no-op is impossible. Rotation is captured
+but text is placed horizontal by default.
 
 ---
 

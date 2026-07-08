@@ -188,9 +188,16 @@ End Function
 ' extruded part (the planar face whose normal is +Z, at the greatest Z). Falls
 ' back to the Front plane if the top face cannot be found, so the words are
 ' never lost. The sketch is left un-consumed. Call AFTER the base extrude and
-' BEFORE the save. Returns True on success (and True when there is nothing to
-' place). Never throws.
-Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2) As Boolean
+' BEFORE the save.
+'
+' placedCount reports how many words actually landed: each InsertSketchText
+' call is VERIFIED by the ISketchText object it returns - never trusted
+' silently (the old code swallowed a wrong-argument-count error and reported
+' OK while placing nothing). Returns True when at least one word was placed
+' (and True when there was nothing to place).
+Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
+                               ByRef placedCount As Long) As Boolean
+    placedCount = 0
     If mCount = 0 Then
         ApplyTextMarks = True
         Exit Function
@@ -212,14 +219,18 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2) As Boolean
     swModel.SketchManager.InsertSketch True
 
     ' Place each word. Coordinates are scaled from DWG units to meters so they
-    ' land on top of the imported outline.
+    ' land on top of the imported outline; the DWG text height is honoured the
+    ' same way.
     Dim i As Long
     For i = 0 To mCount - 1
         If Len(mMarks(i).Text) > 0 Then
-            InsertOneText swModel, _
-                          mMarks(i).X * DWG_UNITS_TO_METERS, _
-                          mMarks(i).Y * DWG_UNITS_TO_METERS, _
-                          mMarks(i).Text
+            If InsertOneText(swModel, _
+                             mMarks(i).X * DWG_UNITS_TO_METERS, _
+                             mMarks(i).Y * DWG_UNITS_TO_METERS, _
+                             mMarks(i).Text, _
+                             mMarks(i).Height * DWG_UNITS_TO_METERS) Then
+                placedCount = placedCount + 1
+            End If
         End If
     Next i
 
@@ -227,7 +238,7 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2) As Boolean
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
 
-    ApplyTextMarks = True
+    ApplyTextMarks = (placedCount > 0)
     Exit Function
 
 errHandler:
@@ -235,23 +246,60 @@ errHandler:
     swModel.SketchManager.InsertSketch True   ' make sure sketch mode is closed
     swModel.ClearSelection2 True
     On Error GoTo 0
-    ApplyTextMarks = False
+    ApplyTextMarks = (placedCount > 0)
 End Function
 
-' Insert one piece of sketch text at (x, y) in the active sketch. Late-bound and
-' individually guarded because the exact InsertSketchText argument list has
-' varied across releases - a failure here skips that one word, never the batch.
-Private Sub InsertOneText(ByVal swModel As SldWorks.ModelDoc2, _
-                          ByVal x As Double, ByVal y As Double, _
-                          ByVal text As String)
+'------------------------------------------------------------------------------
+' Insert one piece of sketch text at (x, y) in the active sketch and return
+' True only when SolidWorks actually created it (InsertSketchText returns the
+' new ISketchText - Nothing means nothing was placed).
+'
+' The documented IModelDoc2::InsertSketchText signature takes NINE arguments:
+'   (X, Y, Z, Text, Alignment, FlipDir, MirrorDir, WidthFactor, SpacingFactor)
+' - there is NO height argument; height comes from the text format. The old
+' 10-argument call raised "wrong number of arguments", which the error guard
+' swallowed, so every word silently vanished. The 10-argument variant is kept
+' only as a guarded fallback for older type libraries, and the DWG height is
+' applied through the returned object's ITextFormat.
+'------------------------------------------------------------------------------
+Private Function InsertOneText(ByVal swModel As SldWorks.ModelDoc2, _
+                               ByVal x As Double, ByVal y As Double, _
+                               ByVal text As String, _
+                               ByVal heightMeters As Double) As Boolean
     On Error Resume Next
     Dim md As Object
     Set md = swModel          ' late binding for InsertSketchText
-    md.InsertSketchText x, y, 0#, text, _
-                        SW_TEXT_ALIGN_LEFT, 0, 0, _
-                        SW_TEXT_WIDTH_PCT, SW_TEXT_SPACING_PCT, SW_TEXT_HEIGHT_PCT
+    Dim skText As Object      ' SldWorks.SketchText
+
+    ' Documented 9-argument signature (SolidWorks 2020+ incl. 2025).
+    Err.Clear
+    Set skText = md.InsertSketchText(x, y, 0#, text, _
+                                     SW_TEXT_ALIGN_LEFT, 0, 0, _
+                                     SW_TEXT_WIDTH_PCT, SW_TEXT_SPACING_PCT)
+
+    ' Fallback: the historical 10-argument variant (trailing height factor).
+    If skText Is Nothing Then
+        Err.Clear
+        Set skText = md.InsertSketchText(x, y, 0#, text, _
+                                         SW_TEXT_ALIGN_LEFT, 0, 0, _
+                                         SW_TEXT_WIDTH_PCT, SW_TEXT_SPACING_PCT, _
+                                         SW_TEXT_HEIGHT_PCT)
+    End If
+
+    ' Honour the DWG text height via the text format (guarded: a failure here
+    ' leaves the word at document-font size, which is still a placed word).
+    If Not skText Is Nothing And heightMeters > 0# Then
+        Dim fmt As Object     ' SldWorks.TextFormat
+        Set fmt = skText.GetTextFormat
+        If Not fmt Is Nothing Then
+            fmt.CharHeight = heightMeters
+            skText.SetTextFormat False, fmt
+        End If
+    End If
+
+    InsertOneText = Not (skText Is Nothing)
     On Error GoTo 0
-End Sub
+End Function
 
 ' Find and select the top face of the extruded part. Returns False (nothing
 ' selected) if no suitable face is found.
