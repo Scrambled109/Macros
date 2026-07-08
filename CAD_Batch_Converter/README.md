@@ -69,7 +69,7 @@ to the values for this job. Other useful switches:
 | `QUIT_APPS_ON_FINISH`    | `False` | Leave the apps open (safe default) or shut them down. |
 | `SHOW_SUMMARY_DIALOG`    | `False` | Show one message box at the end. Off = fully unattended. |
 | `IMPORT_MERGE_METERS`    | `0.000254` | Gap that import will snap closed (helps close tiny open contours). |
-| `TEXT_LAYER`             | `"PIN STAMP TEXT"` | Layer holding the words (blank = skip text). |
+| `TEXT_LAYER`             | `"PIN STAMP TEXT"` | Layer(s) holding the words — one name, or several separated by commas, e.g. `"PIN STAMP TEXT, PART MARKING, ETCH"` (blank = skip text). |
 | `DWG_UNITS_TO_METERS`    | `0.0254` | DWG unit → meter scale for placing the words. `0.0254` = inches, `0.001` = mm. |
 
 ---

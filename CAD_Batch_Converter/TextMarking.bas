@@ -64,8 +64,9 @@ End Sub
 ' AUTOCAD STAGE - HARVEST
 '==============================================================================
 
-' Read every TEXT / MTEXT entity on TEXT_LAYER from the open drawing and store
-' it. Reading does not require the layer to be unlocked, and this runs BEFORE
+' Read every TEXT / MTEXT entity on the TEXT_LAYER layer(s) from the open
+' drawing and store it. TEXT_LAYER may name several layers, comma-separated.
+' Reading does not require the layers to be unlocked, and this runs BEFORE
 ' the filter deletes anything. No-op when TEXT_LAYER is blank.
 Public Sub HarvestTextMarks(ByVal doc As AcadDocument)
     If Len(Trim$(TEXT_LAYER)) = 0 Then Exit Sub
@@ -79,7 +80,7 @@ Public Sub HarvestTextMarks(ByVal doc As AcadDocument)
         On Error Resume Next
         Set ent = ms.Item(i)
         If Not ent Is Nothing Then
-            If LayerEquals(ent.Layer, TEXT_LAYER) Then
+            If LayerInList(ent.Layer, TEXT_LAYER) Then
                 HarvestOne ent
             End If
         End If

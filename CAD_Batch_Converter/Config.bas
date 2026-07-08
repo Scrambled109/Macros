@@ -35,11 +35,14 @@ Public Const OUTPUT_FOLDER As String = _
 ' Only geometry on this layer survives the AutoCAD filter step.
 Public Const TARGET_LAYER As String = "CUT-OUTSIDE STRAIGHT"
 
-' Layer that holds the words / part marking text (TEXT and MTEXT). The strings
-' are harvested from this layer BEFORE the filter deletes it, then recreated on
-' the part as a native SolidWorks sketch (see TextMarking.bas).
-'   >>> SET THIS to the exact layer name that holds the words. <<<
-' Leave it empty ("") to disable text marking entirely.
+' Layer(s) that hold the words / part marking text (TEXT and MTEXT). The
+' strings are harvested from these layers BEFORE the filter deletes them, then
+' recreated on the part as a native SolidWorks sketch (see TextMarking.bas).
+'   >>> SET THIS to the exact layer name(s) that hold the words. <<<
+' One layer or several - separate multiple names with commas, e.g.:
+'   "PIN STAMP TEXT, PART MARKING, ETCH"
+' (spaces around the commas are ignored; layer names themselves may contain
+' spaces). Leave it empty ("") to disable text marking entirely.
 Public Const TEXT_LAYER As String = "PIN STAMP TEXT"
 
 ' DWG drawing units expressed in meters, used to place the harvested text at the
