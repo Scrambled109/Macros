@@ -229,6 +229,17 @@ Public Function OkText(ByVal flag As Boolean) As String
     End If
 End Function
 
+' Join two log messages with a separator; either side may be empty.
+Public Function AppendMsg(ByVal existing As String, ByVal extra As String) As String
+    If Len(existing) = 0 Then
+        AppendMsg = extra
+    ElseIf Len(extra) = 0 Then
+        AppendMsg = existing
+    Else
+        AppendMsg = existing & " | " & extra
+    End If
+End Function
+
 ' Reset every field of a TFileResult so it can be reused inside a loop
 ' (VBA has no block scope, so a Dim inside a loop is the same variable).
 Public Sub ClearResult(ByRef r As TFileResult)

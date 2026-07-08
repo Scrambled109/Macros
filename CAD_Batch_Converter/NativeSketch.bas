@@ -55,14 +55,22 @@ Public Function HarvestOutline(ByVal acadApp As AcadApplication, _
 
     Set doc = acadApp.Documents.Open(dwgPath, True)      ' read-only
 
-    Dim ent As AcadEntity
+    ' Late-bound on purpose, and point properties are ALWAYS copied into a
+    ' Variant before indexing: "ent.StartPoint(0)" style access makes VBA call
+    ' the property WITH an argument, which AutoCAD rejects with error 451
+    ' ("Property let procedure not defined and property get procedure did not
+    ' return an object").
+    Dim ent As Object
+    Dim p1 As Variant
+    Dim p2 As Variant
+    Dim ctr As Variant
     Dim unsupported As String
     For Each ent In doc.ModelSpace
         Select Case ent.ObjectName
             Case "AcDbLine"
-                AddLineSeg segs, segCount, _
-                           ent.StartPoint(0), ent.StartPoint(1), _
-                           ent.EndPoint(0), ent.EndPoint(1)
+                p1 = ent.StartPoint
+                p2 = ent.EndPoint
+                AddLineSeg segs, segCount, p1(0), p1(1), p2(0), p2(1)
             Case "AcDbPolyline"                          ' lightweight polyline
                 AddPolyline segs, segCount, ent, 2
             Case "AcDb2dPolyline"                        ' heavy 2D polyline
@@ -72,10 +80,11 @@ Public Function HarvestOutline(ByVal acadApp As AcadApplication, _
             Case "AcDbArc"
                 AddArcEntity segs, segCount, ent
             Case "AcDbCircle"
+                ctr = ent.Center
                 EnsureCapacity segs, segCount
                 With segs(segCount)
                     .Kind = SEG_CIRCLE
-                    .CX = ent.Center(0): .CY = ent.Center(1)
+                    .CX = ctr(0): .CY = ctr(1)
                     .Radius = ent.Radius
                 End With
                 segCount = segCount + 1
@@ -219,18 +228,12 @@ Public Function BuildAndExtrudeNative(ByVal swApp As SldWorks.SldWorks, _
     ' --- Rebuild, save, close ------------------------------------------------
     swModel.ForceRebuild3 False
 
-    Dim errs As Long
-    Dim warns As Long
     Dim savedOK As Boolean
-    savedOK = swModel.Extension.SaveAs(outPath, SW_SAVEAS_CURRENT, _
-                                       SW_SAVE_SILENT, Nothing, errs, warns)
+    savedOK = SavePart(swModel, outPath, r)
     r.SaveOK = savedOK
     If savedOK Then
         r.Message = AppendMsg(r.Message, "Recovered via native-sketch" & _
                     " workaround (outline redrawn from AutoCAD geometry).")
-    Else
-        r.Message = AppendMsg(r.Message, "Native-sketch workaround: SaveAs" & _
-                    " failed (error " & errs & ", warning " & warns & ").")
     End If
 
     CloseModel swApp, swModel
@@ -355,8 +358,10 @@ End Sub
 ' Append an AutoCAD ARC entity (always counter-clockwise, angles in radians).
 Private Sub AddArcEntity(ByRef segs() As TSegment, ByRef segCount As Long, _
                          ByVal ent As Object)
+    Dim ctr As Variant                   ' copy point into a Variant, then index
+    ctr = ent.Center
     Dim cx As Double, cy As Double, rad As Double
-    cx = ent.Center(0): cy = ent.Center(1): rad = ent.Radius
+    cx = ctr(0): cy = ctr(1): rad = ent.Radius
 
     EnsureCapacity segs, segCount
     With segs(segCount)
@@ -393,15 +398,4 @@ Private Function FindFirstPlane(ByVal swModel As SldWorks.ModelDoc2) As SldWorks
         End If
         Set feat = feat.GetNextFeature
     Loop
-End Function
-
-' Join two log messages with a separator; either side may be empty.
-Private Function AppendMsg(ByVal existing As String, ByVal extra As String) As String
-    If Len(existing) = 0 Then
-        AppendMsg = extra
-    ElseIf Len(extra) = 0 Then
-        AppendMsg = existing
-    Else
-        AppendMsg = existing & " | " & extra
-    End If
 End Function
