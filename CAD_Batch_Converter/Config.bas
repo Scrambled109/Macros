@@ -54,6 +54,11 @@ Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 ' 0.00635 m = 6.35 mm = 0.25 in.
 Public Const EXTRUDE_DEPTH_METERS As Double = 0.00635
 
+' Sketch color for the reference words and marking geometry, as an OLE RGB
+' Long: red + green*256 + blue*65536. 255 = bright red, 65535 = yellow,
+' 16711935 = magenta. Set -1 to leave the default sketch color.
+Public Const TEXT_SKETCH_COLOR As Long = 255
+
 ' Optionally render the words as a shallow ENGRAVED groove (a thin-slot cut
 ' along each stroke). DEFAULT False: the words and marking lines are REFERENCE
 ' ONLY - they stay as an un-consumed sketch and nothing is cut into the steel.

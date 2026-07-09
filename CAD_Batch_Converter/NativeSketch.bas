@@ -232,7 +232,8 @@ End Function
 Public Function DrawSegments(ByVal skm As SldWorks.SketchManager, _
                              ByRef segs() As TSegment, _
                              ByVal segCount As Long, _
-                             ByVal unitScale As Double) As Long
+                             ByVal unitScale As Double, _
+                             Optional ByVal colorRGB As Long = -1) As Long
     On Error GoTo done
     Dim k As Double
     k = unitScale
@@ -261,7 +262,14 @@ Public Function DrawSegments(ByVal skm As SldWorks.SketchManager, _
                                                        .Radius * k)
             End Select
         End With
-        If Not obj Is Nothing Then made = made + 1
+        If Not obj Is Nothing Then
+            made = made + 1
+            If colorRGB >= 0 Then
+                On Error Resume Next
+                obj.Color = colorRGB
+                On Error GoTo done
+            End If
+        End If
     Next i
 
 done:

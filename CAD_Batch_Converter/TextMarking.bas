@@ -327,7 +327,7 @@ Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
     '         reference sketch, scaled the same way. ------------------------
     If mSegCount > 0 Then
         segsDrawn = DrawSegments(swModel.SketchManager, mSegs, mSegCount, _
-                                 DWG_UNITS_TO_METERS)
+                                 DWG_UNITS_TO_METERS, TEXT_SKETCH_COLOR)
     End If
 
     ' --- 4) Close the sketch, leaving it in the tree (reference only) -------
@@ -407,50 +407,80 @@ Private Function DrawOneWord(ByVal swModel As SldWorks.ModelDoc2, _
     Dim penX As Double                 ' cursor, in grid units
     Dim i As Long
     Dim drawn As Boolean
+    Dim ch As String
+    Dim strokes() As String
+    Dim strokeDef As String
+    Dim asCurve As Boolean
+    Dim pts() As String
+    Dim xy() As String
+    Dim nPts As Long
+    Dim s As Long
+    Dim p As Long
+    Dim gx As Double
+    Dim gy As Double
+    Dim wx() As Double
+    Dim wy() As Double
+    Dim obj As Object
 
     For i = 1 To Len(text)
-        Dim ch As String
         ch = Mid$(UCase$(text), i, 1)
 
         If ch <> " " Then
-            Dim strokes() As String
             strokes = Split(StrokeFor(ch), ";")
 
-            Dim s As Long
             For s = 0 To UBound(strokes)
-                Dim pts() As String
-                pts = Split(Trim$(strokes(s)), " ")
+                ' A leading "~" marks a CURVED stroke: it is drawn as ONE
+                ' spline through its points instead of a chain of short lines
+                ' - smoother letterforms and far fewer endpoint dots.
+                strokeDef = Trim$(strokes(s))
+                asCurve = (Left$(strokeDef, 1) = "~")
+                If asCurve Then strokeDef = Mid$(strokeDef, 2)
 
-                Dim p As Long
-                Dim havePrev As Boolean
-                Dim prevX As Double
-                Dim prevY As Double
-                havePrev = False
+                pts = Split(strokeDef, " ")
+                nPts = UBound(pts) + 1
+                If nPts >= 2 Then
+                    ' Transform every point: grid -> meters, rotate about the
+                    ' insertion point, translate.
+                    ReDim wx(0 To nPts - 1)
+                    ReDim wy(0 To nPts - 1)
+                    For p = 0 To nPts - 1
+                        xy = Split(pts(p), ",")
+                        gx = (penX + Val(xy(0))) * k
+                        gy = Val(xy(1)) * k
+                        wx(p) = xm + gx * cosR - gy * sinR
+                        wy(p) = ym + gx * sinR + gy * cosR
+                    Next p
 
-                For p = 0 To UBound(pts)
-                    Dim xy() As String
-                    xy = Split(pts(p), ",")
-
-                    ' Grid -> meters (relative to insertion point)...
-                    Dim gx As Double
-                    Dim gy As Double
-                    gx = (penX + Val(xy(0))) * k
-                    gy = Val(xy(1)) * k
-
-                    ' ...then rotate about the insertion point and translate.
-                    Dim wx As Double
-                    Dim wy As Double
-                    wx = xm + gx * cosR - gy * sinR
-                    wy = ym + gx * sinR + gy * cosR
-
-                    If havePrev Then
-                        If Not skm.CreateLine(prevX, prevY, 0#, wx, wy, 0#) _
-                           Is Nothing Then drawn = True
+                    Set obj = Nothing
+                    If asCurve And nPts >= 3 Then
+                        Dim ptArr() As Double
+                        ReDim ptArr(0 To nPts * 3 - 1)
+                        For p = 0 To nPts - 1
+                            ptArr(p * 3) = wx(p)
+                            ptArr(p * 3 + 1) = wy(p)
+                            ptArr(p * 3 + 2) = 0#
+                        Next p
+                        Err.Clear
+                        Set obj = skm.CreateSpline(ptArr)
+                        If Not obj Is Nothing Then
+                            TintSegment obj
+                            drawn = True
+                        End If
                     End If
-                    prevX = wx
-                    prevY = wy
-                    havePrev = True
-                Next p
+
+                    ' Straight stroke - or the spline call failed: fall back
+                    ' to plain lines between the same points.
+                    If obj Is Nothing Then
+                        For p = 1 To nPts - 1
+                            Set obj = skm.CreateLine(wx(p - 1), wy(p - 1), 0#, _
+                                                     wx(p), wy(p), 0#)
+                            If Not obj Is Nothing Then
+                                TintSegment obj
+                                drawn = True
+                            End If
+                        Next p
+                    End If
+                End If
             Next s
         End If
 
@@ -472,47 +502,58 @@ done:
     DrawOneWord = drawn
 End Function
 
+' Apply the configured reference color to one sketch entity. Guarded: a
+' failure just leaves that entity at the default color.
+Private Sub TintSegment(ByVal seg As Object)
+    If TEXT_SKETCH_COLOR < 0 Then Exit Sub
+    On Error Resume Next
+    seg.Color = TEXT_SKETCH_COLOR
+    On Error GoTo 0
+End Sub
+
 '------------------------------------------------------------------------------
 ' Single-stroke glyph definitions. Grid: x 0..4, y 0..6 (baseline y = 0).
+' A stroke starting with "~" is CURVED: it is drawn as one smooth spline
+' through its points (straight strokes are plain lines).
 '------------------------------------------------------------------------------
 Private Function StrokeFor(ByVal ch As String) As String
     Select Case ch
         Case "A": StrokeFor = "0,0 2,6 4,0;0.7,2 3.3,2"
-        Case "B": StrokeFor = "0,0 0,6 3,6 4,5 4,4 3,3 0,3;3,3 4,2 4,1 3,0 0,0"
-        Case "C": StrokeFor = "4,1 3,0 1,0 0,1 0,5 1,6 3,6 4,5"
-        Case "D": StrokeFor = "0,0 0,6 2,6 4,4 4,2 2,0 0,0"
+        Case "B": StrokeFor = "0,0 0,6 3,6;~3,6 4,5 4,4 3,3;0,3 3,3;~3,3 4,2 4,1 3,0;3,0 0,0"
+        Case "C": StrokeFor = "~4,1 3,0 1,0 0,1 0,5 1,6 3,6 4,5"
+        Case "D": StrokeFor = "0,0 0,6 2,6;~2,6 4,4 4,2 2,0;2,0 0,0"
         Case "E": StrokeFor = "4,0 0,0 0,6 4,6;0,3 3,3"
         Case "F": StrokeFor = "0,0 0,6 4,6;0,3 3,3"
-        Case "G": StrokeFor = "4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,3 2,3"
+        Case "G": StrokeFor = "~4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,3;4,3 2,3"
         Case "H": StrokeFor = "0,0 0,6;4,0 4,6;0,3 4,3"
         Case "I": StrokeFor = "1,0 3,0;2,0 2,6;1,6 3,6"
-        Case "J": StrokeFor = "0,1 1,0 2,0 3,1 3,6;2,6 4,6"
+        Case "J": StrokeFor = "~0,1 1,0 2,0 3,1;3,1 3,6;2,6 4,6"
         Case "K": StrokeFor = "0,0 0,6;4,6 0,3 4,0"
         Case "L": StrokeFor = "0,6 0,0 4,0"
         Case "M": StrokeFor = "0,0 0,6 2,3 4,6 4,0"
         Case "N": StrokeFor = "0,0 0,6 4,0 4,6"
-        Case "O": StrokeFor = "1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0"
-        Case "P": StrokeFor = "0,0 0,6 3,6 4,5 4,4 3,3 0,3"
-        Case "Q": StrokeFor = "1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0;2,2 4,0"
-        Case "R": StrokeFor = "0,0 0,6 3,6 4,5 4,4 3,3 0,3;2,3 4,0"
-        Case "S": StrokeFor = "0,1 1,0 3,0 4,1 4,2 3,3 1,3 0,4 0,5 1,6 3,6 4,5"
+        Case "O": StrokeFor = "~1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0"
+        Case "P": StrokeFor = "0,0 0,6 3,6;~3,6 4,5 4,4 3,3;3,3 0,3"
+        Case "Q": StrokeFor = "~1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0;2,2 4,0"
+        Case "R": StrokeFor = "0,0 0,6 3,6;~3,6 4,5 4,4 3,3;3,3 0,3;2,3 4,0"
+        Case "S": StrokeFor = "~0,1 1,0 3,0 4,1 4,2 3,3 1,3 0,4 0,5 1,6 3,6 4,5"
         Case "T": StrokeFor = "0,6 4,6;2,6 2,0"
-        Case "U": StrokeFor = "0,6 0,1 1,0 3,0 4,1 4,6"
+        Case "U": StrokeFor = "~0,6 0,1 1,0 3,0 4,1 4,6"
         Case "V": StrokeFor = "0,6 2,0 4,6"
         Case "W": StrokeFor = "0,6 1,0 2,3 3,0 4,6"
         Case "X": StrokeFor = "0,0 4,6;0,6 4,0"
         Case "Y": StrokeFor = "0,6 2,3 4,6;2,3 2,0"
         Case "Z": StrokeFor = "0,6 4,6 0,0 4,0"
-        Case "0": StrokeFor = "1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0;1,1 3,5"
+        Case "0": StrokeFor = "~1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0;1,1 3,5"
         Case "1": StrokeFor = "1,4 2,6 2,0;1,0 3,0"
-        Case "2": StrokeFor = "0,5 1,6 3,6 4,5 4,4 0,1 0,0 4,0"
-        Case "3": StrokeFor = "0,5 1,6 3,6 4,5 4,4 3,3 1,3;3,3 4,2 4,1 3,0 1,0 0,1"
+        Case "2": StrokeFor = "~0,5 1,6 3,6 4,5 4,4;4,4 0,0 4,0"
+        Case "3": StrokeFor = "~0,5 1,6 3,6 4,5 4,4 3,3 1,3;~3,3 4,2 4,1 3,0 1,0 0,1"
         Case "4": StrokeFor = "3,0 3,6 0,2 4,2"
-        Case "5": StrokeFor = "4,6 0,6 0,3 3,3 4,2 4,1 3,0 1,0 0,1"
-        Case "6": StrokeFor = "4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,2 3,3 1,3 0,2"
+        Case "5": StrokeFor = "4,6 0,6 0,3;~0,3 3,3 4,2 4,1 3,0 1,0 0,1"
+        Case "6": StrokeFor = "~4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,2 3,3 1,3 0,2"
         Case "7": StrokeFor = "0,6 4,6 1,0"
-        Case "8": StrokeFor = "1,3 0,4 0,5 1,6 3,6 4,5 4,4 3,3 1,3;1,3 0,2 0,1 1,0 3,0 4,1 4,2 3,3"
-        Case "9": StrokeFor = "4,4 3,3 1,3 0,4 0,5 1,6 3,6 4,5 4,1 3,0 1,0 0,1"
+        Case "8": StrokeFor = "~1,3 0,4 0,5 1,6 3,6 4,5 4,4 3,3 1,3;~1,3 0,2 0,1 1,0 3,0 4,1 4,2 3,3"
+        Case "9": StrokeFor = "~4,4 3,3 1,3 0,4 0,5 1,6 3,6 4,5 4,1 3,0 1,0 0,1"
         Case "-": StrokeFor = "1,3 3,3"
         Case ".": StrokeFor = "1.8,0 2.2,0 2.2,0.4 1.8,0.4 1.8,0"
         Case ",": StrokeFor = "2.2,0.5 1.7,-0.7"
@@ -522,10 +563,10 @@ Private Function StrokeFor(ByVal ch As String) As String
         Case "#": StrokeFor = "1,0 1,6;3,0 3,6;0,2 4,2;0,4 4,4"
         Case "+": StrokeFor = "2,1 2,5;0,3 4,3"
         Case "=": StrokeFor = "0,2 4,2;0,4 4,4"
-        Case "(": StrokeFor = "3,6 2,4.5 2,1.5 3,0"
-        Case ")": StrokeFor = "1,6 2,4.5 2,1.5 1,0"
+        Case "(": StrokeFor = "~3,6 2,4.5 2,1.5 3,0"
+        Case ")": StrokeFor = "~1,6 2,4.5 2,1.5 1,0"
         Case "'": StrokeFor = "1.9,5 2.1,6"
-        Case "&": StrokeFor = "4,0 0,4 0,5 1,6 2,6 3,5 3,4 0,2 0,1 1,0 2,0 4,2"
+        Case "&": StrokeFor = "~4,0 0,4 0,5 1,6 2,6 3,5 3,4 0,2 0,1 1,0 2,0 4,2"
         Case "_": StrokeFor = "0,-0.8 4,-0.8"
         Case Else: StrokeFor = "0,0 4,0 4,6 0,6 0,0"   ' unknown -> visible box
     End Select
