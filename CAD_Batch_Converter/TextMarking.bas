@@ -8,15 +8,22 @@ Attribute VB_Name = "TextMarking"
 ' the outline extrude).
 '
 ' Instead the text is treated as DATA:
-'   * AutoCAD stage  - HarvestTextMarks() reads every TEXT/MTEXT on TEXT_LAYER
-'                      BEFORE the filter deletes it, capturing string + position
-'                      + height + rotation into an in-memory list.
-'   * SolidWorks stage - ApplyTextMarks() recreates each word as NATIVE
-'                      SolidWorks sketch text on the TOP FACE of the extruded
-'                      part (auto-detected: the planar face whose normal is +Z,
-'                      at the greatest Z), falling back to the Front plane if the
-'                      top face cannot be found. The sketch is left UN-extruded -
+'   * AutoCAD stage  - HarvestTextMarks() reads every TEXT/MTEXT on the
+'                      TEXT_LAYER layer(s) BEFORE the filter deletes them,
+'                      capturing string + position + height + rotation into an
+'                      in-memory list.
+'   * SolidWorks stage - ApplyTextMarks() DRAWS each word as single-stroke
+'                      line geometry (built-in stick font, see StrokeFor) in a
+'                      sketch on the TOP FACE of the extruded part
+'                      (auto-detected: the planar face whose normal is +Z, at
+'                      the greatest Z), falling back to the Front plane if the
+'                      top face cannot be found. Position, height and rotation
+'                      all come from the DWG. The sketch is left UN-extruded -
 '                      the words are simply "there for modeling", as requested.
+'                      (IModelDoc2::InsertSketchText was abandoned: it returned
+'                      Nothing for every word on this install, visible or
+'                      hidden - stroke geometry via CreateLine is deterministic
+'                      and matches what pin-stamp equipment engraves anyway.)
 '
 ' State is held at module level so the existing FilterDwg / ImportAndExtrude
 ' signatures do not have to change. Call sequence per file:
@@ -64,8 +71,9 @@ End Sub
 ' AUTOCAD STAGE - HARVEST
 '==============================================================================
 
-' Read every TEXT / MTEXT entity on TEXT_LAYER from the open drawing and store
-' it. Reading does not require the layer to be unlocked, and this runs BEFORE
+' Read every TEXT / MTEXT entity on the TEXT_LAYER layer(s) from the open
+' drawing and store it. TEXT_LAYER may name several layers, comma-separated.
+' Reading does not require the layers to be unlocked, and this runs BEFORE
 ' the filter deletes anything. No-op when TEXT_LAYER is blank.
 Public Sub HarvestTextMarks(ByVal doc As AcadDocument)
     If Len(Trim$(TEXT_LAYER)) = 0 Then Exit Sub
@@ -79,7 +87,7 @@ Public Sub HarvestTextMarks(ByVal doc As AcadDocument)
         On Error Resume Next
         Set ent = ms.Item(i)
         If Not ent Is Nothing Then
-            If LayerEquals(ent.Layer, TEXT_LAYER) Then
+            If LayerInList(ent.Layer, TEXT_LAYER) Then
                 HarvestOne ent
             End If
         End If
@@ -188,38 +196,59 @@ End Function
 ' extruded part (the planar face whose normal is +Z, at the greatest Z). Falls
 ' back to the Front plane if the top face cannot be found, so the words are
 ' never lost. The sketch is left un-consumed. Call AFTER the base extrude and
-' BEFORE the save. Returns True on success (and True when there is nothing to
-' place). Never throws.
-Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2) As Boolean
+' BEFORE the save.
+'
+' placedCount reports how many words actually landed: each InsertSketchText
+' call is VERIFIED by the ISketchText object it returns - never trusted
+' silently (the old code swallowed a wrong-argument-count error and reported
+' OK while placing nothing). Returns True when at least one word was placed
+' (and True when there was nothing to place).
+Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
+                               ByRef placedCount As Long) As Boolean
+    placedCount = 0
     If mCount = 0 Then
         ApplyTextMarks = True
         Exit Function
     End If
 
+    placedCount = PlaceAllWords(swModel)
+    ApplyTextMarks = (placedCount > 0)
+End Function
+
+'------------------------------------------------------------------------------
+' One complete placement attempt: select the top face (Front-plane fallback),
+' open a sketch ON it, insert every harvested word, close the sketch. Returns
+' the number of words that actually landed. Verifies the sketch really opened
+' (SketchManager.ActiveSketch) instead of assuming.
+'------------------------------------------------------------------------------
+Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2) As Long
+    Dim placed As Long
     On Error GoTo errHandler
 
     ' Select the top face of the extrusion; fall back to the Front plane.
-    Dim onTopFace As Boolean
-    onTopFace = SelectTopFace(swModel)
-    If Not onTopFace Then
-        If Not SelectFrontPlane(swModel) Then
-            ApplyTextMarks = False
-            Exit Function
-        End If
+    If Not SelectTopFace(swModel) Then
+        If Not SelectFrontPlane(swModel) Then Exit Function
     End If
 
-    ' Open a new sketch on the selected face / plane.
+    ' Open a new sketch on the selected face / plane - and verify it opened.
     swModel.SketchManager.InsertSketch True
+    If swModel.SketchManager.ActiveSketch Is Nothing Then Exit Function
 
-    ' Place each word. Coordinates are scaled from DWG units to meters so they
-    ' land on top of the imported outline.
+    ' Place each word by DRAWING it as single-stroke line geometry - the same
+    ' proven SketchManager.CreateLine calls the outline workaround uses, so
+    ' there is no flaky text API anywhere in the chain. Position, height AND
+    ' rotation come from the DWG (scaled DWG units -> meters).
     Dim i As Long
     For i = 0 To mCount - 1
         If Len(mMarks(i).Text) > 0 Then
-            InsertOneText swModel, _
-                          mMarks(i).X * DWG_UNITS_TO_METERS, _
-                          mMarks(i).Y * DWG_UNITS_TO_METERS, _
-                          mMarks(i).Text
+            If DrawOneWord(swModel, _
+                           mMarks(i).X * DWG_UNITS_TO_METERS, _
+                           mMarks(i).Y * DWG_UNITS_TO_METERS, _
+                           mMarks(i).Height * DWG_UNITS_TO_METERS, _
+                           mMarks(i).Rotation, _
+                           mMarks(i).Text) Then
+                placed = placed + 1
+            End If
         End If
     Next i
 
@@ -227,7 +256,7 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2) As Boolean
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
 
-    ApplyTextMarks = True
+    PlaceAllWords = placed
     Exit Function
 
 errHandler:
@@ -235,23 +264,176 @@ errHandler:
     swModel.SketchManager.InsertSketch True   ' make sure sketch mode is closed
     swModel.ClearSelection2 True
     On Error GoTo 0
-    ApplyTextMarks = False
+    PlaceAllWords = placed
 End Function
 
-' Insert one piece of sketch text at (x, y) in the active sketch. Late-bound and
-' individually guarded because the exact InsertSketchText argument list has
-' varied across releases - a failure here skips that one word, never the batch.
-Private Sub InsertOneText(ByVal swModel As SldWorks.ModelDoc2, _
-                          ByVal x As Double, ByVal y As Double, _
-                          ByVal text As String)
+'==============================================================================
+' STROKE-FONT TEXT RENDERING
+'
+' IModelDoc2::InsertSketchText proved unusable unattended on this install (it
+' returned Nothing for every word, visible or hidden, both signatures). So the
+' words are DRAWN instead, as single-stroke line segments through
+' SketchManager.CreateLine - the exact call the outline workaround already
+' uses successfully. A single-stroke ("stick") font is also what pin-stamp /
+' dot-peen marking equipment actually engraves, so the model matches the
+' process.
+'
+' Each character is defined on a 4-wide x 6-tall grid (cap height = 6). A
+' definition is one or more polylines: points "x,y" separated by spaces,
+' polylines separated by ";". Coordinates scale so grid 6 = the DWG text
+' height, and every point is rotated by the DWG rotation about the insertion
+' point. Unknown characters draw as a box so missing glyphs are visible, not
+' silent. Lower-case letters are drawn as capitals.
+'==============================================================================
+
+Private Const FONT_CAP_GRID As Double = 6#     ' grid rows = cap height
+Private Const FONT_ADVANCE As Double = 6#      ' pen advance per character
+Private Const FONT_FALLBACK_HEIGHT_M As Double = 0.003  ' if the DWG height is 0
+
+'------------------------------------------------------------------------------
+' Draw one word at (xm, ym) meters, cap height hm meters, rotated rot radians
+' about the insertion point. Returns True when at least one segment was drawn.
+'------------------------------------------------------------------------------
+Private Function DrawOneWord(ByVal swModel As SldWorks.ModelDoc2, _
+                             ByVal xm As Double, ByVal ym As Double, _
+                             ByVal hm As Double, ByVal rot As Double, _
+                             ByVal text As String) As Boolean
+    On Error GoTo done
+
+    Dim skm As SldWorks.SketchManager
+    Set skm = swModel.SketchManager
+
+    If hm <= 0# Then hm = FONT_FALLBACK_HEIGHT_M
+    Dim k As Double
+    k = hm / FONT_CAP_GRID
+
+    Dim cosR As Double
+    Dim sinR As Double
+    cosR = Cos(rot)
+    sinR = Sin(rot)
+
+    Dim prevAddToDB As Boolean
+    prevAddToDB = skm.AddToDB
+    skm.AddToDB = True                 ' exact coordinates, no snapping
+
+    Dim penX As Double                 ' cursor, in grid units
+    Dim i As Long
+    Dim drawn As Boolean
+
+    For i = 1 To Len(text)
+        Dim ch As String
+        ch = Mid$(UCase$(text), i, 1)
+
+        If ch <> " " Then
+            Dim strokes() As String
+            strokes = Split(StrokeFor(ch), ";")
+
+            Dim s As Long
+            For s = 0 To UBound(strokes)
+                Dim pts() As String
+                pts = Split(Trim$(strokes(s)), " ")
+
+                Dim p As Long
+                Dim havePrev As Boolean
+                Dim prevX As Double
+                Dim prevY As Double
+                havePrev = False
+
+                For p = 0 To UBound(pts)
+                    Dim xy() As String
+                    xy = Split(pts(p), ",")
+
+                    ' Grid -> meters (relative to insertion point)...
+                    Dim gx As Double
+                    Dim gy As Double
+                    gx = (penX + Val(xy(0))) * k
+                    gy = Val(xy(1)) * k
+
+                    ' ...then rotate about the insertion point and translate.
+                    Dim wx As Double
+                    Dim wy As Double
+                    wx = xm + gx * cosR - gy * sinR
+                    wy = ym + gx * sinR + gy * cosR
+
+                    If havePrev Then
+                        If Not skm.CreateLine(prevX, prevY, 0#, wx, wy, 0#) _
+                           Is Nothing Then drawn = True
+                    End If
+                    prevX = wx
+                    prevY = wy
+                    havePrev = True
+                Next p
+            Next s
+        End If
+
+        penX = penX + FONT_ADVANCE
+    Next i
+
+done:
     On Error Resume Next
-    Dim md As Object
-    Set md = swModel          ' late binding for InsertSketchText
-    md.InsertSketchText x, y, 0#, text, _
-                        SW_TEXT_ALIGN_LEFT, 0, 0, _
-                        SW_TEXT_WIDTH_PCT, SW_TEXT_SPACING_PCT, SW_TEXT_HEIGHT_PCT
+    skm.AddToDB = prevAddToDB
     On Error GoTo 0
-End Sub
+    DrawOneWord = drawn
+End Function
+
+'------------------------------------------------------------------------------
+' Single-stroke glyph definitions. Grid: x 0..4, y 0..6 (baseline y = 0).
+'------------------------------------------------------------------------------
+Private Function StrokeFor(ByVal ch As String) As String
+    Select Case ch
+        Case "A": StrokeFor = "0,0 2,6 4,0;0.7,2 3.3,2"
+        Case "B": StrokeFor = "0,0 0,6 3,6 4,5 4,4 3,3 0,3;3,3 4,2 4,1 3,0 0,0"
+        Case "C": StrokeFor = "4,1 3,0 1,0 0,1 0,5 1,6 3,6 4,5"
+        Case "D": StrokeFor = "0,0 0,6 2,6 4,4 4,2 2,0 0,0"
+        Case "E": StrokeFor = "4,0 0,0 0,6 4,6;0,3 3,3"
+        Case "F": StrokeFor = "0,0 0,6 4,6;0,3 3,3"
+        Case "G": StrokeFor = "4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,3 2,3"
+        Case "H": StrokeFor = "0,0 0,6;4,0 4,6;0,3 4,3"
+        Case "I": StrokeFor = "1,0 3,0;2,0 2,6;1,6 3,6"
+        Case "J": StrokeFor = "0,1 1,0 2,0 3,1 3,6;2,6 4,6"
+        Case "K": StrokeFor = "0,0 0,6;4,6 0,3 4,0"
+        Case "L": StrokeFor = "0,6 0,0 4,0"
+        Case "M": StrokeFor = "0,0 0,6 2,3 4,6 4,0"
+        Case "N": StrokeFor = "0,0 0,6 4,0 4,6"
+        Case "O": StrokeFor = "1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0"
+        Case "P": StrokeFor = "0,0 0,6 3,6 4,5 4,4 3,3 0,3"
+        Case "Q": StrokeFor = "1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0;2,2 4,0"
+        Case "R": StrokeFor = "0,0 0,6 3,6 4,5 4,4 3,3 0,3;2,3 4,0"
+        Case "S": StrokeFor = "0,1 1,0 3,0 4,1 4,2 3,3 1,3 0,4 0,5 1,6 3,6 4,5"
+        Case "T": StrokeFor = "0,6 4,6;2,6 2,0"
+        Case "U": StrokeFor = "0,6 0,1 1,0 3,0 4,1 4,6"
+        Case "V": StrokeFor = "0,6 2,0 4,6"
+        Case "W": StrokeFor = "0,6 1,0 2,3 3,0 4,6"
+        Case "X": StrokeFor = "0,0 4,6;0,6 4,0"
+        Case "Y": StrokeFor = "0,6 2,3 4,6;2,3 2,0"
+        Case "Z": StrokeFor = "0,6 4,6 0,0 4,0"
+        Case "0": StrokeFor = "1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,1 1,0;1,1 3,5"
+        Case "1": StrokeFor = "1,4 2,6 2,0;1,0 3,0"
+        Case "2": StrokeFor = "0,5 1,6 3,6 4,5 4,4 0,1 0,0 4,0"
+        Case "3": StrokeFor = "0,5 1,6 3,6 4,5 4,4 3,3 1,3;3,3 4,2 4,1 3,0 1,0 0,1"
+        Case "4": StrokeFor = "3,0 3,6 0,2 4,2"
+        Case "5": StrokeFor = "4,6 0,6 0,3 3,3 4,2 4,1 3,0 1,0 0,1"
+        Case "6": StrokeFor = "4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,2 3,3 1,3 0,2"
+        Case "7": StrokeFor = "0,6 4,6 1,0"
+        Case "8": StrokeFor = "1,3 0,4 0,5 1,6 3,6 4,5 4,4 3,3 1,3;1,3 0,2 0,1 1,0 3,0 4,1 4,2 3,3"
+        Case "9": StrokeFor = "4,4 3,3 1,3 0,4 0,5 1,6 3,6 4,5 4,1 3,0 1,0 0,1"
+        Case "-": StrokeFor = "1,3 3,3"
+        Case ".": StrokeFor = "1.8,0 2.2,0 2.2,0.4 1.8,0.4 1.8,0"
+        Case ",": StrokeFor = "2.2,0.5 1.7,-0.7"
+        Case "/": StrokeFor = "0,0 4,6"
+        Case "\": StrokeFor = "0,6 4,0"
+        Case ":": StrokeFor = "1.8,1 2.2,1 2.2,1.4 1.8,1.4 1.8,1;1.8,4 2.2,4 2.2,4.4 1.8,4.4 1.8,4"
+        Case "#": StrokeFor = "1,0 1,6;3,0 3,6;0,2 4,2;0,4 4,4"
+        Case "+": StrokeFor = "2,1 2,5;0,3 4,3"
+        Case "=": StrokeFor = "0,2 4,2;0,4 4,4"
+        Case "(": StrokeFor = "3,6 2,4.5 2,1.5 3,0"
+        Case ")": StrokeFor = "1,6 2,4.5 2,1.5 1,0"
+        Case "'": StrokeFor = "1.9,5 2.1,6"
+        Case "&": StrokeFor = "4,0 0,4 0,5 1,6 2,6 3,5 3,4 0,2 0,1 1,0 2,0 4,2"
+        Case "_": StrokeFor = "0,-0.8 4,-0.8"
+        Case Else: StrokeFor = "0,0 4,0 4,6 0,6 0,0"   ' unknown -> visible box
+    End Select
+End Function
 
 ' Find and select the top face of the extruded part. Returns False (nothing
 ' selected) if no suitable face is found.

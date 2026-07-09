@@ -35,11 +35,14 @@ Public Const OUTPUT_FOLDER As String = _
 ' Only geometry on this layer survives the AutoCAD filter step.
 Public Const TARGET_LAYER As String = "CUT-OUTSIDE STRAIGHT"
 
-' Layer that holds the words / part marking text (TEXT and MTEXT). The strings
-' are harvested from this layer BEFORE the filter deletes it, then recreated on
-' the part as a native SolidWorks sketch (see TextMarking.bas).
-'   >>> SET THIS to the exact layer name that holds the words. <<<
-' Leave it empty ("") to disable text marking entirely.
+' Layer(s) that hold the words / part marking text (TEXT and MTEXT). The
+' strings are harvested from these layers BEFORE the filter deletes them, then
+' recreated on the part as a native SolidWorks sketch (see TextMarking.bas).
+'   >>> SET THIS to the exact layer name(s) that hold the words. <<<
+' One layer or several - separate multiple names with commas, e.g.:
+'   "PIN STAMP TEXT, PART MARKING, ETCH"
+' (spaces around the commas are ignored; layer names themselves may contain
+' spaces). Leave it empty ("") to disable text marking entirely.
 Public Const TEXT_LAYER As String = "PIN STAMP TEXT"
 
 ' DWG drawing units expressed in meters, used to place the harvested text at the
@@ -71,6 +74,11 @@ Public Const IMPORT_MERGE_METERS As Double = 0.000254
 ' Grid used when comparing sketch end points during open-contour detection.
 ' Points closer than this are treated as the same vertex. 0.00001 m = 0.01 mm.
 Public Const POINT_TOLERANCE_METERS As Double = 0.00001
+
+' Lengths below this (in raw DWG units) are treated as zero by the
+' native-sketch workaround: zero-length segments are skipped and a polyline
+' bulge smaller than this is drawn as a straight line.
+Public Const GEOM_EPS_DWG As Double = 0.0000001
 
 '------------------------------------------------------------------------------
 ' 4. COM PROGIDS
@@ -135,6 +143,9 @@ Public Const SW_OPEN_SILENT As Long = 1
 ' swRebuildOnActivation_e.swDontRebuildActiveDoc - used when (re)activating the
 ' imported part before selection, since selection acts on the active document.
 Public Const SW_ACTIVATE_NO_REBUILD As Long = 1
+' swUserPreferenceStringValue_e.swDefaultTemplatePart - the user's default part
+' template, used by the native-sketch workaround to create a fresh empty part.
+Public Const SW_PREF_DEFAULT_PART_TEMPLATE As Long = 8
 ' Feature type name reported by an imported/normal 2D sketch.
 Public Const SW_SKETCH_TYPENAME As String = "ProfileFeature"
 
@@ -176,7 +187,30 @@ Public Type TFileResult
 End Type
 
 '------------------------------------------------------------------------------
-' 8. HARVESTED TEXT MARK
+' 8. OUTLINE SEGMENT (native-sketch workaround)
+'    One line / arc / circle harvested from the filtered DWG via AutoCAD COM,
+'    carried to SolidWorks and redrawn as native sketch geometry. Coordinates
+'    are in raw DWG units; the SolidWorks side scales by DWG_UNITS_TO_METERS.
+'------------------------------------------------------------------------------
+' TSegment.Kind values:
+Public Const SEG_LINE As Long = 0
+Public Const SEG_ARC As Long = 1
+Public Const SEG_CIRCLE As Long = 2
+
+Public Type TSegment
+    Kind As Long                ' SEG_LINE / SEG_ARC / SEG_CIRCLE
+    X1 As Double                ' start point (line/arc)
+    Y1 As Double
+    X2 As Double                ' end point (line/arc)
+    Y2 As Double
+    CX As Double                ' centre (arc/circle)
+    CY As Double
+    Radius As Double            ' circle only
+    Direction As Long           ' arc only: +1 = counter-clockwise, -1 = CW
+End Type
+
+'------------------------------------------------------------------------------
+' 9. HARVESTED TEXT MARK
 '    One word/label captured from the DWG text layer, carried from the AutoCAD
 '    stage to the SolidWorks stage. Coordinates are in raw DWG units.
 '------------------------------------------------------------------------------

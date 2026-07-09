@@ -229,6 +229,39 @@ Public Function OkText(ByVal flag As Boolean) As String
     End If
 End Function
 
+' True when layerName matches ANY name in csvList (a comma-separated list of
+' layer names, e.g. "PIN STAMP TEXT, PART MARKING"). Whitespace around each
+' name is ignored; comparison is case-insensitive like LayerEquals. An empty
+' list matches nothing.
+Public Function LayerInList(ByVal layerName As String, _
+                            ByVal csvList As String) As Boolean
+    If Len(Trim$(csvList)) = 0 Then Exit Function
+
+    Dim names() As String
+    names = Split(csvList, ",")
+
+    Dim i As Long
+    For i = LBound(names) To UBound(names)
+        If Len(Trim$(names(i))) > 0 Then
+            If LayerEquals(layerName, Trim$(names(i))) Then
+                LayerInList = True
+                Exit Function
+            End If
+        End If
+    Next i
+End Function
+
+' Join two log messages with a separator; either side may be empty.
+Public Function AppendMsg(ByVal existing As String, ByVal extra As String) As String
+    If Len(existing) = 0 Then
+        AppendMsg = extra
+    ElseIf Len(extra) = 0 Then
+        AppendMsg = existing
+    Else
+        AppendMsg = existing & " | " & extra
+    End If
+End Function
+
 ' Reset every field of a TFileResult so it can be reused inside a loop
 ' (VBA has no block scope, so a Dim inside a loop is the same variable).
 Public Sub ClearResult(ByRef r As TFileResult)

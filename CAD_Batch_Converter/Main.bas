@@ -150,6 +150,19 @@ Private Sub ProcessOneFile(ByVal acadApp As AcadApplication, _
     ' Steps 4-9: SolidWorks import, extrude, save.
     ImportAndExtrude swApp, filteredPath, outPath, r
 
+    ' WORKAROUND: if the DWG-import route did not deliver a saved part (the
+    ' unattended import has proven flaky - edit-mode/2D-to-3D state, blank or
+    ' unselectable "Model" sketch), rebuild the outline as a NATIVE SolidWorks
+    ' sketch from coordinates read straight out of AutoCAD and extrude that.
+    ' No DWG import is involved at all on this path.
+    If Not r.SaveOK Then
+        Dim segs() As TSegment
+        Dim segCount As Long
+        If HarvestOutline(acadApp, filteredPath, segs, segCount, r) Then
+            BuildAndExtrudeNative swApp, segs, segCount, outPath, r
+        End If
+    End If
+
 finish:
     r.ElapsedSeconds = ElapsedSince(t)
     Exit Sub

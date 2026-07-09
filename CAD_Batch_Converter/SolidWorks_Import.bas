@@ -166,19 +166,12 @@ Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
     ' NB: part-marking text is added by a separate pass (RunTextStamp), not here.
     swModel.ForceRebuild3 False
 
-    Dim warns As Long
-    Dim savedOK As Boolean
-    savedOK = swModel.Extension.SaveAs(outPath, SW_SAVEAS_CURRENT, _
-                                       SW_SAVE_SILENT, Nothing, errs, warns)
-    r.SaveOK = savedOK
-    If Not savedOK Then
-        r.Message = "SaveAs failed (error " & errs & ", warning " & warns & ")."
-    End If
+    r.SaveOK = SavePart(swModel, outPath, r)
 
     ' --- Step 9: close the document -----------------------------------------
     CloseModel swApp, swModel
 
-    ImportAndExtrude = savedOK
+    ImportAndExtrude = r.SaveOK
     Exit Function
 
 errHandler:
@@ -534,11 +527,77 @@ Private Function FindFeatureByName(ByVal swModel As SldWorks.ModelDoc2, _
 End Function
 
 '------------------------------------------------------------------------------
+' Save the part to outPath, robust against the known IModelDocExtension::SaveAs
+' quirk of returning False with error 0 / warning 0 - sometimes even though the
+' file WAS written. Order of trust:
+'   1. Extension.SaveAs return value.
+'   2. A fresh file on disk (written within the last few seconds) - if it is
+'      there, the save worked regardless of what the API claimed.
+'   3. One retry through the older IModelDoc2::SaveAs4 (late-bound, guarded).
+' On failure, appends the error/warning codes to r.Message. Public: shared by
+' the import path and the native-sketch workaround.
+'------------------------------------------------------------------------------
+Public Function SavePart(ByVal swModel As SldWorks.ModelDoc2, _
+                         ByVal outPath As String, _
+                         ByRef r As TFileResult) As Boolean
+    Dim errs As Long
+    Dim warns As Long
+    Dim savedOK As Boolean
+    Dim saveStart As Date
+    saveStart = Now
+
+    On Error Resume Next
+    savedOK = swModel.Extension.SaveAs(outPath, SW_SAVEAS_CURRENT, _
+                                       SW_SAVE_SILENT, Nothing, errs, warns)
+    On Error GoTo 0
+
+    If Not savedOK Then
+        If FreshFileOnDisk(outPath, saveStart) Then
+            savedOK = True
+            r.Message = AppendMsg(r.Message, "Note: SaveAs returned False" & _
+                        " (error " & errs & ", warning " & warns & ") but the" & _
+                        " SLDPRT was written - treated as saved.")
+        End If
+    End If
+
+    If Not savedOK Then
+        ' Retry through the older save entry point.
+        Dim md As Object
+        Set md = swModel
+        On Error Resume Next
+        savedOK = md.SaveAs4(outPath, SW_SAVEAS_CURRENT, SW_SAVE_SILENT, _
+                             errs, warns)
+        On Error GoTo 0
+        If Not savedOK Then savedOK = FreshFileOnDisk(outPath, saveStart)
+    End If
+
+    If Not savedOK Then
+        r.Message = AppendMsg(r.Message, "SaveAs failed (error " & errs & _
+                              ", warning " & warns & ").")
+    End If
+
+    SavePart = savedOK
+End Function
+
+' True when outPath exists and was written at/after saveStart (small clock
+' slack allowed), i.e. by the save attempt just made - never a stale file
+' left in staging by an earlier run. Public: the text-stamp pass reuses it.
+Public Function FreshFileOnDisk(ByVal outPath As String, _
+                                ByVal saveStart As Date) As Boolean
+    On Error Resume Next
+    If FileExists(outPath) Then
+        FreshFileOnDisk = (FileDateTime(outPath) >= DateAdd("s", -10, saveStart))
+    End If
+    On Error GoTo 0
+End Function
+
+'------------------------------------------------------------------------------
 ' Close the document without prompting. Uses the current title (which reflects
 ' the saved file name after SaveAs). Errors are ignored so cleanup is safe.
+' Public: the native-sketch workaround (NativeSketch.bas) reuses it.
 '------------------------------------------------------------------------------
-Private Sub CloseModel(ByVal swApp As SldWorks.SldWorks, _
-                       ByRef swModel As SldWorks.ModelDoc2)
+Public Sub CloseModel(ByVal swApp As SldWorks.SldWorks, _
+                      ByRef swModel As SldWorks.ModelDoc2)
     On Error Resume Next
     Dim title As String
     title = swModel.GetTitle

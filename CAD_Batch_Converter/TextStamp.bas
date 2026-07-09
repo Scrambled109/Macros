@@ -209,18 +209,39 @@ Private Function StampPart(ByVal swApp As SldWorks.SldWorks, _
         Exit Function
     End If
 
+    ' Selection and sketch-text APIs act on the ACTIVE document - make sure
+    ' the freshly opened part is it (guarded; failing means it already was).
+    On Error Resume Next
+    swApp.ActivateDoc3 swModel.GetTitle, False, SW_ACTIVATE_NO_REBUILD, errs
+    On Error GoTo errHandler
+
+    Dim placed As Long
     Dim applied As Boolean
-    applied = TextMarking.ApplyTextMarks(swModel)
+    applied = TextMarking.ApplyTextMarks(swModel, placed)
     If Not applied Then
-        r.Message = "Text sketch could not be created on the top face."
+        r.Message = "No words could be placed (" & r.TextCount & _
+                    " harvested) - face/plane selection or the text sketch failed."
+    ElseIf placed < r.TextCount Then
+        r.Message = "Placed " & placed & " of " & r.TextCount & " words."
     End If
 
     swModel.ForceRebuild3 False
 
+    Dim saveStart As Date
+    saveStart = Now
     Dim savedOK As Boolean
     savedOK = swModel.Save3(SW_SAVE_SILENT, errs, warns)
     If Not savedOK Then
-        r.Message = "Save failed (error " & errs & ", warning " & warns & ")."
+        ' Same quirk as SaveAs: trust a freshly rewritten file over the flag.
+        If FreshFileOnDisk(partPath, saveStart) Then
+            savedOK = True
+            r.Message = AppendMsg(r.Message, "Note: Save3 returned False" & _
+                        " (error " & errs & ", warning " & warns & ") but" & _
+                        " the part was rewritten - treated as saved.")
+        Else
+            r.Message = AppendMsg(r.Message, "Save failed (error " & errs & _
+                                  ", warning " & warns & ").")
+        End If
     End If
 
     swApp.CloseDoc swModel.GetTitle
