@@ -38,6 +38,13 @@ Option Explicit
 Private mMarks() As TTextMark
 Private mCount As Long
 
+' Stroke-font metrics (see the STROKE-FONT TEXT RENDERING section below).
+' NB: module-level Consts must live here in the declarations section - VBA
+' does not allow them between procedures.
+Private Const FONT_CAP_GRID As Double = 6#     ' grid rows = cap height
+Private Const FONT_ADVANCE As Double = 6#      ' pen advance per character
+Private Const FONT_FALLBACK_HEIGHT_M As Double = 0.003  ' if the DWG height is 0
+
 '==============================================================================
 ' LIST MANAGEMENT
 '==============================================================================
@@ -283,12 +290,9 @@ End Function
 ' polylines separated by ";". Coordinates scale so grid 6 = the DWG text
 ' height, and every point is rotated by the DWG rotation about the insertion
 ' point. Unknown characters draw as a box so missing glyphs are visible, not
-' silent. Lower-case letters are drawn as capitals.
+' silent. Lower-case letters are drawn as capitals. (The FONT_* constants
+' live in the declarations section at the top of this module.)
 '==============================================================================
-
-Private Const FONT_CAP_GRID As Double = 6#     ' grid rows = cap height
-Private Const FONT_ADVANCE As Double = 6#      ' pen advance per character
-Private Const FONT_FALLBACK_HEIGHT_M As Double = 0.003  ' if the DWG height is 0
 
 '------------------------------------------------------------------------------
 ' Draw one word at (xm, ym) meters, cap height hm meters, rotated rot radians
