@@ -97,23 +97,29 @@ End Sub
 
 ' Read every TEXT / MTEXT entity on the TEXT_LAYER layer(s) from the open
 ' drawing and store it. TEXT_LAYER may name several layers, comma-separated.
-' Reading does not require the layers to be unlocked, and this runs BEFORE
-' the filter deletes anything. No-op when TEXT_LAYER is blank.
-Public Sub HarvestTextMarks(ByVal doc As AcadDocument)
+' extraGeomLayer optionally names ONE more layer to harvest - the scratch
+' layer that TXTEXP letter outlines are collected on (see
+' TextStamp.PrepareAndExplodeText). Reading does not require the layers to be
+' unlocked. No-op when TEXT_LAYER is blank.
+Public Sub HarvestTextMarks(ByVal doc As AcadDocument, _
+                            Optional ByVal extraGeomLayer As String = vbNullString)
     If Len(Trim$(TEXT_LAYER)) = 0 Then Exit Sub
 
     Dim ms As AcadModelSpace
     Set ms = doc.ModelSpace
 
     Dim i As Long
+    Dim wanted As Boolean
     Dim ent As Object            ' late-bound: text properties are not on AcadEntity
     For i = 0 To ms.Count - 1
         On Error Resume Next
         Set ent = ms.Item(i)
         If Not ent Is Nothing Then
-            If LayerInList(ent.Layer, TEXT_LAYER) Then
-                HarvestOne ent
+            wanted = LayerInList(ent.Layer, TEXT_LAYER)
+            If Not wanted And Len(extraGeomLayer) > 0 Then
+                wanted = LayerEquals(ent.Layer, extraGeomLayer)
             End If
+            If wanted Then HarvestOne ent
         End If
         Set ent = Nothing
         On Error GoTo 0

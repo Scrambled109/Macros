@@ -155,6 +155,17 @@ Private Sub StampOnePart(ByVal acadApp As AcadApplication, _
         GoTo finish
     End If
 
+    ' Say which text path is in play: with outline conversion on, surviving
+    ' TEXT/MTEXT means TXTEXP did not convert it (stroke font renders it).
+    If TEXT_USE_DWG_OUTLINES Then
+        If r.TextCount > 0 Then
+            r.Message = AppendMsg(r.Message, "TXTEXP did not convert the" & _
+                        " text - stroke font used.")
+        Else
+            r.Message = AppendMsg(r.Message, "DWG font outlines in use (TXTEXP).")
+        End If
+    End If
+
     ' --- Open the part, stamp the top face, save in place -------------------
     r.TextOK = StampPart(swApp, partPath, r)
 
@@ -187,15 +198,12 @@ Private Sub HarvestFromSource(ByVal acadApp As AcadApplication, _
 
     Set doc = acadApp.Documents.Open(dwgPath, Not TEXT_USE_DWG_OUTLINES)
 
+    Dim outlineLayer As String
     If TEXT_USE_DWG_OUTLINES Then
-        ' Synchronous; guarded: without Express Tools the command is unknown
-        ' and the text stays intact for the stroke-font path.
-        On Error Resume Next
-        doc.SendCommand "._TXTEXP" & vbCr & "_ALL" & vbCr & vbCr
-        On Error GoTo cleanup
+        outlineLayer = PrepareAndExplodeText(doc)
     End If
 
-    TextMarking.HarvestTextMarks doc
+    TextMarking.HarvestTextMarks doc, outlineLayer
     doc.Close False                     ' discard the exploded copy
     Set doc = Nothing
     Exit Sub
@@ -206,6 +214,60 @@ cleanup:
     Set doc = Nothing
     On Error GoTo 0
 End Sub
+
+'------------------------------------------------------------------------------
+' TXTEXP is WMF-based: its exploded output lands on the CURRENT layer, not on
+' the text's own layer - which is exactly how the outlines were vanishing
+' (they landed on layer "0" where the layer-filtered harvest never looks).
+'
+' So, on the in-memory copy (never saved):
+'   1. unlock every layer,
+'   2. DELETE every TEXT/MTEXT that is NOT on a marking layer, so only the
+'      marking words are left to explode,
+'   3. park the current layer on a scratch layer,
+'   4. run TXTEXP - everything on the scratch layer afterwards is, by
+'      construction, marking text as real letter outlines.
+' Returns the scratch layer name for the harvest, or "" if setup failed
+' (the stroke-font fallback then takes over automatically).
+'------------------------------------------------------------------------------
+Private Function PrepareAndExplodeText(ByVal doc As AcadDocument) As String
+    On Error Resume Next
+    Const SCRATCH_LAYER As String = "ZZ_TXTEXP_OUT"
+
+    ' Unlock everything so stray text can be deleted.
+    Dim lay As AcadLayer
+    For Each lay In doc.Layers
+        lay.Lock = False
+    Next lay
+
+    ' Remove text that is not marking text (in-memory copy only).
+    Dim ms As AcadModelSpace
+    Set ms = doc.ModelSpace
+    Dim i As Long
+    Dim ent As Object
+    For i = ms.Count - 1 To 0 Step -1
+        Set ent = ms.Item(i)
+        If Not ent Is Nothing Then
+            If ent.ObjectName = "AcDbText" Or ent.ObjectName = "AcDbMText" Then
+                If Not LayerInList(ent.Layer, TEXT_LAYER) Then ent.Delete
+            End If
+        End If
+        Set ent = Nothing
+    Next i
+
+    ' Scratch layer becomes current; TXTEXP output collects there.
+    Dim scratch As AcadLayer
+    Set scratch = doc.Layers.Add(SCRATCH_LAYER)
+    If scratch Is Nothing Then Exit Function
+    doc.ActiveLayer = scratch
+
+    ' Synchronous; without Express Tools this is an unknown command, the text
+    ' survives on its own layers, and the stroke font renders it instead.
+    doc.SendCommand "._TXTEXP" & vbCr & "_ALL" & vbCr & vbCr
+
+    PrepareAndExplodeText = SCRATCH_LAYER
+    On Error GoTo 0
+End Function
 
 '------------------------------------------------------------------------------
 ' Open the SLDPRT, apply the harvested text to the top face, rebuild and save in
