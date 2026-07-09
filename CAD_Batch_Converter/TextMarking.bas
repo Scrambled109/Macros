@@ -163,7 +163,39 @@ Private Sub HarvestOne(ByVal ent As Object)
         Case "AcDbCircle"
             ip = ent.Center
             AddCircleSeg mSegs, mSegCount, ip(0), ip(1), ent.Radius
+
+        Case "AcDbSpline"        ' TXTEXP letter outlines can include splines
+            HarvestSplineApprox ent
     End Select
+
+    On Error GoTo 0
+End Sub
+
+' Approximate an AutoCAD spline as a polyline through its fit points (control
+' points as fallback). Plenty for letter outlines at marking size.
+Private Sub HarvestSplineApprox(ByVal ent As Object)
+    On Error Resume Next
+
+    Dim pts As Variant
+    pts = ent.FitPoints                       ' flat x,y,z triples
+    Dim n As Long
+    n = 0
+    If Not IsEmpty(pts) Then n = (UBound(pts) - LBound(pts) + 1) \ 3
+    If n < 2 Then
+        pts = ent.ControlPoints
+        If IsEmpty(pts) Then Exit Sub
+        n = (UBound(pts) - LBound(pts) + 1) \ 3
+        If n < 2 Then Exit Sub
+    End If
+
+    Dim base As Long
+    base = LBound(pts)
+    Dim i As Long
+    For i = 0 To n - 2
+        AddLineSeg mSegs, mSegCount, _
+                   pts(base + i * 3), pts(base + i * 3 + 1), _
+                   pts(base + (i + 1) * 3), pts(base + (i + 1) * 3 + 1)
+    Next i
 
     On Error GoTo 0
 End Sub

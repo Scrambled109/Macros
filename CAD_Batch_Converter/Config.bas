@@ -54,6 +54,14 @@ Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 ' 0.00635 m = 6.35 mm = 0.25 in.
 Public Const EXTRUDE_DEPTH_METERS As Double = 0.00635
 
+' Convert the DWG text to REAL letter outlines (the drawing's own font) with
+' AutoCAD Express Tools' TXTEXP before harvesting, so the words land in
+' SolidWorks exactly as they look on the drawing. The source DWG is opened in
+' memory and closed WITHOUT saving - the file on disk is never modified. If
+' TXTEXP is unavailable (no Express Tools), the text survives and the built-in
+' stroke font takes over automatically. Set False to always use the stroke font.
+Public Const TEXT_USE_DWG_OUTLINES As Boolean = True
+
 ' Sketch color for the reference words and marking geometry, as an OLE RGB
 ' Long: red + green*256 + blue*65536. 255 = bright red, 65535 = yellow,
 ' 16711935 = magenta. Set -1 to leave the default sketch color.

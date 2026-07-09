@@ -109,10 +109,21 @@ Text stamped      : OK
 knob — it must match the drawing's units (inches by default).
 
 **Marking geometry too:** the harvest is not text-only — **lines, polylines,
-arcs and circles** on the marking layers (frame lines and similar reference
-marking) are captured as well and drawn into the same un-consumed sketch, at
-the same scale. The log reports both: `drew X of Y word(s) + Z of N marking
-segment(s)`.
+arcs, circles and splines** on the marking layers (frame lines and similar
+reference marking) are captured as well and drawn into the same un-consumed
+sketch, at the same scale. The log reports both: `drew X of Y word(s) + Z of N
+marking segment(s)`.
+
+**Real letterforms (default):** with `TEXT_USE_DWG_OUTLINES = True`, the text
+pass first runs AutoCAD Express Tools' **`TXTEXP`** on an in-memory copy of
+the source DWG (closed without saving — the file on disk is never modified).
+That explodes every TEXT/MTEXT into **true letter-outline polylines in the
+drawing's own font**, which flow through the geometry harvest — so the words
+appear in SolidWorks exactly as they look on the drawing, in that font. With
+outline conversion active the log shows the words as marking segments
+(`Words found : 0` + many segments) — that's expected. If Express Tools /
+`TXTEXP` isn't installed, the text survives intact and the built-in
+single-stroke font renders it instead, automatically.
 
 **Reference only by default:** everything stays as a plain sketch — nothing is
 cut into the steel. If you ever DO want the words physically engraved, set

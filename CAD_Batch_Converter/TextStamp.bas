@@ -169,17 +169,34 @@ errHandler:
 End Sub
 
 '------------------------------------------------------------------------------
-' Open the source DWG read-only, harvest its text into TextMarking, then close
-' it without saving. Read-only means the source is never modified.
+' Open the source DWG, harvest its text + marking geometry into TextMarking,
+' then close WITHOUT saving - the file on disk is never modified either way.
+'
+' When TEXT_USE_DWG_OUTLINES is True, Express Tools' TXTEXP is run first: it
+' explodes every TEXT/MTEXT into REAL letter-outline polylines (the drawing's
+' own font), which the harvest then picks up as marking geometry - so the
+' words land in SolidWorks exactly as they look on the drawing. TXTEXP needs a
+' writable document, hence the in-memory (non-read-only) open. If TXTEXP is
+' not available the text entities simply survive, the harvest captures them as
+' words, and the built-in stroke font renders them - automatic fallback.
 '------------------------------------------------------------------------------
 Private Sub HarvestFromSource(ByVal acadApp As AcadApplication, _
                               ByVal dwgPath As String)
     Dim doc As AcadDocument
     On Error GoTo cleanup
 
-    Set doc = acadApp.Documents.Open(dwgPath, True)   ' True = read-only
+    Set doc = acadApp.Documents.Open(dwgPath, Not TEXT_USE_DWG_OUTLINES)
+
+    If TEXT_USE_DWG_OUTLINES Then
+        ' Synchronous; guarded: without Express Tools the command is unknown
+        ' and the text stays intact for the stroke-font path.
+        On Error Resume Next
+        doc.SendCommand "._TXTEXP" & vbCr & "_ALL" & vbCr & vbCr
+        On Error GoTo cleanup
+    End If
+
     TextMarking.HarvestTextMarks doc
-    doc.Close False
+    doc.Close False                     ' discard the exploded copy
     Set doc = Nothing
     Exit Sub
 
