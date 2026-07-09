@@ -108,6 +108,16 @@ Text stamped      : OK
 **If the words land in the wrong place**, `DWG_UNITS_TO_METERS` is the single
 knob — it must match the drawing's units (inches by default).
 
+**Engraving (readability):** bare sketch lines are hard to read in shaded
+views (hairline strokes + endpoint dots), so by default the pass follows the
+drawing step with a **shallow thin-slot cut** along the strokes —
+`TEXT_ENGRAVE_DEPTH_M` deep (0.2 mm default), stroke width =
+`TEXT_STROKE_WIDTH_FRAC` × cap height. The words become crisp shaded grooves,
+like the real pin-stamped part. Both cut directions and two thin-cut API forms
+are attempted, verified by the returned feature; if none succeeds the words
+stay as sketch lines and the log says so. Set `TEXT_ENGRAVE = False` for
+sketch-lines-only behaviour.
+
 **Why the words are drawn instead of using SolidWorks sketch text:**
 `IModelDoc2::InsertSketchText` proved unusable unattended on this install — it
 returned `Nothing` for every word, with the app visible or hidden, on both

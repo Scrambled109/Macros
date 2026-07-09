@@ -285,12 +285,20 @@ Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
         End If
     Next i
 
-    ' --- 4) Close the sketch, leaving it in the tree (un-extruded) ----------
+    ' --- 4) Close the sketch, leaving it in the tree ------------------------
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
 
     detail = "surface: " & surface & "; drew " & placed & " of " & mCount & _
              IIf(Len(mLastDrawErr) > 0, "; first draw problem: " & mLastDrawErr, "")
+
+    ' --- 5) Optional: engrave the strokes as a shallow thin-slot cut so the
+    '        words read clearly in shaded views. On failure the sketch simply
+    '        stays as lines and the log says why. --------------------------
+    If placed > 0 And TEXT_ENGRAVE Then
+        detail = detail & "; " & EngraveTextSketch(swModel)
+    End If
+
     PlaceAllWords = placed
     Exit Function
 
@@ -475,6 +483,96 @@ Private Function StrokeFor(ByVal ch As String) As String
         Case "_": StrokeFor = "0,-0.8 4,-0.8"
         Case Else: StrokeFor = "0,0 4,0 4,6 0,6 0,0"   ' unknown -> visible box
     End Select
+End Function
+
+'------------------------------------------------------------------------------
+' Engrave the just-closed text sketch as a THIN-SLOT CUT: each open stroke is
+' swept into a groove TEXT_ENGRAVE_DEPTH_M deep and (cap height x
+' TEXT_STROKE_WIDTH_FRAC) wide. Open sketches are exactly what thin cuts are
+' for, so the stick font needs no closed outlines.
+'
+' The thin-cut API argument lists vary by release, so two forms are attempted
+' late-bound (IFeatureManager::FeatureCutThin2, then the legacy
+' IModelDoc2::FeatureCutThin), each verified by the feature it returns, and
+' each tried in both cut directions (a cut pointing out of the material
+' creates nothing). Any total failure leaves the sketch as plain lines.
+' Returns a short note for the log.
+'------------------------------------------------------------------------------
+Private Function EngraveTextSketch(ByVal swModel As SldWorks.ModelDoc2) As String
+    On Error Resume Next
+    EngraveTextSketch = "engrave: failed (left as sketch lines)"
+
+    ' Groove width from the first word's height (words share a height in
+    ' practice); fall back if the DWG height was zero.
+    Dim capH As Double
+    capH = mMarks(0).Height * DWG_UNITS_TO_METERS
+    If capH <= 0# Then capH = FONT_FALLBACK_HEIGHT_M
+    Dim thick As Double
+    thick = capH * TEXT_STROKE_WIDTH_FRAC
+
+    Dim skFeat As SldWorks.Feature
+    Set skFeat = LastSketchFeature(swModel)
+    If skFeat Is Nothing Then
+        EngraveTextSketch = "engrave: text sketch not found (left as lines)"
+        Exit Function
+    End If
+
+    Dim fm As Object                 ' late-bound: signatures vary by release
+    Dim md As Object
+    Set fm = swModel.FeatureManager
+    Set md = swModel
+
+    Dim newFeat As Object
+    Dim pass As Long
+    Dim flipDir As Boolean
+    For pass = 0 To 1
+        flipDir = (pass = 1)
+
+        swModel.ClearSelection2 True
+        skFeat.Select2 False, 0
+
+        ' Current-generation FeatureManager form.
+        Err.Clear
+        Set newFeat = Nothing
+        Set newFeat = fm.FeatureCutThin2( _
+            True, flipDir, False, 0, 0, TEXT_ENGRAVE_DEPTH_M, 0#, _
+            False, False, False, False, 0#, 0#, False, False, False, False, _
+            False, True, True, False, False, False, 0, 0#, False, _
+            0, thick, 0#, 0#, False, 0#, False, 0#)
+
+        ' Legacy ModelDoc form.
+        If newFeat Is Nothing Then
+            swModel.ClearSelection2 True
+            skFeat.Select2 False, 0
+            Err.Clear
+            Set newFeat = md.FeatureCutThin( _
+                True, flipDir, False, 0, 0, TEXT_ENGRAVE_DEPTH_M, 0#, _
+                False, False, False, False, 0#, 0#, False, False, _
+                0, thick, 0#, 0#, False, 0#, False, 0#)
+        End If
+
+        If Not newFeat Is Nothing Then Exit For
+    Next pass
+
+    swModel.ClearSelection2 True
+
+    If Not newFeat Is Nothing Then
+        EngraveTextSketch = "engraved " & Format$(TEXT_ENGRAVE_DEPTH_M * 1000#, "0.0#") & _
+                            " mm deep" & IIf(flipDir, " (direction flipped)", "")
+    ElseIf Err.Number <> 0 Then
+        EngraveTextSketch = "engrave: failed (left as sketch lines) - " & Err.Description
+    End If
+    On Error GoTo 0
+End Function
+
+' Return the LAST sketch feature in the tree (the text sketch just closed).
+Private Function LastSketchFeature(ByVal swModel As SldWorks.ModelDoc2) As SldWorks.Feature
+    Dim feat As SldWorks.Feature
+    Set feat = swModel.FirstFeature
+    Do While Not feat Is Nothing
+        If feat.GetTypeName2 = SW_SKETCH_TYPENAME Then Set LastSketchFeature = feat
+        Set feat = feat.GetNextFeature
+    Loop
 End Function
 
 ' Find and select the top face of the extruded part. Returns False (nothing
