@@ -155,18 +155,6 @@ Private Sub StampOnePart(ByVal acadApp As AcadApplication, _
         GoTo finish
     End If
 
-    ' Leave no doubt in the log about WHICH text path ran: with outline
-    ' conversion on, surviving TEXT/MTEXT means TXTEXP did not convert it.
-    If TEXT_USE_DWG_OUTLINES Then
-        If r.TextCount > 0 Then
-            r.Message = AppendMsg(r.Message, "TXTEXP did NOT convert the" & _
-                        " text (Express Tools missing or not loaded?) -" & _
-                        " stroke font used.")
-        Else
-            r.Message = AppendMsg(r.Message, "DWG font outlines in use (TXTEXP).")
-        End If
-    End If
-
     ' --- Open the part, stamp the top face, save in place -------------------
     r.TextOK = StampPart(swApp, partPath, r)
 
@@ -200,13 +188,9 @@ Private Sub HarvestFromSource(ByVal acadApp As AcadApplication, _
     Set doc = acadApp.Documents.Open(dwgPath, Not TEXT_USE_DWG_OUTLINES)
 
     If TEXT_USE_DWG_OUTLINES Then
-        ' Load Express Tools into THIS AutoCAD session first - installed does
-        ' not mean loaded, and a COM-started session often skips the ribbon
-        ' autoload. EXPRESSTOOLS is a harmless no-op when already loaded.
-        ' Both sends are synchronous; guarded: without Express Tools the
-        ' commands are unknown and the text survives for the stroke-font path.
+        ' Synchronous; guarded: without Express Tools the command is unknown
+        ' and the text stays intact for the stroke-font path.
         On Error Resume Next
-        doc.SendCommand "._EXPRESSTOOLS" & vbCr
         doc.SendCommand "._TXTEXP" & vbCr & "_ALL" & vbCr & vbCr
         On Error GoTo cleanup
     End If
