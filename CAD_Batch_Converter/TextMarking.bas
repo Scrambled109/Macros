@@ -45,6 +45,9 @@ Private Const FONT_CAP_GRID As Double = 6#     ' grid rows = cap height
 Private Const FONT_ADVANCE As Double = 6#      ' pen advance per character
 Private Const FONT_FALLBACK_HEIGHT_M As Double = 0.003  ' if the DWG height is 0
 
+' First drawing failure of the current placement attempt, for the log.
+Private mLastDrawErr As String
+
 '==============================================================================
 ' LIST MANAGEMENT
 '==============================================================================
@@ -211,40 +214,63 @@ End Function
 ' OK while placing nothing). Returns True when at least one word was placed
 ' (and True when there was nothing to place).
 Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
-                               ByRef placedCount As Long) As Boolean
+                               ByRef placedCount As Long, _
+                               ByRef detail As String) As Boolean
     placedCount = 0
+    detail = vbNullString
     If mCount = 0 Then
         ApplyTextMarks = True
         Exit Function
     End If
 
-    placedCount = PlaceAllWords(swModel)
+    placedCount = PlaceAllWords(swModel, detail)
     ApplyTextMarks = (placedCount > 0)
 End Function
 
 '------------------------------------------------------------------------------
 ' One complete placement attempt: select the top face (Front-plane fallback),
 ' open a sketch ON it, insert every harvested word, close the sketch. Returns
-' the number of words that actually landed. Verifies the sketch really opened
-' (SketchManager.ActiveSketch) instead of assuming.
+' the number of words that actually landed.
+'
+' Every step is verified AND narrated into `detail` so a failure names the
+' exact step in the log: which surface was selected, whether the sketch really
+' opened (SketchManager.ActiveSketch), how many words drew, and the first
+' drawing error if any. If a sketch will not open on the top face, the front
+' plane is retried before giving up.
 '------------------------------------------------------------------------------
-Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2) As Long
+Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
+                               ByRef detail As String) As Long
     Dim placed As Long
+    Dim surface As String
+    mLastDrawErr = vbNullString
     On Error GoTo errHandler
 
-    ' Select the top face of the extrusion; fall back to the Front plane.
-    If Not SelectTopFace(swModel) Then
-        If Not SelectFrontPlane(swModel) Then Exit Function
+    ' --- 1) Pick the sketch surface: top face, else the front plane ---------
+    If SelectTopFace(swModel) Then
+        surface = "top face"
+    ElseIf SelectFrontPlane(swModel) Then
+        surface = "front plane (no top face found)"
+    Else
+        detail = "neither the top face nor a reference plane could be selected"
+        Exit Function
     End If
 
-    ' Open a new sketch on the selected face / plane - and verify it opened.
+    ' --- 2) Open a sketch on it - verified, with a front-plane retry --------
     swModel.SketchManager.InsertSketch True
-    If swModel.SketchManager.ActiveSketch Is Nothing Then Exit Function
+    If swModel.SketchManager.ActiveSketch Is Nothing Then
+        If SelectFrontPlane(swModel) Then
+            surface = "front plane (sketch would not open on the top face)"
+            swModel.SketchManager.InsertSketch True
+        End If
+    End If
+    If swModel.SketchManager.ActiveSketch Is Nothing Then
+        detail = "a sketch would not open (surface: " & surface & ")"
+        Exit Function
+    End If
 
-    ' Place each word by DRAWING it as single-stroke line geometry - the same
-    ' proven SketchManager.CreateLine calls the outline workaround uses, so
-    ' there is no flaky text API anywhere in the chain. Position, height AND
-    ' rotation come from the DWG (scaled DWG units -> meters).
+    ' --- 3) Draw each word as single-stroke line geometry - the same proven
+    '        SketchManager.CreateLine calls the outline workaround uses.
+    '        Position, height AND rotation come from the DWG. ----------------
     Dim i As Long
     For i = 0 To mCount - 1
         If Len(mMarks(i).Text) > 0 Then
@@ -259,14 +285,18 @@ Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2) As Long
         End If
     Next i
 
-    ' Close the sketch, leaving it in the tree (un-extruded).
+    ' --- 4) Close the sketch, leaving it in the tree (un-extruded) ----------
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
 
+    detail = "surface: " & surface & "; drew " & placed & " of " & mCount & _
+             IIf(Len(mLastDrawErr) > 0, "; first draw problem: " & mLastDrawErr, "")
     PlaceAllWords = placed
     Exit Function
 
 errHandler:
+    detail = "runtime error after surface '" & surface & "' with " & placed & _
+             " word(s) drawn: " & Err.Description
     On Error Resume Next
     swModel.SketchManager.InsertSketch True   ' make sure sketch mode is closed
     swModel.ClearSelection2 True
@@ -374,6 +404,14 @@ Private Function DrawOneWord(ByVal swModel As SldWorks.ModelDoc2, _
     Next i
 
 done:
+    ' Record the FIRST failure so the log can explain a zero-word run.
+    If Len(mLastDrawErr) = 0 Then
+        If Err.Number <> 0 Then
+            mLastDrawErr = "'" & text & "': " & Err.Description
+        ElseIf Not drawn Then
+            mLastDrawErr = "'" & text & "': CreateLine produced no segments"
+        End If
+    End If
     On Error Resume Next
     skm.AddToDB = prevAddToDB
     On Error GoTo 0

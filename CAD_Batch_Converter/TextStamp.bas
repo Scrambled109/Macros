@@ -216,13 +216,15 @@ Private Function StampPart(ByVal swApp As SldWorks.SldWorks, _
     On Error GoTo errHandler
 
     Dim placed As Long
+    Dim detail As String
     Dim applied As Boolean
-    applied = TextMarking.ApplyTextMarks(swModel, placed)
+    applied = TextMarking.ApplyTextMarks(swModel, placed, detail)
     If Not applied Then
         r.Message = "No words could be placed (" & r.TextCount & _
-                    " harvested) - face/plane selection or the text sketch failed."
+                    " harvested): " & detail
     ElseIf placed < r.TextCount Then
-        r.Message = "Placed " & placed & " of " & r.TextCount & " words."
+        r.Message = "Placed " & placed & " of " & r.TextCount & _
+                    " words (" & detail & ")."
     End If
 
     swModel.ForceRebuild3 False
