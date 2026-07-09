@@ -85,15 +85,18 @@ This is done as a **separate pass** (`TextStamp.RunTextStamp`) that runs after
 `RunBatch`, so text can never damage the base parts and can be re-run on its
 own. For each `SLDPRT` in `staging`:
 
-1. **AutoCAD** opens the matching **source DWG read-only** (its `PIN STAMP TEXT`
-   layer is still intact) and captures each word's string, position, height and
+1. **AutoCAD** opens the matching **source DWG read-only** (its text layer(s)
+   are still intact) and captures each word's string, position, height and
    rotation as plain data (MTEXT formatting codes are cleaned off).
-2. **SolidWorks** opens the part and recreates each word as **native sketch
-   text** on the **top face of the extruded part** (auto-detected — the planar
-   face whose normal is +Z, at the greatest Z; it falls back to the Front plane
-   if the top face can't be found), **leaves the sketch un-extruded** (words are
-   just there for modeling — depth 0, not cut, not embossed), rebuilds and saves
-   the part in place.
+2. **SolidWorks** opens the part and **draws each word as single-stroke line
+   geometry** (a built-in stick font rendered through
+   `SketchManager.CreateLine` — the same proven call the outline workaround
+   uses) in a sketch on the **top face of the extruded part** (auto-detected —
+   the planar face whose normal is +Z, at the greatest Z; it falls back to the
+   Front plane if the top face can't be found). Position, **height and
+   rotation** all come from the DWG. The sketch is **left un-extruded** (words
+   are just there for modeling — depth 0, not cut, not embossed); the part is
+   rebuilt and saved in place.
 
 Each part's log line shows how many words were placed:
 
@@ -105,17 +108,17 @@ Text stamped      : OK
 **If the words land in the wrong place**, `DWG_UNITS_TO_METERS` is the single
 knob — it must match the drawing's units (inches by default).
 
-**Why the words used to silently not appear:** `InsertSketchText` was being
-called with **10 arguments**, but the documented `IModelDoc2::InsertSketchText`
-signature takes **nine** (`X, Y, Z, Text, Alignment, FlipDir, MirrorDir,
-WidthFactor, SpacingFactor` — height is not an argument). The wrong argument
-count raised an error that the guard swallowed, so every word vanished while
-the pass reported OK. The call now uses the correct 9-argument form, **verifies
-the `ISketchText` object it returns** (the 10-argument variant is kept only as
-a guarded fallback), and applies the DWG text height through the returned
-object's `ITextFormat`. The log now reports `Placed X of Y words` whenever
-anything fails to land, so a silent no-op is impossible. Rotation is captured
-but text is placed horizontal by default.
+**Why the words are drawn instead of using SolidWorks sketch text:**
+`IModelDoc2::InsertSketchText` proved unusable unattended on this install — it
+returned `Nothing` for every word, with the app visible or hidden, on both
+known call signatures. So the pass no longer uses any text API at all: each
+word is rendered from a **built-in single-stroke font**
+(`TextMarking.StrokeFor`) as plain `CreateLine` segments — deterministic, works
+hidden, and a stick font is what pin-stamp / dot-peen equipment engraves
+anyway. Unknown characters draw as a small box so a missing glyph is visible
+rather than silent (add glyphs in `StrokeFor` if your drawings use exotic
+symbols). Every placement is counted; the log reports `Placed X of Y words` on
+any shortfall, so a silent no-op is impossible.
 
 ---
 
