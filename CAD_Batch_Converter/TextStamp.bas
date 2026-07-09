@@ -148,8 +148,9 @@ Private Sub StampOnePart(ByVal acadApp As AcadApplication, _
     TextMarking.ClearMarks
     HarvestFromSource acadApp, dwgPath
     r.TextCount = TextMarking.MarkCount()
-    If r.TextCount = 0 Then
-        r.Message = "No text on '" & TEXT_LAYER & "' - nothing to stamp."
+    If r.TextCount = 0 And TextMarking.SegCount() = 0 Then
+        r.Message = "No text or marking geometry on '" & TEXT_LAYER & _
+                    "' - nothing to stamp."
         r.TextOK = True                       ' not a failure, just empty
         GoTo finish
     End If

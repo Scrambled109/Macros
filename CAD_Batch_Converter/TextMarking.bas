@@ -11,7 +11,9 @@ Attribute VB_Name = "TextMarking"
 '   * AutoCAD stage  - HarvestTextMarks() reads every TEXT/MTEXT on the
 '                      TEXT_LAYER layer(s) BEFORE the filter deletes them,
 '                      capturing string + position + height + rotation into an
-'                      in-memory list.
+'                      in-memory list. Marking GEOMETRY on those layers (frame
+'                      lines, polylines, arcs, circles) is captured too and
+'                      drawn into the same reference sketch.
 '   * SolidWorks stage - ApplyTextMarks() DRAWS each word as single-stroke
 '                      line geometry (built-in stick font, see StrokeFor) in a
 '                      sketch on the TOP FACE of the extruded part
@@ -38,6 +40,11 @@ Option Explicit
 Private mMarks() As TTextMark
 Private mCount As Long
 
+' Marking GEOMETRY harvested from the same layers (frame lines, marking lines,
+' arcs, circles) - drawn into the same reference sketch as the words.
+Private mSegs() As TSegment
+Private mSegCount As Long
+
 ' Stroke-font metrics (see the STROKE-FONT TEXT RENDERING section below).
 ' NB: module-level Consts must live here in the declarations section - VBA
 ' does not allow them between procedures.
@@ -52,15 +59,22 @@ Private mLastDrawErr As String
 ' LIST MANAGEMENT
 '==============================================================================
 
-' Reset the list for a new file.
+' Reset the lists for a new file.
 Public Sub ClearMarks()
     mCount = 0
     ReDim mMarks(0 To 63)
+    mSegCount = 0
+    ReDim mSegs(0 To 63)
 End Sub
 
 ' Number of words currently captured.
 Public Function MarkCount() As Long
     MarkCount = mCount
+End Function
+
+' Number of marking-geometry segments currently captured.
+Public Function SegCount() As Long
+    SegCount = mSegCount
 End Function
 
 ' Append one captured word to the list, growing the buffer as needed.
@@ -108,14 +122,17 @@ Public Sub HarvestTextMarks(ByVal doc As AcadDocument)
     Set ms = Nothing
 End Sub
 
-' Capture a single TEXT or MTEXT entity. Anything else on the layer is ignored.
+' Capture a single entity from a marking layer: TEXT/MTEXT becomes a word,
+' lines / polylines / arcs / circles become marking geometry (via the shared
+' NativeSketch segment helpers). Anything else is ignored.
 Private Sub HarvestOne(ByVal ent As Object)
     On Error Resume Next
 
     Dim kind As String
-    kind = ent.ObjectName        ' "AcDbText" or "AcDbMText"
+    kind = ent.ObjectName
 
     Dim ip As Variant
+    Dim p2 As Variant
     Dim s As String
 
     Select Case kind
@@ -128,6 +145,24 @@ Private Sub HarvestOne(ByVal ent As Object)
             ip = ent.InsertionPoint
             s = CleanMText(ent.TextString)
             AddMark s, ip(0), ip(1), ent.Height, ent.RotationAngle
+
+        Case "AcDbLine"          ' marking geometry (frame lines etc.)
+            ip = ent.StartPoint
+            p2 = ent.EndPoint
+            AddLineSeg mSegs, mSegCount, ip(0), ip(1), p2(0), p2(1)
+
+        Case "AcDbPolyline"
+            AddPolyline mSegs, mSegCount, ent, 2
+
+        Case "AcDb2dPolyline", "AcDb3dPolyline"
+            AddPolyline mSegs, mSegCount, ent, 3
+
+        Case "AcDbArc"
+            AddArcEntity mSegs, mSegCount, ent
+
+        Case "AcDbCircle"
+            ip = ent.Center
+            AddCircleSeg mSegs, mSegCount, ip(0), ip(1), ent.Radius
     End Select
 
     On Error GoTo 0
@@ -218,13 +253,14 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
                                ByRef detail As String) As Boolean
     placedCount = 0
     detail = vbNullString
-    If mCount = 0 Then
+    If mCount = 0 And mSegCount = 0 Then
         ApplyTextMarks = True
         Exit Function
     End If
 
-    placedCount = PlaceAllWords(swModel, detail)
-    ApplyTextMarks = (placedCount > 0)
+    Dim segsDrawn As Long
+    placedCount = PlaceAllWords(swModel, segsDrawn, detail)
+    ApplyTextMarks = ((placedCount + segsDrawn) > 0)
 End Function
 
 '------------------------------------------------------------------------------
@@ -239,9 +275,11 @@ End Function
 ' plane is retried before giving up.
 '------------------------------------------------------------------------------
 Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
+                               ByRef segsDrawn As Long, _
                                ByRef detail As String) As Long
     Dim placed As Long
     Dim surface As String
+    segsDrawn = 0
     mLastDrawErr = vbNullString
     On Error GoTo errHandler
 
@@ -285,17 +323,25 @@ Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
         End If
     Next i
 
-    ' --- 4) Close the sketch, leaving it in the tree ------------------------
+    ' --- 3b) Draw the marking GEOMETRY (frame lines etc.) into the same
+    '         reference sketch, scaled the same way. ------------------------
+    If mSegCount > 0 Then
+        segsDrawn = DrawSegments(swModel.SketchManager, mSegs, mSegCount, _
+                                 DWG_UNITS_TO_METERS)
+    End If
+
+    ' --- 4) Close the sketch, leaving it in the tree (reference only) -------
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
 
     detail = "surface: " & surface & "; drew " & placed & " of " & mCount & _
+             " word(s)" & _
+             IIf(mSegCount > 0, " + " & segsDrawn & " of " & mSegCount & _
+                 " marking segment(s)", "") & _
              IIf(Len(mLastDrawErr) > 0, "; first draw problem: " & mLastDrawErr, "")
 
-    ' --- 5) Optional: engrave the strokes as a shallow thin-slot cut so the
-    '        words read clearly in shaded views. On failure the sketch simply
-    '        stays as lines and the log says why. --------------------------
-    If placed > 0 And TEXT_ENGRAVE Then
+    ' --- 5) Optional engraving (OFF by default - reference only). -----------
+    If (placed + segsDrawn) > 0 And TEXT_ENGRAVE Then
         detail = detail & "; " & EngraveTextSketch(swModel)
     End If
 

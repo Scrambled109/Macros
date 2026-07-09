@@ -81,13 +81,7 @@ Public Function HarvestOutline(ByVal acadApp As AcadApplication, _
                 AddArcEntity segs, segCount, ent
             Case "AcDbCircle"
                 ctr = ent.Center
-                EnsureCapacity segs, segCount
-                With segs(segCount)
-                    .Kind = SEG_CIRCLE
-                    .CX = ctr(0): .CY = ctr(1)
-                    .Radius = ent.Radius
-                End With
-                segCount = segCount + 1
+                AddCircleSeg segs, segCount, ctr(0), ctr(1), ent.Radius
             Case Else
                 ' Report each unsupported type once, by name.
                 If InStr(1, unsupported, ent.ObjectName, vbTextCompare) = 0 Then
@@ -176,31 +170,7 @@ Public Function BuildAndExtrudeNative(ByVal swApp As SldWorks.SldWorks, _
     skm.InsertSketch True                    ' enter a sketch on the plane
 
     ' --- Redraw the harvested geometry, scaled DWG units -> meters ----------
-    ' AddToDB skips inference/snapping so coordinates land EXACTLY as given.
-    skm.AddToDB = True
-    skm.DisplayWhenAdded = False
-
-    Dim k As Double
-    k = DWG_UNITS_TO_METERS
-
-    Dim i As Long
-    For i = 0 To segCount - 1
-        With segs(i)
-            Select Case .Kind
-                Case SEG_LINE
-                    skm.CreateLine .X1 * k, .Y1 * k, 0#, .X2 * k, .Y2 * k, 0#
-                Case SEG_ARC
-                    skm.CreateArc .CX * k, .CY * k, 0#, _
-                                  .X1 * k, .Y1 * k, 0#, _
-                                  .X2 * k, .Y2 * k, 0#, .Direction
-                Case SEG_CIRCLE
-                    skm.CreateCircleByRadius .CX * k, .CY * k, 0#, .Radius * k
-            End Select
-        End With
-    Next i
-
-    skm.AddToDB = False
-    skm.DisplayWhenAdded = True
+    DrawSegments skm, segs, segCount, DWG_UNITS_TO_METERS
     skm.InsertSketch True                    ' exit the sketch
     r.ImportOK = True                        ' geometry is in SolidWorks
 
@@ -250,13 +220,62 @@ errHandler:
 End Function
 
 '==============================================================================
-' AutoCAD-side helpers
+' Segment helpers - Public: TextMarking reuses them to harvest and draw the
+' reference marking geometry (frame lines etc.) on the finished parts.
 '==============================================================================
 
+'------------------------------------------------------------------------------
+' Draw segs() into the ACTIVE sketch, scaled by unitScale (DWG units ->
+' meters). AddToDB skips inference/snapping so coordinates land exactly as
+' given. Returns the number of segments actually created (verified).
+'------------------------------------------------------------------------------
+Public Function DrawSegments(ByVal skm As SldWorks.SketchManager, _
+                             ByRef segs() As TSegment, _
+                             ByVal segCount As Long, _
+                             ByVal unitScale As Double) As Long
+    On Error GoTo done
+    Dim k As Double
+    k = unitScale
+
+    Dim prevAddToDB As Boolean
+    prevAddToDB = skm.AddToDB
+    skm.AddToDB = True
+    skm.DisplayWhenAdded = False
+
+    Dim made As Long
+    Dim obj As Object
+    Dim i As Long
+    For i = 0 To segCount - 1
+        Set obj = Nothing
+        With segs(i)
+            Select Case .Kind
+                Case SEG_LINE
+                    Set obj = skm.CreateLine(.X1 * k, .Y1 * k, 0#, _
+                                             .X2 * k, .Y2 * k, 0#)
+                Case SEG_ARC
+                    Set obj = skm.CreateArc(.CX * k, .CY * k, 0#, _
+                                            .X1 * k, .Y1 * k, 0#, _
+                                            .X2 * k, .Y2 * k, 0#, .Direction)
+                Case SEG_CIRCLE
+                    Set obj = skm.CreateCircleByRadius(.CX * k, .CY * k, 0#, _
+                                                       .Radius * k)
+            End Select
+        End With
+        If Not obj Is Nothing Then made = made + 1
+    Next i
+
+done:
+    On Error Resume Next
+    skm.AddToDB = prevAddToDB
+    skm.DisplayWhenAdded = True
+    On Error GoTo 0
+    DrawSegments = made
+End Function
+
 ' Append a straight segment, skipping zero-length ones.
-Private Sub AddLineSeg(ByRef segs() As TSegment, ByRef segCount As Long, _
-                       ByVal x1 As Double, ByVal y1 As Double, _
-                       ByVal x2 As Double, ByVal y2 As Double)
+Public Sub AddLineSeg(ByRef segs() As TSegment, ByRef segCount As Long, _
+                      ByVal x1 As Double, ByVal y1 As Double, _
+                      ByVal x2 As Double, ByVal y2 As Double)
     If Abs(x2 - x1) < GEOM_EPS_DWG And Abs(y2 - y1) < GEOM_EPS_DWG Then Exit Sub
     EnsureCapacity segs, segCount
     With segs(segCount)
@@ -271,7 +290,7 @@ End Sub
 ' polyline (flat X,Y coordinate array), 3 for heavy 2D/3D polylines (X,Y,Z).
 ' A non-zero bulge on a vertex turns that segment into a true arc.
 '------------------------------------------------------------------------------
-Private Sub AddPolyline(ByRef segs() As TSegment, ByRef segCount As Long, _
+Public Sub AddPolyline(ByRef segs() As TSegment, ByRef segCount As Long, _
                         ByVal pl As Object, ByVal stride As Long)
     Dim coords As Variant
     coords = pl.Coordinates
@@ -356,7 +375,7 @@ Private Sub AddBulgeArc(ByRef segs() As TSegment, ByRef segCount As Long, _
 End Sub
 
 ' Append an AutoCAD ARC entity (always counter-clockwise, angles in radians).
-Private Sub AddArcEntity(ByRef segs() As TSegment, ByRef segCount As Long, _
+Public Sub AddArcEntity(ByRef segs() As TSegment, ByRef segCount As Long, _
                          ByVal ent As Object)
     Dim ctr As Variant                   ' copy point into a Variant, then index
     ctr = ent.Center
@@ -376,8 +395,22 @@ Private Sub AddArcEntity(ByRef segs() As TSegment, ByRef segCount As Long, _
     segCount = segCount + 1
 End Sub
 
+' Append a full circle.
+Public Sub AddCircleSeg(ByRef segs() As TSegment, ByRef segCount As Long, _
+                        ByVal cx As Double, ByVal cy As Double, _
+                        ByVal radius As Double)
+    If radius <= 0# Then Exit Sub
+    EnsureCapacity segs, segCount
+    With segs(segCount)
+        .Kind = SEG_CIRCLE
+        .CX = cx: .CY = cy
+        .Radius = radius
+    End With
+    segCount = segCount + 1
+End Sub
+
 ' Grow segs() geometrically so appends stay cheap.
-Private Sub EnsureCapacity(ByRef segs() As TSegment, ByVal needed As Long)
+Public Sub EnsureCapacity(ByRef segs() As TSegment, ByVal needed As Long)
     If needed > UBound(segs) Then
         ReDim Preserve segs(0 To UBound(segs) * 2 + 1)
     End If

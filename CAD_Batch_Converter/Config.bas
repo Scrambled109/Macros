@@ -54,12 +54,11 @@ Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 ' 0.00635 m = 6.35 mm = 0.25 in.
 Public Const EXTRUDE_DEPTH_METERS As Double = 0.00635
 
-' Render the words as a shallow ENGRAVED groove (a thin-slot cut along each
-' stroke) so they read clearly in shaded views - bare sketch lines are hard to
-' read (hairlines + endpoint dots). Set False to leave them as sketch lines.
-' If the cut cannot be created on a given part, the pass automatically falls
-' back to sketch lines and says so in the log.
-Public Const TEXT_ENGRAVE As Boolean = True
+' Optionally render the words as a shallow ENGRAVED groove (a thin-slot cut
+' along each stroke). DEFAULT False: the words and marking lines are REFERENCE
+' ONLY - they stay as an un-consumed sketch and nothing is cut into the steel.
+' Set True only if you ever want the text physically engraved on the model.
+Public Const TEXT_ENGRAVE As Boolean = False
 ' Engrave depth into the top face, meters. 0.0002 m = 0.2 mm (~0.008 in).
 Public Const TEXT_ENGRAVE_DEPTH_M As Double = 0.0002
 ' Engraved stroke width as a fraction of the text cap height. 0.12 reads like
