@@ -148,10 +148,22 @@ Private Sub StampOnePart(ByVal acadApp As AcadApplication, _
     TextMarking.ClearMarks
     HarvestFromSource acadApp, dwgPath
     r.TextCount = TextMarking.MarkCount()
-    If r.TextCount = 0 Then
-        r.Message = "No text on '" & TEXT_LAYER & "' - nothing to stamp."
+    If r.TextCount = 0 And TextMarking.SegCount() = 0 Then
+        r.Message = "No text or marking geometry on '" & TEXT_LAYER & _
+                    "' - nothing to stamp."
         r.TextOK = True                       ' not a failure, just empty
         GoTo finish
+    End If
+
+    ' Say which text path is in play: with outline conversion on, surviving
+    ' TEXT/MTEXT means TXTEXP did not convert it (stroke font renders it).
+    If TEXT_USE_DWG_OUTLINES Then
+        If r.TextCount > 0 Then
+            r.Message = AppendMsg(r.Message, "TXTEXP did not convert the" & _
+                        " text - stroke font used.")
+        Else
+            r.Message = AppendMsg(r.Message, "DWG font outlines in use (TXTEXP).")
+        End If
     End If
 
     ' --- Open the part, stamp the top face, save in place -------------------
@@ -168,17 +180,31 @@ errHandler:
 End Sub
 
 '------------------------------------------------------------------------------
-' Open the source DWG read-only, harvest its text into TextMarking, then close
-' it without saving. Read-only means the source is never modified.
+' Open the source DWG, harvest its text + marking geometry into TextMarking,
+' then close WITHOUT saving - the file on disk is never modified either way.
+'
+' When TEXT_USE_DWG_OUTLINES is True, Express Tools' TXTEXP is run first: it
+' explodes every TEXT/MTEXT into REAL letter-outline polylines (the drawing's
+' own font), which the harvest then picks up as marking geometry - so the
+' words land in SolidWorks exactly as they look on the drawing. TXTEXP needs a
+' writable document, hence the in-memory (non-read-only) open. If TXTEXP is
+' not available the text entities simply survive, the harvest captures them as
+' words, and the built-in stroke font renders them - automatic fallback.
 '------------------------------------------------------------------------------
 Private Sub HarvestFromSource(ByVal acadApp As AcadApplication, _
                               ByVal dwgPath As String)
     Dim doc As AcadDocument
     On Error GoTo cleanup
 
-    Set doc = acadApp.Documents.Open(dwgPath, True)   ' True = read-only
-    TextMarking.HarvestTextMarks doc
-    doc.Close False
+    Set doc = acadApp.Documents.Open(dwgPath, Not TEXT_USE_DWG_OUTLINES)
+
+    Dim outlineLayer As String
+    If TEXT_USE_DWG_OUTLINES Then
+        outlineLayer = PrepareAndExplodeText(doc)
+    End If
+
+    TextMarking.HarvestTextMarks doc, outlineLayer
+    doc.Close False                     ' discard the exploded copy
     Set doc = Nothing
     Exit Sub
 
@@ -188,6 +214,60 @@ cleanup:
     Set doc = Nothing
     On Error GoTo 0
 End Sub
+
+'------------------------------------------------------------------------------
+' TXTEXP is WMF-based: its exploded output lands on the CURRENT layer, not on
+' the text's own layer - which is exactly how the outlines were vanishing
+' (they landed on layer "0" where the layer-filtered harvest never looks).
+'
+' So, on the in-memory copy (never saved):
+'   1. unlock every layer,
+'   2. DELETE every TEXT/MTEXT that is NOT on a marking layer, so only the
+'      marking words are left to explode,
+'   3. park the current layer on a scratch layer,
+'   4. run TXTEXP - everything on the scratch layer afterwards is, by
+'      construction, marking text as real letter outlines.
+' Returns the scratch layer name for the harvest, or "" if setup failed
+' (the stroke-font fallback then takes over automatically).
+'------------------------------------------------------------------------------
+Private Function PrepareAndExplodeText(ByVal doc As AcadDocument) As String
+    On Error Resume Next
+    Const SCRATCH_LAYER As String = "ZZ_TXTEXP_OUT"
+
+    ' Unlock everything so stray text can be deleted.
+    Dim lay As AcadLayer
+    For Each lay In doc.Layers
+        lay.Lock = False
+    Next lay
+
+    ' Remove text that is not marking text (in-memory copy only).
+    Dim ms As AcadModelSpace
+    Set ms = doc.ModelSpace
+    Dim i As Long
+    Dim ent As Object
+    For i = ms.Count - 1 To 0 Step -1
+        Set ent = ms.Item(i)
+        If Not ent Is Nothing Then
+            If ent.ObjectName = "AcDbText" Or ent.ObjectName = "AcDbMText" Then
+                If Not LayerInList(ent.Layer, TEXT_LAYER) Then ent.Delete
+            End If
+        End If
+        Set ent = Nothing
+    Next i
+
+    ' Scratch layer becomes current; TXTEXP output collects there.
+    Dim scratch As AcadLayer
+    Set scratch = doc.Layers.Add(SCRATCH_LAYER)
+    If scratch Is Nothing Then Exit Function
+    doc.ActiveLayer = scratch
+
+    ' Synchronous; without Express Tools this is an unknown command, the text
+    ' survives on its own layers, and the stroke font renders it instead.
+    doc.SendCommand "._TXTEXP" & vbCr & "_ALL" & vbCr & vbCr
+
+    PrepareAndExplodeText = SCRATCH_LAYER
+    On Error GoTo 0
+End Function
 
 '------------------------------------------------------------------------------
 ' Open the SLDPRT, apply the harvested text to the top face, rebuild and save in
@@ -216,13 +296,15 @@ Private Function StampPart(ByVal swApp As SldWorks.SldWorks, _
     On Error GoTo errHandler
 
     Dim placed As Long
+    Dim detail As String
     Dim applied As Boolean
-    applied = TextMarking.ApplyTextMarks(swModel, placed)
+    applied = TextMarking.ApplyTextMarks(swModel, placed, detail)
     If Not applied Then
         r.Message = "No words could be placed (" & r.TextCount & _
-                    " harvested) - face/plane selection or the text sketch failed."
+                    " harvested): " & detail
     ElseIf placed < r.TextCount Then
-        r.Message = "Placed " & placed & " of " & r.TextCount & " words."
+        r.Message = "Placed " & placed & " of " & r.TextCount & _
+                    " words (" & detail & ")."
     End If
 
     swModel.ForceRebuild3 False

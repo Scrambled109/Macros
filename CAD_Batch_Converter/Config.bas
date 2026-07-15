@@ -54,6 +54,30 @@ Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 ' 0.00635 m = 6.35 mm = 0.25 in.
 Public Const EXTRUDE_DEPTH_METERS As Double = 0.00635
 
+' Convert the DWG text to REAL letter outlines (the drawing's own font) with
+' AutoCAD Express Tools' TXTEXP before harvesting, so the words land in
+' SolidWorks exactly as they look on the drawing. The source DWG is opened in
+' memory and closed WITHOUT saving - the file on disk is never modified. If
+' TXTEXP is unavailable (no Express Tools), the text survives and the built-in
+' stroke font takes over automatically. Set False to always use the stroke font.
+Public Const TEXT_USE_DWG_OUTLINES As Boolean = True
+
+' Sketch color for the reference words and marking geometry, as an OLE RGB
+' Long: red + green*256 + blue*65536. 255 = bright red, 65535 = yellow,
+' 16711935 = magenta. Set -1 to leave the default sketch color.
+Public Const TEXT_SKETCH_COLOR As Long = 255
+
+' Optionally render the words as a shallow ENGRAVED groove (a thin-slot cut
+' along each stroke). DEFAULT False: the words and marking lines are REFERENCE
+' ONLY - they stay as an un-consumed sketch and nothing is cut into the steel.
+' Set True only if you ever want the text physically engraved on the model.
+Public Const TEXT_ENGRAVE As Boolean = False
+' Engrave depth into the top face, meters. 0.0002 m = 0.2 mm (~0.008 in).
+Public Const TEXT_ENGRAVE_DEPTH_M As Double = 0.0002
+' Engraved stroke width as a fraction of the text cap height. 0.12 reads like
+' a pin-stamped line.
+Public Const TEXT_STROKE_WIDTH_FRAC As Double = 0.12
+
 ' File mask used to enumerate the source folder.
 Public Const DWG_FILESPEC As String = "*.dwg"
 
