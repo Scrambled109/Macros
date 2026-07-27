@@ -1,0 +1,95 @@
+{
+  "length_tolerance_inches": 0.02,
+  "width_tolerance_inches": 0.02,
+  "quantity_tolerance": 0.0,
+  "plate_description_keywords": [
+    "PLATE"
+  ],
+  "excluded_hardware_description_keywords": [
+    "BOLT",
+    "NUT",
+    "WASHER",
+    "SCREW",
+    "HARDWARE",
+    "FASTENER",
+    "THREADED ROD"
+  ],
+  "solidworks_configuration_suffixes": [
+    "DEFAULT OF DEFAULT MACHINED",
+    "DEFAULT OF DEFAULT",
+    "DEFAULT MACHINED",
+    "DEFAULT"
+  ],
+  "part_number_aliases": {},
+  "shape_aliases": {
+    "ANGLE2X2X.25": "AL2X2X.25",
+    "L2X2X.25": "AL2X2X.25"
+  },
+  "material_aliases": {
+    "A500GRADEB": "A500GRB",
+    "A500GRADEBSTEEL": "A500GRB",
+    "A500GR.B": "A500GRB",
+    "A500GRBSTEEL": "A500GRB",
+    "A36STEEL": "A36"
+  },
+  "header_aliases": {
+    "part_number": [
+      "PART NUMBER",
+      "PART NO",
+      "PART NUM",
+      "FILE NAME",
+      "FILENAME"
+    ],
+    "quantity": [
+      "TOTAL QUANTITY",
+      "TOTAL QTY",
+      "QUANTITY",
+      "QTY"
+    ],
+    "description": [
+      "DESCRIPTION",
+      "PART DESCRIPTION",
+      "DESC"
+    ],
+    "shape": [
+      "THICKNESS SHAPE",
+      "THICKNESS/SHAPE",
+      "SHAPE",
+      "PROFILE",
+      "SECTION"
+    ],
+    "length": [
+      "LENGTH",
+      "PART LENGTH",
+      "CUT LENGTH"
+    ],
+    "width": [
+      "WIDTH",
+      "PART WIDTH"
+    ],
+    "material": [
+      "MATERIAL",
+      "MATERIAL TYPE",
+      "MATERIAL SPEC",
+      "MATERIAL GRADE",
+      "GRADE"
+    ],
+    "configuration": [
+      "CONFIGURATION",
+      "CONFIGURATION NAME",
+      "CONFIG"
+    ]
+  },
+  "checks": {
+    "quantity": true,
+    "length": true,
+    "shape": false,
+    "material": false,
+    "width_when_available": true
+  },
+  "output": {
+    "create_timestamped_subfolder": true,
+    "open_html_report_when_finished": true,
+    "create_excel_workbook": true
+  }
+}
