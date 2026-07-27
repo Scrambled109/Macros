@@ -3,14 +3,19 @@ Write-Host "=== STARTING CAD WORKFLOW AUTOMATION ORCHESTRATOR ===" -ForegroundCo
 Write-Host "====================================================" -ForegroundColor Cyan
 
 # --- CONFIGURATION PATHS ---
-$CsvPath         = "C:\Users\pbowen\Downloads\TEST_ENVIORMENT_AUTO_SCRIPT\parts.csv"
-$LspPath         = "U:\Engineering\CAD Services\Engineering Reference\CLBO_ps1_DIRECTORY\ColorToLayer.lsp"
-$SeedPath        = "U:\Engineering\CAD Services\Engineering Reference\CLBO_ps1_DIRECTORY\SPC_Seed.dwg"
+$CsvPath         = Join-Path $PSScriptRoot "parts.csv"
+$LspPath         = Join-Path $PSScriptRoot "ColorToLayer.lsp"
+$SeedPath        = Join-Path $PSScriptRoot "SPC_Seed.dwg"
 $AcadConsolePath = "C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
 $AcadGuiPath     = "C:\Program Files\Autodesk\AutoCAD 2026\acad.exe"
 
 # How long (seconds) to wait for a headless (accoreconsole) job before giving up on it.
 $ConsoleTimeoutSec = 180
+# How long to wait for an operator to review a beveled part. FINISH closes only
+# the drawing, not AutoCAD, so the saved DWG (rather than acad.exe exiting) is
+# the reliable completion signal. One hour avoids an endless wait if FINISH is
+# forgotten while still allowing time for a careful edit.
+$BevelReviewTimeoutSec = 3600
 # ---------------------------
 
 $ArchiveDir = Join-Path (Get-Location).Path "_PROCESSED_DXF_ARCHIVE"
@@ -117,8 +122,17 @@ if ($fatal) { Write-Host "One or more required paths are missing. Fix the CONFIG
 # land in an "Unsorted" folder with a quantity of 1 instead of being renamed.
 $PartLookup = @{}
 if (Test-Path $CsvPath) {
-    Import-Csv -Path $CsvPath | ForEach-Object {
-        $part = $_.PartNumber.Trim()
+    $csvRows = @(Import-Csv -Path $CsvPath)
+    $csvHeaders = @($csvRows | Select-Object -First 1 | ForEach-Object { $_.PSObject.Properties.Name })
+    $missingHeaders = @('PartNumber', 'Thickness', 'Material') | Where-Object { $_ -notin $csvHeaders }
+    if ($missingHeaders.Count -gt 0) {
+        Write-Host "ERROR: parts.csv is missing required column(s): $($missingHeaders -join ', ')" -ForegroundColor Red
+        Exit 1
+    }
+
+    $csvRows | ForEach-Object {
+        $part = ([string]$_.PartNumber).Trim()
+        if ([string]::IsNullOrWhiteSpace($part)) { return }
 
         $qtyValue = "1"
         if ($_.Quantity) { $qtyValue = $_.Quantity.Trim() }
@@ -126,8 +140,8 @@ if (Test-Path $CsvPath) {
 
         $PartLookup[$part] = @{
             Quantity  = $qtyValue
-            Thickness = $_.Thickness.Trim()
-            Material  = $_.Material.Trim()
+            Thickness = ([string]$_.Thickness).Trim()
+            Material  = ([string]$_.Material).Trim()
         }
     }
     Write-Host "Successfully loaded data for $($PartLookup.Count) parts from CSV." -ForegroundColor Green
@@ -241,11 +255,11 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
         if ($isBeveled) {
             Write-Host "    [!] BEVEL DETECTED. Loading into AutoCAD for manual check..." -ForegroundColor Magenta
 
-            # FINISH saves to the sorted path, then QUITs the AutoCAD application.
-            # QUIT (not CLOSE) matters: it fully exits acad.exe so (a) we don't
-            # pile up an orphaned AutoCAD window for every beveled part, and
-            # (b) the orchestrator gets a real process-exit signal to react to.
-            $finishLisp = "(defun c:FINISH () (setvar `"FILEDIA`" 0) (if (findfile `"$escapedDwgPath`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`" `"Y`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`")) (command `"_.QUIT`") (princ))"
+            # FINISH saves the sorted copy and closes only the current drawing.
+            # AutoCAD remains open, which makes consecutive manual bevel reviews
+            # much faster. Restore FILEDIA before closing because it is an
+            # application-level setting and the same AutoCAD session is reused.
+            $finishLisp = "(defun c:FINISH ( / oldFileDia) (setq oldFileDia (getvar `"FILEDIA`")) (setvar `"FILEDIA`" 0) (if (findfile `"$escapedDwgPath`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`" `"Y`") (command `"_.SAVEAS`" `"2018`" `"$escapedDwgPath`")) (setvar `"FILEDIA`" oldFileDia) (command `"_.CLOSE`") (princ))"
 
             $ScrContent = $InjectLayers + @(
                 $finishLisp,
@@ -257,22 +271,31 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
 
             # -PassThru gives us the process object so we can watch AutoCAD's life,
             # not just the filesystem.
+            # Remember any pre-existing output so it cannot be mistaken for the
+            # result of the current FINISH command.
+            $previousOutputStamp = $null
+            if (Test-Path $finalDwgPath) {
+                $existingOutput = Get-Item $finalDwgPath
+                $previousOutputStamp = "$($existingOutput.Length):$($existingOutput.LastWriteTimeUtc.Ticks)"
+            }
             $proc = Start-Process $AcadGuiPath -ArgumentList "`"$($file.FullName)`" /b `"$ScrPath`"" -PassThru
 
             Write-Host "    --> Review in AutoCAD, then type FINISH (Enter) to save & sort..." -ForegroundColor Cyan
 
-            # THE HANDSHAKE: wait for EITHER the saved DWG to appear (FINISH ran)
-            # OR AutoCAD to exit. If AutoCAD exits without producing the DWG, the
-            # operator closed/quit it without typing FINISH (or it crashed) --
-            # report it and move on instead of looping forever like the old
-            # file-only watcher did.
+            # THE HANDSHAKE: FINISH no longer exits AutoCAD, and acad.exe may
+            # delegate a new drawing to an already-running instance. Therefore
+            # process exit is not a trustworthy signal. Watch for the saved DWG
+            # with a configurable timeout instead.
             $saved = $false
-            while ($true) {
-                if (Test-ValidDwg $finalDwgPath) { $saved = $true; break }
-                if ($proc.HasExited) {
-                    Start-Sleep -Milliseconds 500  # let a final flush land
-                    $saved = (Test-ValidDwg $finalDwgPath)
-                    break
+            $reviewTimer = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($reviewTimer.Elapsed.TotalSeconds -lt $BevelReviewTimeoutSec) {
+                if (Test-ValidDwg $finalDwgPath) {
+                    $currentOutput = Get-Item $finalDwgPath
+                    $currentOutputStamp = "$($currentOutput.Length):$($currentOutput.LastWriteTimeUtc.Ticks)"
+                    if (($null -eq $previousOutputStamp) -or ($currentOutputStamp -ne $previousOutputStamp)) {
+                        $saved = $true
+                        break
+                    }
                 }
                 Start-Sleep -Milliseconds 500
             }
@@ -282,7 +305,7 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
                 Write-Host "    [SUCCESS] Saved and sorted to $targetFolderName" -ForegroundColor Green
                 $script:bevelCount++
             } else {
-                Write-Host "    [X] AutoCAD closed before FINISH ran (or save failed). Original DXF kept for retry." -ForegroundColor Red
+                Write-Host "    [X] FINISH did not produce a valid DWG within ${BevelReviewTimeoutSec}s. Original DXF kept for retry." -ForegroundColor Red
                 $script:failCount++
             }
 
