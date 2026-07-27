@@ -1,8 +1,10 @@
-import pandas as pd
-import openpyxl
+import argparse
 from copy import copy
 import os
 import re
+
+import openpyxl
+import pandas as pd
 
 # --- STEEL WEIGHT TO THICKNESS DICTIONARY ---
 STEEL_WEIGHTS = {
@@ -22,7 +24,17 @@ def populate_parts_list(bom_filepath, template_filepath, output_filepath):
     print("Loading BOM data...")
     bom_df = pd.read_excel(bom_filepath, sheet_name='Lofting')
 
-    print("Filtering for parts starting with 'DV'...")
+    required_columns = {
+        'ENG MAT ID', 'Description', 'QTY', 'Width', 'Length', 'MTL Type'
+    }
+    missing_columns = sorted(required_columns.difference(bom_df.columns))
+    if missing_columns:
+        raise ValueError(
+            "The Lofting sheet is missing required column(s): "
+            + ", ".join(missing_columns)
+        )
+
+    print("Filtering for parts starting with 'DS'...")
     bom_df = bom_df[bom_df['ENG MAT ID'].astype(str).str.startswith('DS')]
 
     print("Removing duplicate routing steps...")
@@ -129,8 +141,23 @@ def populate_parts_list(bom_filepath, template_filepath, output_filepath):
     wb.save(output_filepath)
     print(f"Success! Parts list saved/updated at: {output_filepath}")
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Copy DS parts from an A-BOM Lofting sheet into a parts-list template."
+    )
+    parser.add_argument("bom", help="Path to the source .xlsx or .xlsm A-BOM")
+    parser.add_argument("template", help="Path to the blank .xlsx parts-list template")
+    parser.add_argument("output", help="Path for the completed .xlsx parts list")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    BOM_FILE = 'G689D-0-4327X List of Parts A-BOM.xlsm'                
-    TEMPLATE_FILE = 'TEMP.xlsx' 
-    OUTPUT_FILE = 'BID18_4327_MASTERS_PARTS_LIST.xlsx' 
-    populate_parts_list(BOM_FILE, TEMPLATE_FILE, OUTPUT_FILE)
+    args = parse_arguments()
+    if not os.path.isfile(args.bom):
+        raise SystemExit(f"ERROR: BOM file was not found: {args.bom}")
+    if not os.path.isfile(args.output) and not os.path.isfile(args.template):
+        raise SystemExit(f"ERROR: template file was not found: {args.template}")
+    try:
+        populate_parts_list(args.bom, args.template, args.output)
+    except (KeyError, ValueError, OSError) as exc:
+        raise SystemExit(f"ERROR: {exc}") from exc

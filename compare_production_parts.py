@@ -3994,4 +3994,4 @@ if __name__ == "__main__":
         except EOFError:
             pass
 
-        raise
+        raise SystemExit(1) from None

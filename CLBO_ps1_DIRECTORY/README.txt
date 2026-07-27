@@ -27,14 +27,16 @@ WORKSPACE_FOLDER/
 └── 101/                       <-- Another numbered folder
     └── CleanPart_C.dxf
 3. First-Time Configuration
-Before running the script on a new computer, you must update the file paths at the very top of Master_Orchestrator.ps1.
+By default, the script looks for parts.csv, ColorToLayer.lsp, and SPC_Seed.dwg
+in the same folder as Master_Orchestrator.ps1. The CSV is optional. You only
+need to edit these paths if you deliberately store those files elsewhere.
 
 Open the .ps1 file in a text editor (like Notepad) and locate the # --- CONFIGURATION PATHS --- section. Update the absolute paths to match where the required files are stored on your specific machine:
 
 PowerShell
-$CsvPath         = "C:\Your\Path\Here\parts.csv"
-$LspPath         = "C:\Your\Path\Here\ColorToLayer.lsp"
-$SeedPath        = "C:\Your\Path\Here\SPC_Seed.dwg"
+$CsvPath         = Join-Path $PSScriptRoot "parts.csv"
+$LspPath         = Join-Path $PSScriptRoot "ColorToLayer.lsp"
+$SeedPath        = Join-Path $PSScriptRoot "SPC_Seed.dwg"
 $AcadConsolePath = "C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
 $AcadGuiPath     = "C:\Program Files\Autodesk\AutoCAD 2026\acad.exe"
 (Verify that the AutoCAD version year in the paths matches the version installed on your machine).
@@ -69,9 +71,9 @@ Review the bevel notes on the drawing.
 
 CRITICAL: Do not use "Save" or "Save As". When you are finished reviewing the part, simply type FINISH into the AutoCAD command line and press Enter.
 
-The custom FINISH command will automatically save the file to the correct sorted directory and QUIT AutoCAD. The orchestrator watches for that saved DWG and immediately loads the next part for your review. Because FINISH now fully closes AutoCAD (rather than just the drawing tab), you no longer accumulate orphaned AutoCAD windows across a batch.
+The custom FINISH command automatically saves the file to the correct sorted directory and closes only the current drawing tab. AutoCAD itself remains open, so the next beveled part can load without paying the full application startup cost again. The orchestrator watches for the saved DWG and then moves on.
 
-If you close or quit AutoCAD WITHOUT typing FINISH (or AutoCAD crashes), the orchestrator now detects that AutoCAD exited, marks the part as failed (original DXF kept for retry), and continues -- it will no longer wait forever for a save that is never coming.
+If FINISH is not used, the orchestrator cannot use AutoCAD exiting as its completion signal because AutoCAD is intentionally kept open and may reuse an existing process. It waits up to $BevelReviewTimeoutSec (one hour by default), then marks the part as failed, keeps the original DXF for retry, and continues. This setting is near the top of Master_Orchestrator.ps1 and can be changed before a run.
 
 6. Output and Data Safety
 Sorted Output: Processed parts will appear in newly generated folders at the root of your workspace named according to the spreadsheet data (e.g., 500-A-36, 250-DH-36).

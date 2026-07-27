@@ -1,5 +1,22 @@
-to run the batch convert there are two basic steps one MAKE SURE THAT BOTH FILES ARE IN THE SAME FOLDER AS YOUR DXF FILES. don't put them in a sub folder just put them in the same file
+SIMPLE DXF-TO-DWG CONVERSION
+============================
 
-second step you just have to run the batch script by double clicking it called "Run_Conversion" after you do this a command prompt will open and once its done at the bottom it will ask you press enter. press enter and then refresh your folder and the dwg files will disappear.
+IMPORTANT: Work on copies of your DXF files the first time.
 
-for clarities sake please copy the files from engineering reference into your working folder and then once its done running just delete them. do this as if updates are made the most recent version will be the one in Engineering references.
+1. Copy Run_Conversion.bat and batch_convert.scr directly into the folder that
+   contains the DXF files. Keep the two helper files together.
+2. Double-click Run_Conversion.bat.
+3. Wait until the window says "All files processed", then press a key.
+4. Refresh File Explorer and inspect the new DWG files in AutoCAD.
+
+The original DXF files are not intentionally deleted. Keep them until every
+new DWG has been checked.
+
+The batch expects AutoCAD 2026 in its normal installation location. If it says
+that AutoCAD Core Console was not found, right-click Run_Conversion.bat, choose
+Edit in Notepad, and change the ACCORE path near the top to the location of
+accoreconsole.exe on this computer.
+
+If no DXFs are present, the batch stops without changing anything. If AutoCAD
+reports an error for a file, inspect that file manually; do not assume that its
+DWG was created correctly.
