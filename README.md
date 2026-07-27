@@ -14,6 +14,9 @@ you do need the matching engineering software and you should always work on
 > 3. Inspect the result before processing a real job. CAD versions, templates,
 >    layer names, drive letters, and company exports vary.
 
+For the normal end-to-end job sequence—from A-BOM through modeling, nesting,
+and final reconciliation—use the **[Typical Production Workflow](WORKFLOW.md)**.
+
 ## What the computer terms mean
 
 - A **file** is one document, drawing, spreadsheet, or program.
@@ -46,23 +49,23 @@ you do need the matching engineering software and you should always work on
 
 | I want to… | Use | Required software |
 |---|---|---|
-| Compare SolidWorks, Parts List, and nest exports | `compare_production_parts.py` | Python 3 only |
-| Copy DS rows from an A-BOM into a parts-list workbook | `bom_converter.py` | Python 3 + packages |
-| Convert and sort numbered folders of DXFs, including bevel review | `CLBO_ps1_DIRECTORY` | AutoCAD 2026 + PowerShell |
-| Convert every DXF in one folder to DWG | `BATCH_CONVERT` | AutoCAD 2026 |
-| Zoom Extents and save every DWG in one folder | `process_dwgs.bat` | AutoCAD 2026 |
-| Move AutoCAD objects to layers according to color | `ColortoLayer.lsp` | AutoCAD |
-| Toggle temporary labels showing each object's layer | `LayerX.lsp` | AutoCAD |
-| Turn every `#` in an open drawing into `-` | `H2D.scr` | AutoCAD |
-| Filter DWGs and create extruded SolidWorks parts | `Main.RunBatch.swp` / `CAD_Batch_Converter` | AutoCAD 2026 + SolidWorks 2025 |
-| Run one of the older SolidWorks utilities | `macros/*.swp` | SolidWorks; test copy required |
+| Compare SolidWorks, Parts List, and nest exports | `data-tools/production-comparison/compare_production_parts.py` | Python 3 only |
+| Copy DS rows from an A-BOM into a parts-list workbook | `data-tools/bom-converter/bom_converter.py` | Python 3 + packages |
+| Convert and sort numbered folders of DXFs, including bevel review | `autocad/dxf-orchestrator` | AutoCAD 2026 + PowerShell |
+| Convert every DXF in one folder to DWG | `autocad/batch-convert` | AutoCAD 2026 |
+| Zoom Extents and save every DWG in one folder | `autocad/commands/process_dwgs.bat` | AutoCAD 2026 |
+| Move AutoCAD objects to layers according to color | `autocad/commands/ColortoLayer.lsp` | AutoCAD |
+| Toggle temporary labels showing each object's layer | `autocad/commands/LayerX.lsp` | AutoCAD |
+| Turn every `#` in an open drawing into `-` | `autocad/commands/H2D.scr` | AutoCAD |
+| Filter DWGs and create extruded SolidWorks parts | `solidworks/cad-batch-converter/Main.RunBatch.swp` / `solidworks/cad-batch-converter` | AutoCAD 2026 + SolidWorks 2025 |
+| Run one of the older SolidWorks utilities | `solidworks/**/*.swp` | SolidWorks; test copy required |
 
 ## 1. Production Part Reconciliation (recommended data-checking tool)
 
 This is the safest place to start because it only **reads** the selected input
 exports and writes reports into a new output folder. It does not edit CAD data.
 Full input-column and report details are in
-[`production_part_comparison_README.md`](production_part_comparison_README.md).
+[`data-tools/production-comparison/production_part_comparison_README.md`](data-tools/production-comparison/production_part_comparison_README.md).
 
 ### Easiest run
 
@@ -70,7 +73,7 @@ Full input-column and report details are in
    setup, check **Add python.exe to PATH**.
 2. Prepare the Parts List CSV, SolidWorks Assembly Visualization CSV, and a
    folder containing all linear-nesting CSV/TXT files.
-3. Double-click `compare_production_parts.py`. If Windows asks which program,
+3. Double-click `data-tools/production-comparison/compare_production_parts.py`. If Windows asks which program,
    choose Python. File-selection windows ask for the inputs and output folder.
 4. Read `production_part_comparison.xlsx` first. Begin with the **Errors
    Requiring Action** sheet. The HTML and CSV files contain the same audit in
@@ -80,15 +83,15 @@ Full input-column and report details are in
 
 ```powershell
 cd "C:\path\to\Macros"
-py compare_production_parts.py --nests "C:\Job\Nests" --parts "C:\Job\parts.csv" --solidworks "C:\Job\solidworks.csv" --output "C:\Job\Reports"
+py data-tools/production-comparison/compare_production_parts.py --nests "C:\Job\Nests" --parts "C:\Job\parts.csv" --solidworks "C:\Job\solidworks.csv" --output "C:\Job\Reports"
 ```
 
-Edit `comparison_rules.json` only when you deliberately need different aliases,
+Edit `data-tools/production-comparison/comparison_rules.json` only when you deliberately need different aliases,
 keywords, checks, or tolerances. Keep a copy of the old rules.
 
 ## 2. A-BOM to Parts List converter
 
-`bom_converter.py` reads the `Lofting` sheet, keeps part numbers beginning with
+`data-tools/bom-converter/bom_converter.py` reads the `Lofting` sheet, keeps part numbers beginning with
 `DS`, removes repeated `ENG MAT ID` routing rows (keeping the last), and appends
 the mapped data to an existing output workbook or a blank template. Existing
 output rows are not erased, so do not run it twice unless you want another copy
@@ -98,13 +101,13 @@ of the rows.
 
 ```powershell
 cd "C:\path\to\Macros"
-py -m pip install -r requirements.txt
+py -m pip install -r data-tools/bom-converter/requirements.txt
 ```
 
 ### Every run
 
 ```powershell
-py bom_converter.py "C:\Job\A-BOM.xlsm" "C:\Job\TEMP.xlsx" "C:\Job\MASTER_PARTS_LIST.xlsx"
+py data-tools/bom-converter/bom_converter.py "C:\Job\A-BOM.xlsm" "C:\Job\TEMP.xlsx" "C:\Job\MASTER_PARTS_LIST.xlsx"
 ```
 
 The source must contain a `Lofting` sheet with `ENG MAT ID`, `Description`,
@@ -116,9 +119,9 @@ required heading is missing rather than failing partway through.
 
 This workflow changes layer assignments, creates DWGs, sorts output by stock,
 and archives successfully processed source DXFs. Read
-[`CLBO_ps1_DIRECTORY/README.txt`](CLBO_ps1_DIRECTORY/README.txt) before use.
+[`autocad/dxf-orchestrator/README.txt`](autocad/dxf-orchestrator/README.txt) before use.
 
-1. Copy the entire `CLBO_ps1_DIRECTORY` folder to the computer.
+1. Copy the entire `autocad/dxf-orchestrator` folder to the computer.
 2. Put raw DXFs inside numbered subfolders such as `100` and `101`.
 3. Optionally put `parts.csv` beside `Master_Orchestrator.ps1`. Its headings
    must be `PartNumber`, `Quantity` (the misspelling `Quanity` is also accepted),
@@ -132,7 +135,7 @@ and archives successfully processed source DXFs. Read
 6. Open PowerShell in the folder containing the numbered folders and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\CLBO_ps1_DIRECTORY\Master_Orchestrator.ps1"
+powershell -ExecutionPolicy Bypass -File ".\autocad/dxf-orchestrator\Master_Orchestrator.ps1"
 ```
 
 For a bevel drawing, AutoCAD opens. Review it, type `FINISH`, and press Enter.
@@ -146,7 +149,7 @@ the original DXF for retry.
 ## 4. Simple DXF-to-DWG folder conversion
 
 1. Make a backup folder containing the DXFs.
-2. Copy all three `BATCH_CONVERT` files directly beside those DXFs.
+2. Copy all three `autocad/batch-convert` files directly beside those DXFs.
 3. Double-click `Run_Conversion.bat` and wait for **All files processed**.
 4. Check every DWG before deleting any DXF.
 
@@ -155,8 +158,8 @@ stops cleanly when no DXFs exist and displays an error for an AutoCAD failure.
 
 ## 5. Zoom and save a folder of DWGs
 
-Copy `process_dwgs.bat` and `zoom_save.scr` beside **copies** of the DWGs, then
-double-click `process_dwgs.bat`. Each drawing is opened headlessly, zoomed to
+Copy `autocad/commands/process_dwgs.bat` and `autocad/commands/zoom_save.scr` beside **copies** of the DWGs, then
+double-click `autocad/commands/process_dwgs.bat`. Each drawing is opened headlessly, zoomed to
 Extents, and saved. This intentionally modifies each DWG. It assumes the
 default AutoCAD 2026 path and now does nothing safely when the folder has no
 DWGs.
@@ -165,67 +168,66 @@ DWGs.
 
 For `.lsp` files, type `APPLOAD` in AutoCAD, select the file, choose **Load**,
 then run its command. Add it to **Startup Suite** only after testing. More CUI
-button instructions are in `setting up macros or scripts in AUTOCAD.txt`.
+button instructions are in `autocad/reference/setting up macros or scripts in AUTOCAD.txt`.
 
-- `ColortoLayer.lsp` → command `ColorToLayer`: maps explicit colors 1, 2, 3,
+- `autocad/commands/ColortoLayer.lsp` → command `ColorToLayer`: maps explicit colors 1, 2, 3,
   5, 6, and 7 to company layer names and changes the objects to ByLayer. The
-  similarly named file in `CLBO_ps1_DIRECTORY` also moves ByLayer objects from
+  similarly named file in `autocad/dxf-orchestrator` also moves ByLayer objects from
   layer 0 to `PIN STAMP TEXT`. Use the correct variant for the workflow.
-- `LayerX.lsp` → command `LayerToggle`: first run adds non-plotting yellow layer
+- `autocad/commands/LayerX.lsp` → command `LayerToggle`: first run adds non-plotting yellow layer
   labels; second run deletes them. Save only if you intentionally want to keep
   that temporary layer.
-- `H2D.scr`: type `SCRIPT`, select this file, and it drives AutoCAD's Find
+- `autocad/commands/H2D.scr`: type `SCRIPT`, select this file, and it drives AutoCAD's Find
   command to replace `#` with `-` in the open drawing.
-- `SPC_IMPORT.las` is an AutoCAD saved layer-state file;
-  `SPC_IMPORT.cuix` is a custom user-interface package. `macros/macros.txt`
+- `autocad/configuration/SPC_IMPORT.las` is an AutoCAD saved layer-state file;
+  `autocad/configuration/SPC_IMPORT.cuix` is a custom user-interface package. `autocad/reference/cui-macro-text.txt`
   contains the corresponding CUI macro text.
 
 ## 7. CAD Batch Converter (AutoCAD to SolidWorks)
 
-`Main.RunBatch.swp` is the packaged macro. The editable source lives in
-`CAD_Batch_Converter/*.bas`, and its detailed setup, architecture, recovery
+`solidworks/cad-batch-converter/Main.RunBatch.swp` is the packaged macro. The editable source lives in
+`solidworks/cad-batch-converter/*.bas`, and its detailed setup, architecture, recovery
 behavior, output, and log instructions are in
-[`CAD_Batch_Converter/README.md`](CAD_Batch_Converter/README.md).
+[`solidworks/cad-batch-converter/README.md`](solidworks/cad-batch-converter/README.md).
 
 This is an advanced, job-specific tool. Before running, edit the three folder
-constants at the top of `CAD_Batch_Converter/Config.bas`; they currently point
+constants at the top of `solidworks/cad-batch-converter/Config.bas`; they currently point
 to a specific company job. Also verify target/text layer names, drawing units,
 and extrusion depth. In SolidWorks use **Tools > Macro > Run**, choose
-`Main.RunBatch.swp`, and run `Main_RunBatch1.RunBatch`. Run the separate
+`solidworks/cad-batch-converter/Main.RunBatch.swp`, and run `Main_RunBatch1.RunBatch`. Run the separate
 `TextStamp1.RunTextStamp` pass only after validating the generated parts.
 
 Developers rebuilding the `.swp` must import all eight `.bas` modules and add
 the AutoCAD 2026, SolidWorks 2025, and SolidWorks constants type-library
 references described by the component README.
 
-## 8. Older SolidWorks macros
+## 8. SolidWorks macros, reference source, and legacy material
 
-The files below are compiled VBA projects. Their VBA modules have now been
-recovered into [`macros/source`](macros/source/README.md) for static review.
-Those recovered files make the logic auditable, but they do not replace an
-official SolidWorks VBA-editor export or a compile/run test:
+The `.swp` files are the runnable artifacts used in SolidWorks. The `.bas`
+files are retained for review, debugging, and future rebuilds; editing a `.bas`
+file does **not** update its corresponding `.swp` binary.
 
-- `drawing_auto.swp`
-- `macros/(MOD)2(SECONDARY).swp`
-- `macros/AUTOBOMACTUAL.swp`
-- `macros/AutoBOMProperties.swp`
-- `macros/Bounding box.swp`
-- `macros/MaterialSpec(MOD).swp`
-- `macros/Test_test.swp`
-- `macros/hide sketches.swp`
+- Current drawing automation: `solidworks/drawing-automation/`
+- Current AutoBOM binaries and reviewed reference source: `solidworks/auto-bom/`
+- Current CAD batch converter: `solidworks/cad-batch-converter/`
+- Focused utility macros: `solidworks/utilities/`
+- Clearly experimental, superseded, or version-named material:
+  `solidworks/legacy/` (retained, not deleted)
+- Historical source extracted from compiled binaries:
+  [`solidworks/reference-extracted-source/`](solidworks/reference-extracted-source/README.md)
 
-Read the extracted-source inventory and safety notes first. Then open a
-throwaway part/assembly, use **Tools > Macro > Edit** to confirm the entry
-procedure, references, and recovered code before selecting **Tools > Macro >
-Run**. Do not use `Test_test.swp` for production.
+The extracted source makes the compiled logic searchable, but it does not
+replace an official SolidWorks VBA-editor export or a compile/run test. Open a
+throwaway document and use **Tools > Macro > Edit** to confirm references and
+**Debug > Compile VBAProject** before relying on any macro in a new environment.
 
 ## Other reference files
 
-- `Automation_Reference_CURRENT.docx` is a human reference document.
-- `RENAME_SIGN_CONVERT_POWERSHELL.txt` contains a PowerShell rename routine as
+- `docs/reference/Automation_Reference_CURRENT.docx` is a human reference document.
+- `autocad/reference/RENAME_SIGN_CONVERT_POWERSHELL.txt` contains a PowerShell rename routine as
   reference text; it renames files and has no preview/dry-run mode. Copy it to
   a `.ps1` only after testing on disposable data.
-- `SPC_Seed.dwg` is the seed drawing used by the orchestrator.
+- `autocad/dxf-orchestrator/SPC_Seed.dwg` is the seed drawing used by the orchestrator.
 
 ## Troubleshooting
 
