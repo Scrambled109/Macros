@@ -1,4 +1,4 @@
-Attribute VB_Name = "AutoBOMProperties1"
+Attribute VB_Name = "autobomtest1"
 ' SolidWorks VBA: Bounding Box -> LENGTH / SHAPE (v14, Forced Overwrite)
 ' Run from an open ASSEMBLY.
 ' References: SolidWorks Type Library + SolidWorks Constant Type Library
@@ -80,6 +80,15 @@ Sub main()
         vComponents = selComps
     Else
         vComponents = swAssy.GetComponents(False)
+    End If
+
+    ' GetComponents can return Empty when the assembly contains no components.
+    ' Guard before LBound/UBound so an empty assembly exits cleanly.
+    If Not IsArray(vComponents) Then
+        If Not swModView Is Nothing Then swModView.EnableGraphicsUpdate = True
+        swAssyModel.FeatureManager.EnableFeatureTree = True
+        MsgBox "No processable components were found.", vbInformation
+        Exit Sub
     End If
 
     Dim dict As Object
@@ -176,7 +185,7 @@ Sub ProcessPart(swModel As SldWorks.ModelDoc2)
             swGlobalBoundingBoxFitOptions_e.swBoundingBoxType_BestFit, _
             False, False, status)
         On Error GoTo 0
-        wasInserted = True
+        wasInserted = Not (swBBoxFeat Is Nothing)
     End If
 
     ' ---- Extract dimensions (raw meters) ----
@@ -278,10 +287,12 @@ Sub ProcessPart(swModel As SldWorks.ModelDoc2)
     Dim saveErrs As Long, saveWarns As Long
     If swModel.Save3(swSaveAsOptions_e.swSaveAsOptions_Silent, saveErrs, saveWarns) Then
         Debug.Print "OVERWROTE OK  " & partName & "  L=" & lengthVal & "  Shape=" & shapeVal
+        processedCount = processedCount + 1
     Else
-        Debug.Print "WROTE (save failed)  " & partName
+        Debug.Print "WROTE (save failed)  " & partName & _
+                    " errors=" & saveErrs & " warnings=" & saveWarns
+        skippedCount = skippedCount + 1
     End If
-    processedCount = processedCount + 1
 End Sub
 
 Sub WriteProps(swModel As SldWorks.ModelDoc2, cfgName As String, _
@@ -339,6 +350,3 @@ Function DecToFraction16(ByVal num As Double) As String
         DecToFraction16 = CStr(whole) & " " & CStr(numerator) & "/" & CStr(denominator)
     End If
 End Function
-
-
-

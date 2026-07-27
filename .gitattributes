@@ -1,0 +1,3 @@
+# VBA exports conventionally use Windows CRLF line endings. Do not report the
+# carriage return as trailing whitespace during patch validation.
+*.bas whitespace=cr-at-eol
