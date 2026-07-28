@@ -69,7 +69,7 @@ Full input-column and report details are in
 
 ### Easiest run
 
-1. Install Python from <https://www.python.org/downloads/windows/>. During
+1. Install Python opening powershel first check winget serach Python.Python then if that displays python versions go to winget install -e --id Python.Python.3.14 in your terminal. During
    setup, check **Add python.exe to PATH**.
 2. Prepare the Parts List CSV, SolidWorks Assembly Visualization CSV, and a
    folder containing all linear-nesting CSV/TXT files.
