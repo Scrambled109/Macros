@@ -1,0 +1,42 @@
+{
+  "material_translations": [
+    {
+      "name": "HY-80",
+      "patterns": [
+        "\\bT9074\\b.*\\bHY[\\s-]*80\\b",
+        "\\bGR[\\s-]*HY[\\s-]*80\\b",
+        "\\bHY[\\s-]*80\\b"
+      ]
+    },
+    {
+      "name": "MIL-S-22698_EH-36T",
+      "patterns": [
+        "\\bMIL[\\s-]*S[\\s-]*22698\\b.*\\bEH[\\s-]*36T\\b",
+        "\\bGR[\\s-]*EH[\\s-]*36T\\b"
+      ]
+    },
+    {
+      "name": "CRES 316L",
+      "patterns": [
+        "\\bCRES[\\s-]*316L\\b",
+        "\\b316L\\b",
+        "\\bQQ[\\s-]*S[\\s-]*763\\b.*\\b316L\\b"
+      ]
+    }
+  ],
+  "plate_keywords": ["PLATE", "SHEET", "SHIM", "WEDGE"],
+  "shape_keywords": [
+    "ANGLE",
+    "BAR",
+    "BEAM",
+    "CHANNEL",
+    "FLAT",
+    "HOUSING",
+    "PIPE",
+    "ROD",
+    "STUFFING TUBE",
+    "TEE",
+    "TUBE",
+    "TUBING"
+  ]
+}
