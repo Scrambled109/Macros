@@ -17,6 +17,8 @@ you do need the matching engineering software and you should always work on
 For the normal end-to-end job sequence—from A-BOM through modeling, nesting,
 and final reconciliation—use the **[Typical Production Workflow](WORKFLOW.md)**.
 
+For a guided Windows command center that remembers job-specific folders, prepares safe working copies, launches these tools, and records engineering review, use the **[Engineering Job Assistant beta](job-assistant/README.md)**. End users should use its packaged Windows EXE rather than installing Python.
+
 ## What the computer terms mean
 
 - A **file** is one document, drawing, spreadsheet, or program.

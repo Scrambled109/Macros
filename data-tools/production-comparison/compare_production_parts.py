@@ -27,6 +27,7 @@ No third-party Python packages are required.
 OUTPUT
 ------
 A timestamped folder containing:
+    comparison_summary.json
     comparison_report.html
     production_part_comparison.xlsx
     all_comparisons.csv
@@ -85,7 +86,6 @@ import csv
 import html
 import json
 import math
-import os
 import re
 import sys
 import webbrowser
@@ -3947,13 +3947,56 @@ def main() -> int:
     for row in comparison_rows:
         counts[row["Review Status"]] += 1
 
+    error_count = counts["ERROR REQUIRING ACTION"]
+    missing_core_count = counts["MISSING FROM SOLIDWORKS OR PARTS LIST"]
+    not_checked_count = counts["NOT CHECKED"]
+    exact_match_count = counts["EXACT MATCH"]
+    source_issue_count = len(all_issues)
+    outcome = (
+        "action_required"
+        if error_count or missing_core_count
+        else "review_recommended"
+        if not_checked_count or source_issue_count
+        else "no_discrepancies"
+    )
+
+    machine_summary = {
+        "schema_version": 1,
+        "run_time": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "outcome": outcome,
+        "counts": {
+            "part_numbers": len(comparison_rows),
+            "errors": error_count,
+            "missing_core": missing_core_count,
+            "not_checked": not_checked_count,
+            "exact_matches": exact_match_count,
+            "source_issues": source_issue_count,
+        },
+        "inputs": {
+            "solidworks": str(solidworks_file.resolve()),
+            "parts_list": str(parts_file.resolve()),
+            "nesting_folder": str(nests_folder.resolve()),
+        },
+        "reports": {
+            "excel": str(
+                (output_folder / "production_part_comparison.xlsx").resolve()
+            ),
+            "html": str((output_folder / "comparison_report.html").resolve()),
+            "folder": str(output_folder.resolve()),
+        },
+    }
+    (output_folder / "comparison_summary.json").write_text(
+        json.dumps(machine_summary, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     summary = (
         f"Checked {len(comparison_rows)} part numbers: "
-        f'{counts["ERROR REQUIRING ACTION"]} errors, '
-        f'{counts["MISSING FROM SOLIDWORKS OR PARTS LIST"]} missing core, '
-        f'{counts["NOT CHECKED"]} not checked, '
-        f'{counts["EXACT MATCH"]} exact matches, '
-        f"{len(all_issues)} source issues."
+        f"{error_count} errors, "
+        f"{missing_core_count} missing core, "
+        f"{not_checked_count} not checked, "
+        f"{exact_match_count} exact matches, "
+        f"{source_issue_count} source issues."
     )
 
     print("\n" + summary)
@@ -3976,7 +4019,10 @@ def main() -> int:
         except Exception:
             pass
 
-    show_completion_message(output_folder, summary)
+    # --no-open is also the automation/headless contract. Do not leave the
+    # Job Assistant waiting on a second process-owned modal dialog.
+    if not args.no_open:
+        show_completion_message(output_folder, summary)
 
     return 0
 

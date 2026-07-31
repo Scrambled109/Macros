@@ -30,6 +30,16 @@ Public Sub RunBatch()
     Dim runStart As Double
     runStart = NowSeconds()
 
+    If Len(SOURCE_FOLDER) = 0 Or Len(FILTERED_FOLDER) = 0 Or _
+       Len(OUTPUT_FOLDER) = 0 Then
+        MsgBox "CAD batch folders are not configured." & vbCrLf & vbCrLf & _
+               "Launch this macro from the Engineering Job Assistant, or " & _
+               "configure SourceFolder, FilteredFolder, and OutputFolder " & _
+               "for the current Windows user.", vbCritical, _
+               "CAD Batch Converter"
+        Exit Sub
+    End If
+
     ' --- Folders + log ------------------------------------------------------
     EnsureFolder FILTERED_FOLDER
     EnsureFolder OUTPUT_FOLDER

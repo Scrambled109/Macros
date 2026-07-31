@@ -56,11 +56,26 @@ the `staging` folder without rebuilding parts.
 
 ---
 
-## Configuration (`Config.bas`)
+## Job folder configuration (`Config.bas`)
 
-The three folder paths, `TARGET_LAYER`, `EXTRUDE_DEPTH_METERS`, `TEXT_LAYER`
-(`PIN STAMP TEXT`) and `DWG_UNITS_TO_METERS` (`0.0254`, inches) are already set
-to the values for this job. Other useful switches:
+Folder paths are resolved at run time; no job path is compiled into the source.
+The macro first reads `MACROS_SOURCE_FOLDER`, `MACROS_FILTERED_FOLDER`, and
+`MACROS_OUTPUT_FOLDER` from its process environment. If a value is blank it
+falls back to the corresponding `SourceFolder`, `FilteredFolder`, or
+`OutputFolder` value saved for the current user under
+`HKCU\Software\VB and VBA Program Settings\EngineeringMacros\CadBatch`.
+The Engineering Job Assistant writes both forms before launch. Missing values
+stop the macro before it creates files. Rebuild `Main.RunBatch.swp` after
+importing the updated source; editing `Config.bas` alone does not alter the
+compiled macro.
+
+## Processing configuration (`Config.bas`)
+
+After the runtime folders are supplied, `TARGET_LAYER`,
+`EXTRUDE_DEPTH_METERS`, `TEXT_LAYER` (`PIN STAMP TEXT`) and
+`DWG_UNITS_TO_METERS` (`0.0254`, inches) control processing. Verify these
+shared CAD-environment values before the first production run. Other useful
+switches:
 
 | Constant                 | Default | Effect |
 |--------------------------|---------|--------|

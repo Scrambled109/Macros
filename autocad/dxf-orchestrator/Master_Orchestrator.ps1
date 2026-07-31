@@ -1,3 +1,8 @@
+param(
+    [string]$AcadConsolePath = "C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe",
+    [string]$AcadGuiPath = "C:\Program Files\Autodesk\AutoCAD 2026\acad.exe"
+)
+
 Write-Host "====================================================" -ForegroundColor Cyan
 Write-Host "=== STARTING CAD WORKFLOW AUTOMATION ORCHESTRATOR ===" -ForegroundColor Cyan
 Write-Host "====================================================" -ForegroundColor Cyan
@@ -6,8 +11,6 @@ Write-Host "====================================================" -ForegroundCol
 $CsvPath         = Join-Path $PSScriptRoot "parts.csv"
 $LspPath         = Join-Path $PSScriptRoot "ColorToLayer.lsp"
 $SeedPath        = Join-Path $PSScriptRoot "SPC_Seed.dwg"
-$AcadConsolePath = "C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
-$AcadGuiPath     = "C:\Program Files\Autodesk\AutoCAD 2026\acad.exe"
 
 # How long (seconds) to wait for a headless (accoreconsole) job before giving up on it.
 $ConsoleTimeoutSec = 180
