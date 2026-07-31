@@ -1,0 +1,12 @@
+{
+  "mapping": {
+    "ENG MATID": "PART NUMBER",
+    "MATL MASTER DESCRIPTION": "DESCRIPTION",
+    "MANUFACTURING DWG": "ASSEMBLY",
+    "NUMBER OF PIECES": "QTY",
+    "SIZE 1": "WIDTH",
+    "SIZE 2": "LENGTH"
+  },
+  "prefixes": "DS,DV",
+  "split_descriptions": true
+}
