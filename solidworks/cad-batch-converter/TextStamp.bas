@@ -34,6 +34,13 @@ Public Sub RunTextStamp()
     Dim runStart As Double
     runStart = NowSeconds()
 
+    If Len(SOURCE_FOLDER) = 0 Or Len(OUTPUT_FOLDER) = 0 Then
+        MsgBox "CAD batch source/output folders are not configured. " & _
+               "Launch this macro from the Engineering Job Assistant.", _
+               vbCritical, "CAD Batch Converter"
+        Exit Sub
+    End If
+
     EnsureFolder OUTPUT_FOLDER
     OpenLog OUTPUT_FOLDER
 

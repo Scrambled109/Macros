@@ -4,10 +4,8 @@ Attribute VB_Name = "Config"
 '------------------------------------------------------------------------------
 ' Central configuration for the CAD Batch Converter.
 '
-' Everything a user may want to change lives here: folder paths, the target
-' layer name, the extrude depth, tolerances, ProgIDs and behaviour switches.
-' No magic numbers are used elsewhere in the project - every tunable value is
-' declared once, here, as a strongly typed Public Const.
+' Everything a user may want to change lives here: runtime folder resolution,
+' the target layer name, depth, tolerances, ProgIDs and behaviour switches.
 '
 ' Target hosts : AutoCAD 2026 (COM) + SolidWorks 2025 (API)
 ' Language     : VBA only (VBA7 / 64-bit)
@@ -16,18 +14,40 @@ Attribute VB_Name = "Config"
 Option Explicit
 
 '------------------------------------------------------------------------------
-' 1. FOLDER PATHS
-'    Trailing back-slashes are REQUIRED - other modules concatenate file names
-'    directly onto these strings.
+' 1. RUNTIME FOLDER PATHS
+'    The Job Assistant sets both process environment variables and the VBA
+'    GetSetting-compatible HKCU values. Environment wins for the process that
+'    was just launched; registry provides the per-user fallback. No shared or
+'    job-specific machine path is compiled into the macro.
 '------------------------------------------------------------------------------
-Public Const SOURCE_FOLDER As String = _
-    "U:\Engineering\CAD Services\Current Jobs\018 - HII - Base A's - Qty 5 - RFQ #6001358953\Drawings\UNIT 6033\250-HSLA-65\"
+Private Const SETTINGS_APP As String = "EngineeringMacros"
+Private Const SETTINGS_SECTION As String = "CadBatch"
 
-Public Const FILTERED_FOLDER As String = _
-    "U:\Engineering\CAD Services\Current Jobs\018 - HII - Base A's - Qty 5 - RFQ #6001358953\Drawings\UNIT 6033\Working Model\FilteredDWGs\"
+Private Function ConfiguredFolder(ByVal environmentName As String, _
+                                  ByVal registryName As String) As String
+    Dim value As String
+    value = Trim$(Environ$(environmentName))
+    If Len(value) = 0 Then
+        value = Trim$(GetSetting(SETTINGS_APP, SETTINGS_SECTION, _
+                                 registryName, vbNullString))
+    End If
+    If Len(value) > 0 Then
+        If Right$(value, 1) <> "\" Then value = value & "\"
+    End If
+    ConfiguredFolder = value
+End Function
 
-Public Const OUTPUT_FOLDER As String = _
-    "U:\Engineering\CAD Services\Current Jobs\018 - HII - Base A's - Qty 5 - RFQ #6001358953\Drawings\UNIT 6033\Working Model\staging\"
+Public Function SOURCE_FOLDER() As String
+    SOURCE_FOLDER = ConfiguredFolder("MACROS_SOURCE_FOLDER", "SourceFolder")
+End Function
+
+Public Function FILTERED_FOLDER() As String
+    FILTERED_FOLDER = ConfiguredFolder("MACROS_FILTERED_FOLDER", "FilteredFolder")
+End Function
+
+Public Function OUTPUT_FOLDER() As String
+    OUTPUT_FOLDER = ConfiguredFolder("MACROS_OUTPUT_FOLDER", "OutputFolder")
+End Function
 
 '------------------------------------------------------------------------------
 ' 2. CORE PROCESS PARAMETERS
@@ -84,7 +104,7 @@ Public Const DWG_FILESPEC As String = "*.dwg"
 ' File mask used by the text-stamp pass to enumerate finished parts.
 Public Const SLDPRT_FILESPEC As String = "*.SLDPRT"
 
-' Name of the batch log file (written into OUTPUT_FOLDER).
+' Name of the batch log file (written into OUTPUT_FOLDER()).
 Public Const LOG_FILE_NAME As String = "BatchLog.txt"
 
 '------------------------------------------------------------------------------

@@ -5,6 +5,7 @@ Double-click this file to open the graphical converter. The program lets a user
 choose which source BOM column feeds each column in the Parts List template.
 """
 
+import argparse
 import json
 import os
 import re
@@ -1755,14 +1756,69 @@ class BomConverterApp:
         self.status.set(f"{title}: {error}")
 
 
-def main():
+def convert_workbook(source_path, output_path, template_path):
+    """Run the same conversion engine non-interactively for trusted defaults.
+
+    This entry point is used by the Job Assistant. It intentionally applies
+    only the converter's existing safe mapping suggestions; ambiguous columns
+    remain unmapped rather than being guessed.
+    """
+    source_path = Path(source_path).resolve()
+    output_path = Path(output_path).resolve()
+    template_path = Path(template_path).resolve()
+    if output_path in {source_path, template_path}:
+        raise ValueError("The output must not overwrite the source or template.")
+    source = scan_header_rows(source_path, template_mode=False)
+    dataframe = load_source_dataframe(
+        source_path, source["sheet_name"], source["header_row"]
+    )
+    layout = read_template_layout(template_path)
+    mappings = [
+        {
+            "source": column,
+            "destination": suggest_mapping(column, layout["headers"]),
+        }
+        for column in dataframe.columns
+    ]
+    records = build_records(
+        dataframe,
+        mappings,
+        parse_prefixes("DS,DV"),
+        template_headers=layout["headers"],
+        split_descriptions=True,
+    )
+    return write_records_to_template(
+        template_path, output_path, layout, records, update_existing=True
+    )
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", nargs="?", type=Path)
+    parser.add_argument("output", nargs="?", type=Path)
+    parser.add_argument("template", nargs="?", type=Path)
+    args = parser.parse_args(argv)
+    supplied = [args.source, args.output, args.template]
+    if any(supplied):
+        if not all(supplied):
+            parser.error("source, output, and template must be supplied together")
+        added, updated = convert_workbook(
+            args.source, args.output, args.template
+        )
+        print(
+            f"Conversion complete: {added} row(s) added and "
+            f"{updated} matching part(s) updated. Output: {args.output}"
+        )
+        return 0
+
     root = tk.Tk()
     app = BomConverterApp(root)
 
     # Keep a reference for the lifetime of the Tk window.
     root.bom_converter_app = app
     root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

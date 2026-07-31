@@ -54,6 +54,10 @@ Execute the script with the bypass flag:
 
 PowerShell
 powershell -ExecutionPolicy Bypass -File .\Master_Orchestrator.ps1
+The two AutoCAD executable paths default to AutoCAD 2026. The Engineering Job
+Assistant can override them safely with the `-AcadConsolePath` and
+`-AcadGuiPath` PowerShell parameters; paths containing spaces are supported.
+
 5. The Operator Workflow
 Once the script starts, it requires minimal input. Watch the PowerShell terminal for color-coded status updates.
 
