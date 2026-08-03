@@ -62,6 +62,7 @@ class JobAssistant(tk.Tk):
         self.settings = load_settings(repo_root=DEFAULT_REPO)
         self.manifest: dict | None = None
         self.manifest_path: Path | None = None
+        self.active_stage: str | None = None
         self.candidates = []
         self._build()
 
@@ -129,7 +130,7 @@ class JobAssistant(tk.Tk):
             self.tree.heading(name, text=name.title())
             self.tree.column(name, width=width, anchor="w")
         self.tree.pack(fill="both", expand=True)
-        self.tree.bind("<<TreeviewSelect>>", lambda _event: self.show_stage())
+        self.tree.bind("<<TreeviewSelect>>", self._stage_selected)
         self.tree.tag_configure("not_started", foreground="#666666")
         self.tree.tag_configure("ready", foreground="#1f5f99")
         self.tree.tag_configure("in_progress", foreground="#7a4b00")
@@ -162,9 +163,9 @@ class JobAssistant(tk.Tk):
         actions = ttk.Frame(right)
         actions.pack(fill="x")
         for text, command in (
-            ("Check Readiness", self.run_checks),
-            ("Run / Prepare", self.run_stage),
-            ("Open Relevant Folder", self.open_stage_folder),
+            ("Check This Step", self.run_checks),
+            ("Start This Step", self.run_stage),
+            ("Open This Step's Folder", self.open_stage_folder),
             ("Record File", self.record_file),
             ("Complete After Review", self.finish_stage),
             ("Reopen", self.reopen),
@@ -220,10 +221,15 @@ class JobAssistant(tk.Tk):
             raise JobError("Set up or open a job first.")
 
     def selected_stage(self) -> str:
-        selected = self.tree.selection()
-        if not selected:
+        if not self.active_stage:
             raise JobError("Select a workflow stage first.")
-        return selected[0]
+        return self.active_stage
+
+    def _stage_selected(self, _event=None) -> None:
+        selected = self.tree.selection()
+        if selected:
+            self.active_stage = selected[0]
+            self.show_stage()
 
     def setup_job(self) -> None:
         def operation() -> None:
@@ -336,6 +342,19 @@ class JobAssistant(tk.Tk):
                 ),
                 tags=(item["status"],),
             )
+        stage_keys = [key for key, _label in STAGES]
+        if self.active_stage not in stage_keys:
+            self.active_stage = next(
+                (
+                    key
+                    for key in stage_keys
+                    if self.manifest["stages"][key]["status"] != "complete"
+                ),
+                stage_keys[0],
+            )
+        self.tree.selection_set(self.active_stage)
+        self.tree.focus(self.active_stage)
+        self.tree.see(self.active_stage)
         self.progress.configure(maximum=len(STAGES), value=complete)
         self.progress_text.configure(text=f"{complete} of {len(STAGES)} complete")
         self.recent_tree.delete(*self.recent_tree.get_children())
@@ -346,16 +365,17 @@ class JobAssistant(tk.Tk):
                 iid=f"recent-{index}",
                 values=(artifact.get("name", ""), artifact.get("revision", "")),
             )
+        self.show_stage()
 
     def show_stage(self) -> None:
-        if not self.manifest or not self.tree.selection():
+        if not self.manifest or not self.active_stage:
             return
         stage = self.selected_stage()
         guide = STAGE_GUIDANCE[stage]
         item = self.manifest["stages"][stage]
         checks = stage_checks(self.manifest, stage)
         text = (
-            f"STATUS: {item['status'].replace('_', ' ').upper()}\n\n1. WHAT IS NEEDED\n{guide['need']}\n\n2. WHAT TO SELECT\n{guide['action']}\n\n3. WHAT WILL CHANGE\n{guide['changes']}\n\n4. TOOL / MACRO\n{guide['tool']}\n\n5. REVIEW AFTERWARD\n{guide['review']}\n\n6. OUTPUTS AND LOGS\nStaging: {self.manifest['workspace']['staging']}\nLogs: {self.manifest['workspace']['logs']}\n\n7. WARNINGS AND OVERRIDES\nOrdinary sequence warnings can be continued after confirmation and are logged with your Windows username. Missing files or executables cannot be launched.\n\nCURRENT CHECKS\n"
+            f"STATUS: {item['status'].replace('_', ' ').upper()}\n\nUse Check This Step to review readiness, Start This Step to begin, and Open This Step's Folder to inspect its files.\n\n1. WHAT IS NEEDED\n{guide['need']}\n\n2. WHAT TO SELECT\n{guide['action']}\n\n3. WHAT WILL CHANGE\n{guide['changes']}\n\n4. TOOL / MACRO\n{guide['tool']}\n\n5. REVIEW AFTERWARD\n{guide['review']}\n\n6. OUTPUTS AND LOGS\nStaging: {self.manifest['workspace']['staging']}\nLogs: {self.manifest['workspace']['logs']}\n\n7. WARNINGS AND OVERRIDES\nOrdinary sequence warnings can be continued after confirmation and are logged with your Windows username. Missing files or executables cannot be launched.\n\nCURRENT CHECKS\n"
             + "\n".join(f"• {c.level.upper()}: {c.message}" for c in checks)
         )
         self.guide.configure(state="normal")
@@ -364,7 +384,28 @@ class JobAssistant(tk.Tk):
         self.guide.configure(state="disabled")
 
     def run_checks(self) -> None:
-        self.handle(lambda: self.show_stage())
+        def operation() -> None:
+            self.require_job()
+            stage = self.selected_stage()
+            checks = stage_checks(self.manifest, stage)
+            results = checks or [
+                type("ReadinessPass", (), {
+                    "level": "pass",
+                    "message": "This step is ready to start.",
+                    "correction": "No resolution is required.",
+                })()
+            ]
+            messagebox.showinfo(
+                "Readiness results",
+                "\n\n".join(
+                    f"{check.level.upper()}\nMessage: {check.message}\n"
+                    f"Suggested resolution: {check.correction or 'No action required.'}"
+                    for check in results
+                ),
+                parent=self,
+            )
+
+        self.handle(operation)
 
     def _accept_warnings(self, stage: str) -> bool:
         checks = stage_checks(self.manifest, stage)
@@ -529,17 +570,34 @@ class JobAssistant(tk.Tk):
             )
             return
         log = Path(self.manifest["workspace"]["logs"]) / f"dxf-{run.name}.log"
-        with log.open("a", encoding="utf-8") as handle:
+        command = command_dxf(
+            self.repo,
+            self.settings.get("autocad_console") or None,
+            self.settings.get("autocad_executable") or None,
+        )
+        record_event(
+            self.manifest,
+            "external_process_requested",
+            stage="dxf",
+            command=command,
+            workspace=str(run),
+            log=str(log),
+        )
+        save_manifest(self.manifest, self.manifest_path)
+        handle = log.open("w", encoding="utf-8")
+        handle.write(f"Windows command: {subprocess.list2cmdline(command)}\n")
+        handle.write(f"Arguments: {command!r}\nWorkspace: {run}\nAssistant log: {log}\nStage: dxf\n\n")
+        handle.flush()
+        try:
             process = subprocess.Popen(
-                command_dxf(
-                    self.repo,
-                    self.settings.get("autocad_console") or None,
-                    self.settings.get("autocad_executable") or None,
-                ),
+                command,
                 cwd=run,
                 stdout=handle,
                 stderr=subprocess.STDOUT,
             )
+        except Exception:
+            handle.close()
+            raise
         record_event(
             self.manifest,
             "external_process_launched",
@@ -548,12 +606,44 @@ class JobAssistant(tk.Tk):
             workspace=str(run),
             log=str(log),
         )
-        mark_needs_review(
+        save_manifest(self.manifest, self.manifest_path)
+        self._poll_dxf_process(process, handle, log, run)
+
+    def _poll_dxf_process(self, process, handle, log: Path, run: Path) -> None:
+        exit_code = process.poll()
+        if exit_code is None:
+            self.after(500, self._poll_dxf_process, process, handle, log, run)
+            return
+        handle.write(f"\nExit code: {exit_code}\n")
+        handle.close()
+        record_event(
             self.manifest,
-            "dxf",
-            "Orchestrator launched against copies. Wait for it to finish, review generated DWGs and logs, then record accepted artifacts.",
-            [log],
+            "external_process_finished",
+            stage="dxf",
+            pid=process.pid,
+            workspace=str(run),
+            log=str(log),
+            exit_code=exit_code,
         )
+        if exit_code == 0:
+            mark_needs_review(
+                self.manifest,
+                "dxf",
+                "Orchestrator finished successfully. Review generated DWGs and logs, then record accepted artifacts.",
+                [log],
+            )
+        else:
+            item = self.manifest["stages"]["dxf"]
+            item["status"] = "warning"
+            item["notes"] = (
+                f"Orchestrator failed with exit code {exit_code}. Review {log}. "
+                "If Cylance Script Control blocked PowerShell, -ExecutionPolicy Bypass "
+                "cannot override that endpoint-security decision."
+            )
+            record_artifact(self.manifest, "dxf", log)
+            messagebox.showerror("DXF orchestrator failed", item["notes"], parent=self)
+        save_manifest(self.manifest, self.manifest_path)
+        self.refresh()
 
     def review_drawings(self) -> list[Path]:
         window = tk.Toplevel(self)

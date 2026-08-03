@@ -107,6 +107,12 @@ STAGE_GUIDANCE = {
     },
 }
 
+for _guidance in STAGE_GUIDANCE.values():
+    _guidance["action"] += (
+        " Use Check This Step first, Start This Step to begin, and "
+        "Open This Step's Folder to inspect the relevant location."
+    )
+
 
 class JobError(RuntimeError):
     """A problem that can be explained and corrected by the operator."""

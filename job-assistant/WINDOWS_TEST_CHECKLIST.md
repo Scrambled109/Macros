@@ -76,6 +76,8 @@ do not send sensitive workbook contents.
 
 ## 4. DXF review and orchestrator
 
+For PowerShell blocks, use [`CYLANCE_TROUBLESHOOTING.md`](CYLANCE_TROUBLESHOOTING.md); do not disable or evade endpoint security.
+
 1. Select the mixed incoming folder.
 2. Confirm DXFs start selected, the DWG starts excluded, and the unrelated file
    is not proposed.
