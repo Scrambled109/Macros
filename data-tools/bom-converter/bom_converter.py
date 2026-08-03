@@ -40,6 +40,10 @@ STANDARD_TEMPLATE_HEADERS = {
 
 # Suggestions only. The user can override every one from the dropdowns.
 SOURCE_SUGGESTIONS = {
+    "THICKNESS SHAPE": "THICKNESS SHAPE",
+    "THICKNESS/SHAPE": "THICKNESS SHAPE",
+    "SHAPE": "THICKNESS SHAPE",
+    "STOCK SIZE": "THICKNESS SHAPE",
     "ENG MAT ID": "PART NUMBER",
     "ENG MATID": "PART NUMBER",
     "ENGINEERING MATERIAL ID": "PART NUMBER",
@@ -124,6 +128,11 @@ MATERIAL_DESCRIPTION_FAMILIES = (
 )
 
 MATERIAL_FAMILY_ALIASES = {
+    "L": "ANGLE",
+    "C": "CHANNEL",
+    "W": "WIDE FLANGE",
+    "WT": "TEE",
+    "HSS": "SQUARE TUBE",
     "PL": "PLATE",
     "PLATE": "PLATE",
     "TEE": "TEE",

@@ -54,7 +54,7 @@ Manifest saves use a same-directory temporary file, flush it, and atomically rep
 
 ## BOP/BOM to Parts List
 
-Select **Create Parts List from BOP/BOM** and **Run / Prepare**:
+Select **Create Parts List from BOP/BOM** and **Start This Step**:
 
 1. Select the received BOP/BOM workbook.
 2. On first use, select the shared standard Parts List template. Its UNC/network path is remembered only in per-user settings.
@@ -68,7 +68,7 @@ The converter's non-interactive API uses its existing conservative mapping sugge
 
 Select the incoming single folder. The assistant reports DXF and DWG counts, initially selects `.dxf` files, and initially excludes `.dwg` files as likely manual shape sketches. Choose **Review individual files** to include/exclude every candidate. Classification is a proposal, not a claim.
 
-Confirmed files are copied—not moved—to a timestamped `Working/DXF Orchestrator/.../001` folder. If two preparations start within the same second, a numeric suffix prevents one run from colliding with another. The `001` adapter satisfies the orchestrator's numbered-folder input without changing received files. The orchestrator runs with that timestamped workspace as its working directory, so its archive, sorted DWGs, and `_ORCHESTRATOR_LOGS` remain controlled assistant data. Configured AutoCAD GUI/console paths are passed as quoted PowerShell arguments; blank settings retain the orchestrator's documented AutoCAD 2026 defaults. For bevel reviews follow the orchestrator instruction to type `FINISH`; never assume a launch completed. Record and review outputs/logs before completion.
+Confirmed files are copied—not moved—to a timestamped `Working/DXF Orchestrator/.../001` folder. If two preparations start within the same second, a numeric suffix prevents one run from colliding with another. The `001` adapter satisfies the orchestrator's numbered-folder input without changing received files. The orchestrator runs with that timestamped workspace as its working directory, so its archive, sorted DWGs, and `_ORCHESTRATOR_LOGS` remain controlled assistant data. Configured AutoCAD GUI/console paths are passed as quoted PowerShell arguments; blank settings retain the orchestrator's documented AutoCAD 2026 defaults. For Cylance Script Control failures, follow [`CYLANCE_TROUBLESHOOTING.md`](CYLANCE_TROUBLESHOOTING.md). For bevel reviews follow the orchestrator instruction to type `FINISH`; never assume a launch completed. Record and review outputs/logs before completion.
 
 ## SolidWorks and AutoBOM
 
@@ -124,7 +124,7 @@ A GUI display and Windows CAD applications are required for end-to-end GUI/CAD a
 
 ## Build the standalone Windows beta
 
-On a clean Windows build machine, run `job-assistant\build_windows.bat`. It installs PyInstaller for that build environment and creates a complete three-EXE distribution in `job-assistant\dist`: the Job Assistant plus console companions for BOM conversion and production comparison. Keep all three EXEs together; packaged users do not need Python, and the assistant reports a missing companion rather than attempting to run a `.py` file. Validate the distribution, network-drive/UNC access, Office dependencies, and all CAD versions/macros before sharing it. `job-assistant\Launch Job Assistant.bat` prefers the packaged assistant; its Python fallback is for developers only. This is a portable beta distribution, not an enterprise installer or auto-updater.
+On a clean Windows build machine, run `job-assistant\build_windows.bat`. It installs PyInstaller for that build environment and creates a complete three-EXE distribution in `job-assistant\dist`: the Job Assistant plus console companions for BOM conversion and production comparison. Keep all three EXEs together; packaged users do not need Python, and the assistant reports a missing companion rather than attempting to run a `.py` file. Validate the distribution, network-drive/UNC access, Office dependencies, and all CAD versions/macros before sharing it. `job-assistant\Launch Job Assistant.bat` requires the packaged assistant. Developers can explicitly request source mode with `Launch Job Assistant.bat --source`. This is a portable beta distribution, not an enterprise installer or auto-updater.
 
 See [`../WORKFLOW.md`](../WORKFLOW.md) for the domain checkpoints and the component documentation for each tool's recovery procedure.
 
