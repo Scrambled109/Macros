@@ -149,11 +149,13 @@ def plate_macro_instructions(
         "In SolidWorks:\n"
         "1. Choose Tools > Macro > Run.\n"
         f"2. Select {macro}.\n"
-        "3. Run Main_RunBatch1.RunBatch.\n"
-        "4. The assistant has supplied the extrusion depth for this run; "
+        "3. Run Main_RunBatch1.RunBatch and wait for it to finish.\n"
+        "4. From the same macro, run TextStamp.RunTextStamp and wait for it "
+        "to finish.\n"
+        "5. The assistant has supplied the extrusion depth for this run; "
         "confirm the same value appears in BatchLog.txt.\n"
-        "5. Wait for the summary, then inspect BatchLog.txt and representative "
-        "parts before selecting the next thickness folder."
+        "6. Inspect BatchLog.txt and representative parts before selecting "
+        "the next thickness folder."
     )
 
 for _guidance in STAGE_GUIDANCE.values():
