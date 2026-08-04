@@ -29,6 +29,7 @@ Option Explicit
 Public Sub RunBatch()
     Dim runStart As Double
     runStart = NowSeconds()
+    RefreshRuntimeConfiguration
 
     If Len(SOURCE_FOLDER) = 0 Or Len(FILTERED_FOLDER) = 0 Or _
        Len(OUTPUT_FOLDER) = 0 Then
@@ -40,9 +41,24 @@ Public Sub RunBatch()
         Exit Sub
     End If
 
+    If StrComp(SOURCE_FOLDER, FILTERED_FOLDER, vbTextCompare) = 0 Then
+        MsgBox "The source and filtered-DWG folders are the same." & vbCrLf & _
+               "That would overwrite the original drawings, so the batch was stopped.", _
+               vbCritical, "CAD Batch Converter"
+        Exit Sub
+    End If
+
     ' --- Folders + log ------------------------------------------------------
-    EnsureFolder FILTERED_FOLDER
-    EnsureFolder OUTPUT_FOLDER
+    If Not EnsureFolder(FILTERED_FOLDER) Then
+        MsgBox "Could not create or access the filtered-DWG folder:" & vbCrLf & _
+               FILTERED_FOLDER, vbCritical, "CAD Batch Converter"
+        Exit Sub
+    End If
+    If Not EnsureFolder(OUTPUT_FOLDER) Then
+        MsgBox "Could not create or access the output folder:" & vbCrLf & _
+               OUTPUT_FOLDER, vbCritical, "CAD Batch Converter"
+        Exit Sub
+    End If
     OpenLog OUTPUT_FOLDER
 
     WriteLog ""
