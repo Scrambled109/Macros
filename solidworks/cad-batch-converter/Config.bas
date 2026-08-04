@@ -9,7 +9,7 @@ Attribute VB_Name = "Config"
 '
 ' Target hosts : AutoCAD 2026 (COM) + SolidWorks 2025 (API)
 ' Language     : VBA only (VBA7 / 64-bit)
-' Required refs: AutoCAD 2026 Type Library, SolidWorks 2025 Type Library
+' Required refs: SolidWorks 2025 Type + Constant Type Libraries
 '==============================================================================
 Option Explicit
 
@@ -22,6 +22,15 @@ Option Explicit
 '------------------------------------------------------------------------------
 Private Const SETTINGS_APP As String = "EngineeringMacros"
 Private Const SETTINGS_SECTION As String = "CadBatch"
+
+' Snapshot the externally supplied settings at the start of each run. Without
+' this cache, another thickness-group launch can rewrite the registry while a
+' batch is still running and make one run mix folders or extrusion depths.
+Private mRuntimeConfigured As Boolean
+Private mSourceFolder As String
+Private mFilteredFolder As String
+Private mOutputFolder As String
+Private mExtrudeDepthMeters As Double
 
 Private Function ConfiguredFolder(ByVal environmentName As String, _
                                   ByVal registryName As String) As String
@@ -37,16 +46,31 @@ Private Function ConfiguredFolder(ByVal environmentName As String, _
     ConfiguredFolder = value
 End Function
 
+Public Sub RefreshRuntimeConfiguration()
+    mSourceFolder = ConfiguredFolder("MACROS_SOURCE_FOLDER", "SourceFolder")
+    mFilteredFolder = ConfiguredFolder("MACROS_FILTERED_FOLDER", "FilteredFolder")
+    mOutputFolder = ConfiguredFolder("MACROS_OUTPUT_FOLDER", "OutputFolder")
+    mExtrudeDepthMeters = ReadConfiguredDepthMeters()
+    mRuntimeConfigured = True
+End Sub
+
+Private Sub EnsureRuntimeConfiguration()
+    If Not mRuntimeConfigured Then RefreshRuntimeConfiguration
+End Sub
+
 Public Function SOURCE_FOLDER() As String
-    SOURCE_FOLDER = ConfiguredFolder("MACROS_SOURCE_FOLDER", "SourceFolder")
+    EnsureRuntimeConfiguration
+    SOURCE_FOLDER = mSourceFolder
 End Function
 
 Public Function FILTERED_FOLDER() As String
-    FILTERED_FOLDER = ConfiguredFolder("MACROS_FILTERED_FOLDER", "FilteredFolder")
+    EnsureRuntimeConfiguration
+    FILTERED_FOLDER = mFilteredFolder
 End Function
 
 Public Function OUTPUT_FOLDER() As String
-    OUTPUT_FOLDER = ConfiguredFolder("MACROS_OUTPUT_FOLDER", "OutputFolder")
+    EnsureRuntimeConfiguration
+    OUTPUT_FOLDER = mOutputFolder
 End Function
 
 '------------------------------------------------------------------------------
@@ -75,7 +99,7 @@ Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 ' lets an already-running SolidWorks process see the value because its process
 ' environment was captured before the assistant launched. The default preserves
 ' standalone 0.25-inch behavior.
-Public Function EXTRUDE_DEPTH_METERS() As Double
+Private Function ReadConfiguredDepthMeters() As Double
     Dim value As String
     ' Registry wins here (unlike static folders) so a SolidWorks process that
     ' remains open between runs sees the newly selected thickness.
@@ -85,10 +109,15 @@ Public Function EXTRUDE_DEPTH_METERS() As Double
         value = Trim$(Environ$("MACROS_EXTRUDE_DEPTH_METERS"))
     End If
     If Len(value) > 0 And Val(value) > 0# Then
-        EXTRUDE_DEPTH_METERS = Val(value)
+        ReadConfiguredDepthMeters = Val(value)
     Else
-        EXTRUDE_DEPTH_METERS = 0.00635
+        ReadConfiguredDepthMeters = 0.00635
     End If
+End Function
+
+Public Function EXTRUDE_DEPTH_METERS() As Double
+    EnsureRuntimeConfiguration
+    EXTRUDE_DEPTH_METERS = mExtrudeDepthMeters
 End Function
 
 ' Convert the DWG text to REAL letter outlines (the drawing's own font) with
