@@ -35,6 +35,12 @@ The dashboard shows job/revision, required and optional paths, overall progress,
 
 Statuses distinguish Not Started, Ready, In Progress, Needs Review, Complete, and warnings. **Complete After Review** requires a review note. **Reopen** preserves the event history. Events and warning overrides contain the Windows username and UTC time.
 
+The toolbar also shows active external automation and the job number that
+launched it. You may switch to another job while DXF automation runs: its final
+status remains tied to the launching job, and a completion notification names
+that job. If you close the assistant while automation is active, it warns that
+AutoCAD will continue but status monitoring and notifications will stop.
+
 ## Assistant-owned data and recovery
 
 The application creates this isolated area under the selected Engineering Process folder:

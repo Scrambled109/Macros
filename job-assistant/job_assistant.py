@@ -64,7 +64,9 @@ class JobAssistant(tk.Tk):
         self.manifest_path: Path | None = None
         self.active_stage: str | None = None
         self.candidates = []
+        self.running_processes: dict[int, dict] = {}
         self._build()
+        self.protocol("WM_DELETE_WINDOW", self.close_application)
 
     @property
     def repo(self) -> Path:
@@ -93,6 +95,12 @@ class JobAssistant(tk.Tk):
             ("Refresh", self.refresh),
         ):
             ttk.Button(toolbar, text=text, command=command).pack(side="left", padx=3)
+        self.running_summary = ttk.Label(
+            toolbar,
+            text="No external processes running",
+            foreground="#176b32",
+        )
+        self.running_summary.pack(side="right", padx=8)
         self.heading = ttk.Label(
             self,
             text="Set up a new job or attach to an existing Engineering Process folder.",
@@ -215,6 +223,30 @@ class JobAssistant(tk.Tk):
             messagebox.showerror(
                 "Engineering Job Assistant", f"{exc}{save_error}", parent=self
             )
+
+    def update_running_summary(self) -> None:
+        count = len(self.running_processes)
+        if not count:
+            text, color = "No external processes running", "#176b32"
+        else:
+            jobs = sorted(
+                {item["job_number"] for item in self.running_processes.values()}
+            )
+            text = f"Running: {count} process(es) for job(s) {', '.join(jobs)}"
+            color = "#7a4b00"
+        self.running_summary.configure(text=text, foreground=color)
+
+    def close_application(self) -> None:
+        if self.running_processes and not messagebox.askyesno(
+            "Processes are still running",
+            "External automation is still running. Closing the assistant will "
+            "stop status monitoring and completion notifications, but will not "
+            "stop AutoCAD.\n\nClose the assistant anyway?",
+            icon="warning",
+            parent=self,
+        ):
+            return
+        self.destroy()
 
     def require_job(self) -> None:
         if not self.manifest or not self.manifest_path:
@@ -606,18 +638,56 @@ class JobAssistant(tk.Tk):
             workspace=str(run),
             log=str(log),
         )
+        self.running_processes[process.pid] = {
+            "stage": "dxf",
+            "job_number": self.manifest["job"]["number"],
+            "manifest_path": str(self.manifest_path),
+            "log": str(log),
+        }
+        self.update_running_summary()
         save_manifest(self.manifest, self.manifest_path)
-        self._poll_dxf_process(process, handle, log, run)
+        # Keep the launched job's state with the process. The operator can open a
+        # different job while AutoCAD is still running; a later callback must not
+        # write that process result into whichever job happens to be displayed.
+        self._poll_dxf_process(
+            process,
+            handle,
+            log,
+            run,
+            self.manifest,
+            self.manifest_path,
+        )
 
-    def _poll_dxf_process(self, process, handle, log: Path, run: Path) -> None:
+    def _poll_dxf_process(
+        self,
+        process,
+        handle,
+        log: Path,
+        run: Path,
+        process_manifest: dict,
+        process_manifest_path: Path,
+    ) -> None:
         exit_code = process.poll()
         if exit_code is None:
-            self.after(500, self._poll_dxf_process, process, handle, log, run)
+            self.after(
+                500,
+                self._poll_dxf_process,
+                process,
+                handle,
+                log,
+                run,
+                process_manifest,
+                process_manifest_path,
+            )
             return
         handle.write(f"\nExit code: {exit_code}\n")
         handle.close()
+        running = self.__dict__.get("running_processes")
+        if running is not None:
+            running.pop(process.pid, None)
+            self.update_running_summary()
         record_event(
-            self.manifest,
+            process_manifest,
             "external_process_finished",
             stage="dxf",
             pid=process.pid,
@@ -627,23 +697,32 @@ class JobAssistant(tk.Tk):
         )
         if exit_code == 0:
             mark_needs_review(
-                self.manifest,
+                process_manifest,
                 "dxf",
                 "Orchestrator finished successfully. Review generated DWGs and logs, then record accepted artifacts.",
                 [log],
             )
         else:
-            item = self.manifest["stages"]["dxf"]
+            item = process_manifest["stages"]["dxf"]
             item["status"] = "warning"
             item["notes"] = (
                 f"Orchestrator failed with exit code {exit_code}. Review {log}. "
                 "If Cylance Script Control blocked PowerShell, -ExecutionPolicy Bypass "
                 "cannot override that endpoint-security decision."
             )
-            record_artifact(self.manifest, "dxf", log)
+            record_artifact(process_manifest, "dxf", log)
             messagebox.showerror("DXF orchestrator failed", item["notes"], parent=self)
-        save_manifest(self.manifest, self.manifest_path)
-        self.refresh()
+        save_manifest(process_manifest, process_manifest_path)
+        if self.manifest_path == process_manifest_path:
+            self.manifest = process_manifest
+            self.refresh()
+        outcome = "finished and needs review" if exit_code == 0 else "failed"
+        messagebox.showinfo(
+            "DXF automation finished",
+            f"Job {process_manifest['job']['number']} DXF automation {outcome}.\n\n"
+            f"Log: {log}",
+            parent=self,
+        )
 
     def review_drawings(self) -> list[Path]:
         window = tk.Toplevel(self)
