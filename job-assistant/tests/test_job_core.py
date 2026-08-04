@@ -1,8 +1,10 @@
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from job_core import (  # noqa: E402
@@ -28,6 +30,7 @@ from job_core import (  # noqa: E402
     stage_checks,
     suggest_job_number,
 )
+from job_assistant import JobAssistant  # noqa: E402
 
 
 class CoreTests(unittest.TestCase):
@@ -226,6 +229,17 @@ class CoreTests(unittest.TestCase):
         self.assertIn("GetSetting(SETTINGS_APP, SETTINGS_SECTION", config)
         self.assertNotIn("U:\\Engineering\\CAD Services\\Current Jobs", config)
 
+    def test_bevel_finish_closes_the_drawing_not_autocad(self):
+        orchestrator = (
+            Path(__file__).resolve().parents[2]
+            / "autocad/dxf-orchestrator/Master_Orchestrator.ps1"
+        ).read_text(encoding="utf-8-sig")
+        finish_definition = next(
+            line for line in orchestrator.splitlines() if "$finishLisp =" in line
+        )
+        self.assertIn('command `"_.CLOSE`"', finish_definition)
+        self.assertNotIn("_.QUIT", finish_definition)
+
     def test_external_commands_are_argument_lists_with_spaces(self):
         repo = Path(r"Z:\Shared Macros")
         bom = command_bom(
@@ -271,6 +285,50 @@ class CoreTests(unittest.TestCase):
         )
         self.assertEqual(packaged[0], "Engineering BOM Converter.exe")
         self.assertNotIn("bom_converter.py", " ".join(packaged))
+
+    def test_finished_dxf_process_updates_the_job_that_launched_it(self):
+        first_manifest, first_path = self.manifest()
+        other_root = Path(self.temp.name) / "99999 Other"
+        other_model = other_root / "model"
+        other_cut = other_root / "cuts"
+        other_model.mkdir(parents=True)
+        other_cut.mkdir()
+        other_path = setup_job(
+            other_root, other_model, other_cut, "99999", "Other", "A"
+        )
+        other_manifest = load_manifest(other_path)
+
+        assistant = object.__new__(JobAssistant)
+        assistant.manifest = other_manifest
+        assistant.manifest_path = other_path
+        assistant.refresh = lambda: self.fail("the unrelated open job was refreshed")
+        log = Path(first_manifest["workspace"]["logs"]) / "dxf-test.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("started\n")
+
+        class FinishedProcess:
+            pid = 42
+
+            @staticmethod
+            def poll():
+                return 0
+
+        handle = io.StringIO()
+        with patch("job_assistant.messagebox.showinfo") as notification:
+            assistant._poll_dxf_process(
+                FinishedProcess(),
+                handle,
+                log,
+                Path(first_manifest["workspace"]["working"]),
+                first_manifest,
+                first_path,
+            )
+
+        saved_first = load_manifest(first_path)
+        saved_other = load_manifest(other_path)
+        self.assertEqual(saved_first["stages"]["dxf"]["status"], "needs_review")
+        self.assertEqual(saved_other["stages"]["dxf"]["status"], "not_started")
+        self.assertIn("01234", notification.call_args.args[1])
 
 
 if __name__ == "__main__":
