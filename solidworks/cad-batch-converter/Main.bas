@@ -78,7 +78,8 @@ Public Sub RunBatch()
     WriteLog "Source folder   : " & SOURCE_FOLDER
     WriteLog "Filtered folder : " & FILTERED_FOLDER
     WriteLog "Staging folder  : " & OUTPUT_FOLDER
-    WriteLog "Target layer    : " & TARGET_LAYER
+    WriteLog "Profile layers  : " & PROFILE_LAYERS
+    WriteLog "Marking layers  : " & TEXT_LAYER
     WriteLog "Extrude depth   : " & Format$(EXTRUDE_DEPTH_METERS, "0.00000") & " m"
     WriteLog String(67, "=")
 
