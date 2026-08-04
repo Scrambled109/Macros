@@ -100,10 +100,13 @@ macro automatically.
 
 ## Processing configuration (`Config.bas`)
 
-After the runtime folders are supplied, `TARGET_LAYER`,
+After the runtime folders are supplied, `TARGET_LAYER` (`CUT - OUTSIDE STRAIGHT`,
+matching DXF Orchestrator's red-geometry mapping),
 runtime `EXTRUDE_DEPTH_METERS()`, `TEXT_LAYER` (`PIN STAMP TEXT`) and
 `DWG_UNITS_TO_METERS` (`0.0254`, inches) control processing. Verify these
-shared CAD-environment values before the first production run. Other useful
+shared CAD-environment values before the first production run. Layer matching
+tolerates the legacy `CUT-OUTSIDE STRAIGHT` spelling, and a target-layer failure
+now logs the layer names actually used by model-space entities. Other useful
 switches:
 
 | Constant                 | Default | Effect |
