@@ -146,7 +146,27 @@ class OrchestratorHelpersTest(unittest.TestCase):
         self.assertLess(powershell.index("SetVariable"), powershell.index("SendCommand"))
         self.assertIn("Get-Process -Name acad", powershell)
         self.assertIn("$acad.Documents.Open", powershell)
-        self.assertIn("for ($attempt = 0; $attempt -lt 120", powershell)
+        self.assertIn(
+            f"for ($attempt = 0; $attempt -lt {orchestrator.AUTOMATION_RETRY_ATTEMPTS}",
+            powershell,
+        )
+
+    @mock.patch.object(orchestrator.subprocess, "run")
+    def test_review_recovers_an_already_opened_document(self, run):
+        run.return_value.returncode = 0
+
+        orchestrator.open_review_drawing(
+            Path("acad.exe"), Path("part.dxf"), Path("review.scr")
+        )
+
+        encoded = run.call_args.args[0][-1]
+        powershell = orchestrator.base64.b64decode(encoded).decode("utf-16le")
+        self.assertIn("foreach ($candidate in $acad.Documents)", powershell)
+        self.assertIn("$candidate.FullName -eq", powershell)
+        self.assertLess(
+            powershell.index("foreach ($candidate in $acad.Documents)"),
+            powershell.index("$document = $acad.Documents.Open"),
+        )
 
     @mock.patch.object(orchestrator.subprocess, "run")
     def test_review_never_reopens_document_when_autocad_is_busy(self, run):

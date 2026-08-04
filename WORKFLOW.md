@@ -121,7 +121,16 @@ Full operating instructions are in
 
 ### Use
 
-In SolidWorks, run:
+Process one material/thickness folder at a time. The Engineering Job Assistant
+infers the thickness from the folder name, asks the operator to confirm it, and
+supplies `EXTRUDE_DEPTH_METERS` to the macro at run time. It also reports the
+number of sibling folders containing DWGs so the operator can account for every
+required run. The production `.swp` must first be rebuilt once with the updated
+runtime-aware `Config.bas`; loose `.bas` files cannot alter a compiled `.swp`.
+The assistant opens guided instructions and does not treat opening an `.swp`
+file as proof that its entry point executed.
+
+In SolidWorks, choose **Tools > Macro > Run**, select:
 
 ```text
 solidworks/cad-batch-converter/Main.RunBatch.swp
