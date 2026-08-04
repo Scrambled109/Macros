@@ -69,10 +69,19 @@ stop the macro before it creates files. Rebuild `Main.RunBatch.swp` after
 importing the updated source; editing `Config.bas` alone does not alter the
 compiled macro.
 
+The extrusion depth is also runtime-configurable. `EXTRUDE_DEPTH_METERS()`
+reads the `ExtrudeDepthMeters` setting in the same registry section first,
+then `MACROS_EXTRUDE_DEPTH_METERS`, and finally defaults to `0.00635` m
+(0.25 in). Registry-first lookup lets an already-running SolidWorks process
+see the next run's thickness instead of its original environment. The
+Job Assistant writes both runtime forms for each selected thickness folder, so
+operators do not edit or rebuild VBA between runs. Rebuild the `.swp` once to
+incorporate this source change.
+
 ## Processing configuration (`Config.bas`)
 
 After the runtime folders are supplied, `TARGET_LAYER`,
-`EXTRUDE_DEPTH_METERS`, `TEXT_LAYER` (`PIN STAMP TEXT`) and
+runtime `EXTRUDE_DEPTH_METERS()`, `TEXT_LAYER` (`PIN STAMP TEXT`) and
 `DWG_UNITS_TO_METERS` (`0.0254`, inches) control processing. Verify these
 shared CAD-environment values before the first production run. Other useful
 switches:

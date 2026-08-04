@@ -25,7 +25,10 @@ from job_core import (  # noqa: E402
     load_manifest,
     load_settings,
     migrate_manifest,
+    inferred_plate_thickness,
     parse_comparison_summary,
+    plate_macro_instructions,
+    plate_run_folders,
     plan_promotions,
     prepare_dxf_workspace,
     promote_files,
@@ -49,6 +52,32 @@ class CoreTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_plate_macro_guidance_is_one_thickness_run(self):
+        source = Path("C:/Job/250-HSLA-65")
+        macro = Path("C:/Macros/Main.RunBatch.swp")
+
+        instructions = plate_macro_instructions(source, macro, 0.25, 4)
+
+        self.assertIn("one thickness-group run", instructions)
+        self.assertIn("0.25 in (0.00635 m)", instructions)
+        self.assertIn("Tools > Macro > Run", instructions)
+        self.assertIn("Main_RunBatch1.RunBatch", instructions)
+        self.assertIn("folders detected beside this folder: 4", instructions)
+        self.assertIn("supplied the extrusion depth", instructions)
+
+    def test_plate_run_discovery_and_thickness_inference(self):
+        for name in ("250-A36", "250-HSLA-65", "375-A36", "notes"):
+            folder = Path(self.temp.name) / name
+            folder.mkdir()
+            if name != "notes":
+                (folder / "part.dwg").write_text("drawing", encoding="ascii")
+
+        runs = plate_run_folders(Path(self.temp.name))
+
+        self.assertEqual([run.name for run in runs], ["250-A36", "250-HSLA-65", "375-A36"])
+        self.assertEqual(inferred_plate_thickness(runs[0]), 0.25)
+        self.assertIsNone(inferred_plate_thickness(Path(self.temp.name) / "notes"))
 
     def manifest(self):
         path = setup_job(self.root, self.model, self.cut, "01234", "Test", "A")
@@ -235,6 +264,13 @@ class CoreTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("Environ$(environmentName)", config)
         self.assertIn("GetSetting(SETTINGS_APP, SETTINGS_SECTION", config)
+        self.assertIn('"MACROS_EXTRUDE_DEPTH_METERS"', config)
+        self.assertIn('"ExtrudeDepthMeters"', config)
+        self.assertNotIn("Public Const EXTRUDE_DEPTH_METERS", config)
+        self.assertLess(
+            config.index('"ExtrudeDepthMeters"'),
+            config.index('Environ$("MACROS_EXTRUDE_DEPTH_METERS")'),
+        )
         self.assertNotIn("U:\\Engineering\\CAD Services\\Current Jobs", config)
 
     def test_bevel_finish_closes_the_drawing_not_autocad(self):

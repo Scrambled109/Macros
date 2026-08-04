@@ -29,6 +29,7 @@ DEFAULT_ACAD_GUI = Path(r"C:\Program Files\Autodesk\AutoCAD 2026\acad.exe")
 CONSOLE_TIMEOUT_SECONDS = 180
 BEVEL_REVIEW_TIMEOUT_SECONDS = 3600
 MINIMUM_DWG_BYTES = 1024
+AUTOMATION_RETRY_ATTEMPTS = 600
 
 HASH_TO_DASH_LISP = """(defun c:HashToDash ( / ss i ent oldStr newStr)
   (if (setq ss (ssget "X" '((0 . "TEXT,MTEXT"))))
@@ -239,9 +240,20 @@ $acad.Visible = $true
 # drawing's startup work. Retrying the *whole* operation at that point opens a
 # second, read-only tab for the same DXF.
 $document = $null
-for ($attempt = 0; $attempt -lt 120; $attempt++) {{
+for ($attempt = 0; $attempt -lt {AUTOMATION_RETRY_ATTEMPTS}; $attempt++) {{
     try {{
-        $document = $acad.Documents.Open('{dxf_value}')
+        # A previous automation attempt may have opened the drawing and then
+        # lost its COM call while AutoCAD was busy. Reuse that tab rather than
+        # opening a duplicate/read-only copy when this operation is retried.
+        foreach ($candidate in $acad.Documents) {{
+            if ($candidate.FullName -eq '{dxf_value}') {{
+                $document = $candidate
+                break
+            }}
+        }}
+        if ($null -eq $document) {{
+            $document = $acad.Documents.Open('{dxf_value}')
+        }}
         break
     }} catch {{
         Start-Sleep -Milliseconds 500
@@ -252,7 +264,7 @@ if ($null -eq $document) {{ exit 4 }}
 # AutoCAD may reject automation calls temporarily while the document finishes
 # opening. Keep the document reference and retry only activation/script setup;
 # never call Documents.Open again for this review.
-for ($attempt = 0; $attempt -lt 120; $attempt++) {{
+for ($attempt = 0; $attempt -lt {AUTOMATION_RETRY_ATTEMPTS}; $attempt++) {{
     try {{
         $document.Activate()
         $document.SetVariable('FILEDIA', 0)
@@ -594,7 +606,10 @@ def main(argv: list[str] | None = None) -> int:
                 counts["bevel"] += completed
                 counts["failed"] += failed
 
-    print("\n=== ALL PARTS PROCESSED, SORTED, AND SAVED! ===")
+    if counts["failed"]:
+        print("\n=== PROCESSING COMPLETE WITH FAILURES; ORIGINAL DXFS WERE KEPT ===")
+    else:
+        print("\n=== ALL PARTS PROCESSED, SORTED, AND SAVED! ===")
     print(f"=== Clean: {counts['clean']}  Bevel: {counts['bevel']}  Failed: {counts['failed']} ===")
     print("=== Originals archived in _PROCESSED_DXF_ARCHIVE ===")
     return 1 if counts["failed"] else 0

@@ -71,8 +71,25 @@ Public Const TEXT_LAYER As String = "PIN STAMP TEXT"
 Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 
 ' Extrusion depth, expressed in METERS because the SolidWorks API is always SI.
-' 0.00635 m = 6.35 mm = 0.25 in.
-Public Const EXTRUDE_DEPTH_METERS As Double = 0.00635
+' The Job Assistant supplies this per thickness-group run. Registry fallback
+' lets an already-running SolidWorks process see the value because its process
+' environment was captured before the assistant launched. The default preserves
+' standalone 0.25-inch behavior.
+Public Function EXTRUDE_DEPTH_METERS() As Double
+    Dim value As String
+    ' Registry wins here (unlike static folders) so a SolidWorks process that
+    ' remains open between runs sees the newly selected thickness.
+    value = Trim$(GetSetting(SETTINGS_APP, SETTINGS_SECTION, _
+                             "ExtrudeDepthMeters", vbNullString))
+    If Len(value) = 0 Then
+        value = Trim$(Environ$("MACROS_EXTRUDE_DEPTH_METERS"))
+    End If
+    If Len(value) > 0 And Val(value) > 0# Then
+        EXTRUDE_DEPTH_METERS = Val(value)
+    Else
+        EXTRUDE_DEPTH_METERS = 0.00635
+    End If
+End Function
 
 ' Convert the DWG text to REAL letter outlines (the drawing's own font) with
 ' AutoCAD Express Tools' TXTEXP before harvesting, so the words land in

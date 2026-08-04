@@ -28,7 +28,10 @@ from job_core import (
     load_manifest,
     load_settings,
     mark_needs_review,
+    inferred_plate_thickness,
     parse_comparison_summary,
+    plate_macro_instructions,
+    plate_run_folders,
     plan_promotions,
     prepare_dxf_workspace,
     promote_files,
@@ -870,6 +873,17 @@ class JobAssistant(tk.Tk):
             source = Path(source_value)
             if not any(source.glob("*.dwg")) and not any(source.glob("*.DWG")):
                 raise JobError("The selected plate-input folder contains no DWG files.")
+            thickness = simpledialog.askfloat(
+                "Plate thickness",
+                "Enter the extrusion thickness in inches for every DWG in "
+                "this folder:",
+                initialvalue=inferred_plate_thickness(source),
+                minvalue=0.001,
+                maxvalue=20.0,
+                parent=self,
+            )
+            if thickness is None:
+                return
             filtered = Path(self.manifest["workspace"]["working"]) / "Filtered DWGs"
             output = Path(self.manifest["workspace"]["staging"]) / "SolidWorks Parts"
             filtered.mkdir(parents=True, exist_ok=True)
@@ -878,6 +892,7 @@ class JobAssistant(tk.Tk):
                 "MACROS_SOURCE_FOLDER": str(source),
                 "MACROS_FILTERED_FOLDER": str(filtered),
                 "MACROS_OUTPUT_FOLDER": str(output),
+                "MACROS_EXTRUDE_DEPTH_METERS": format(thickness * 0.0254, ".12g"),
             }
         if not self._accept_warnings(stage):
             return
@@ -889,6 +904,7 @@ class JobAssistant(tk.Tk):
                     "MACROS_SOURCE_FOLDER": "SourceFolder",
                     "MACROS_FILTERED_FOLDER": "FilteredFolder",
                     "MACROS_OUTPUT_FOLDER": "OutputFolder",
+                    "MACROS_EXTRUDE_DEPTH_METERS": "ExtrudeDepthMeters",
                 }
                 for env_name, value in values.items():
                     subprocess.run(
@@ -907,14 +923,35 @@ class JobAssistant(tk.Tk):
                         check=True,
                         capture_output=True,
                     )
-        open_path(macro)
-        record_event(
-            self.manifest, "cad_macro_launch_initiated", stage=stage, macro=str(macro)
-        )
+        if stage == "plate_model":
+            solidworks = self.settings.get("solidworks_executable", "").strip()
+            if solidworks and Path(solidworks).is_file():
+                subprocess.Popen([solidworks])
+            open_path(macro.parent)
+            messagebox.showinfo(
+                "Run one SolidWorks thickness group",
+                plate_macro_instructions(
+                    source, macro, thickness, len(plate_run_folders(source.parent))
+                ),
+                parent=self,
+            )
+            event = "cad_macro_guidance_opened"
+            review_message = (
+                "SolidWorks macro instructions opened. Run one configured "
+                "thickness group, then review CAD output and BatchLog.txt."
+            )
+        else:
+            open_path(macro)
+            event = "cad_macro_launch_initiated"
+            review_message = (
+                "Macro launch initiated. Review CAD output and logs; launch "
+                "does not mean the engineering task succeeded."
+            )
+        record_event(self.manifest, event, stage=stage, macro=str(macro))
         mark_needs_review(
             self.manifest,
             stage,
-            "Macro launch initiated. Review CAD output and logs; launch does not mean the engineering task succeeded.",
+            review_message,
         )
 
     def open_stage_folder(self) -> None:
