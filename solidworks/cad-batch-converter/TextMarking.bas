@@ -31,7 +31,7 @@ Attribute VB_Name = "TextMarking"
 ' signatures do not have to change. Call sequence per file:
 '       ClearMarks  ->  HarvestTextMarks (AutoCAD)  ->  ApplyTextMarks (SW)
 '
-' Uses late-bound AutoCAD COM and requires the SolidWorks 2025 type libraries.
+' Uses late-bound AutoCAD COM and uses late-bound SolidWorks COM.
 '==============================================================================
 Option Explicit
 
@@ -288,7 +288,7 @@ End Function
 ' silently (the old code swallowed a wrong-argument-count error and reported
 ' OK while placing nothing). Returns True when at least one word was placed
 ' (and True when there was nothing to place).
-Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
+Public Function ApplyTextMarks(ByVal swModel As Object, _
                                ByRef placedCount As Long, _
                                ByRef detail As String) As Boolean
     placedCount = 0
@@ -315,7 +315,7 @@ End Function
 ' drawing error if any. If a sketch will not open on the top face, the front
 ' plane is retried before giving up.
 '------------------------------------------------------------------------------
-Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
+Private Function PlaceAllWords(ByVal swModel As Object, _
                                ByRef segsDrawn As Long, _
                                ByRef detail As String) As Long
     Dim placed As Long
@@ -383,7 +383,7 @@ Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
 
-    Dim markingFeature As SldWorks.Feature
+    Dim markingFeature As Object
     Set markingFeature = LastSketchFeature(swModel)
     If Not markingFeature Is Nothing Then
         On Error Resume Next
@@ -423,11 +423,11 @@ End Function
 
 ' Remove the sketch owned by an earlier successful text pass. Delete absorbed
 ' and child features too so the optional engraving mode can also be rerun.
-Private Function RemovePreviousMarking(ByVal swModel As SldWorks.ModelDoc2, _
+Private Function RemovePreviousMarking(ByVal swModel As Object, _
                                        ByRef problem As String) As Boolean
     On Error GoTo failed
 
-    Dim feat As SldWorks.Feature
+    Dim feat As Object
     Do
         Set feat = FindFeatureByName(swModel, MARKING_SKETCH_NAME)
         If feat Is Nothing Then Exit Do
@@ -455,8 +455,8 @@ failed:
     On Error GoTo 0
 End Function
 
-Private Function FindFeatureByName(ByVal swModel As SldWorks.ModelDoc2, _
-                                   ByVal featureName As String) As SldWorks.Feature
+Private Function FindFeatureByName(ByVal swModel As Object, _
+                                   ByVal featureName As String) As Object
     On Error Resume Next
     Set FindFeatureByName = swModel.FeatureByName(featureName)
     On Error GoTo 0
@@ -486,13 +486,13 @@ End Function
 ' Draw one word at (xm, ym) meters, cap height hm meters, rotated rot radians
 ' about the insertion point. Returns True when at least one segment was drawn.
 '------------------------------------------------------------------------------
-Private Function DrawOneWord(ByVal swModel As SldWorks.ModelDoc2, _
+Private Function DrawOneWord(ByVal swModel As Object, _
                              ByVal xm As Double, ByVal ym As Double, _
                              ByVal hm As Double, ByVal rot As Double, _
                              ByVal text As String) As Boolean
     On Error GoTo done
 
-    Dim skm As SldWorks.SketchManager
+    Dim skm As Object
     Set skm = swModel.SketchManager
 
     If hm <= 0# Then hm = FONT_FALLBACK_HEIGHT_M
@@ -690,7 +690,7 @@ End Function
 ' creates nothing). Any total failure leaves the sketch as plain lines.
 ' Returns a short note for the log.
 '------------------------------------------------------------------------------
-Private Function EngraveTextSketch(ByVal swModel As SldWorks.ModelDoc2) As String
+Private Function EngraveTextSketch(ByVal swModel As Object) As String
     On Error Resume Next
     EngraveTextSketch = "engrave: failed (left as sketch lines)"
 
@@ -702,7 +702,7 @@ Private Function EngraveTextSketch(ByVal swModel As SldWorks.ModelDoc2) As Strin
     Dim thick As Double
     thick = capH * TEXT_STROKE_WIDTH_FRAC
 
-    Dim skFeat As SldWorks.Feature
+    Dim skFeat As Object
     Set skFeat = LastSketchFeature(swModel)
     If skFeat Is Nothing Then
         EngraveTextSketch = "engrave: text sketch not found (left as lines)"
@@ -758,8 +758,8 @@ Private Function EngraveTextSketch(ByVal swModel As SldWorks.ModelDoc2) As Strin
 End Function
 
 ' Return the LAST sketch feature in the tree (the text sketch just closed).
-Private Function LastSketchFeature(ByVal swModel As SldWorks.ModelDoc2) As SldWorks.Feature
-    Dim feat As SldWorks.Feature
+Private Function LastSketchFeature(ByVal swModel As Object) As Object
+    Dim feat As Object
     Set feat = swModel.FirstFeature
     Do While Not feat Is Nothing
         If feat.GetTypeName2 = SW_SKETCH_TYPENAME Then Set LastSketchFeature = feat
@@ -769,7 +769,7 @@ End Function
 
 ' Find and select the top face of the extruded part. Returns False (nothing
 ' selected) if no suitable face is found.
-Private Function SelectTopFace(ByVal swModel As SldWorks.ModelDoc2) As Boolean
+Private Function SelectTopFace(ByVal swModel As Object) As Boolean
     On Error GoTo fail
 
     Dim face As Object
@@ -777,7 +777,7 @@ Private Function SelectTopFace(ByVal swModel As SldWorks.ModelDoc2) As Boolean
     If face Is Nothing Then Exit Function     ' returns False
 
     swModel.ClearSelection2 True
-    Dim ent As SldWorks.Entity
+    Dim ent As Object
     Set ent = face                            ' QI IFace2 -> IEntity
     SelectTopFace = ent.Select4(False, Nothing)
     Exit Function
@@ -788,10 +788,10 @@ End Function
 
 ' Select the Front plane (first reference plane, locale independent). Returns
 ' False if it cannot be found.
-Private Function SelectFrontPlane(ByVal swModel As SldWorks.ModelDoc2) As Boolean
+Private Function SelectFrontPlane(ByVal swModel As Object) As Boolean
     On Error GoTo fail
 
-    Dim plane As SldWorks.Feature
+    Dim plane As Object
     Set plane = FirstRefPlane(swModel)
     If plane Is Nothing Then Exit Function     ' returns False
 
@@ -805,10 +805,10 @@ End Function
 
 ' Return the planar face whose normal is +Z (0,0,1) and which sits at the
 ' greatest Z - i.e. the top of the extrusion. Nothing if none qualifies.
-Private Function TopFace(ByVal swModel As SldWorks.ModelDoc2) As Object
+Private Function TopFace(ByVal swModel As Object) As Object
     On Error GoTo fail
 
-    Dim swPart As SldWorks.PartDoc
+    Dim swPart As Object
     Set swPart = swModel
 
     Dim vBodies As Variant
@@ -875,8 +875,8 @@ End Function
 
 ' Return the first reference plane in the feature tree (the Front plane by
 ' default), or Nothing.
-Private Function FirstRefPlane(ByVal swModel As SldWorks.ModelDoc2) As SldWorks.Feature
-    Dim feat As SldWorks.Feature
+Private Function FirstRefPlane(ByVal swModel As Object) As Object
+    Dim feat As Object
     Set feat = swModel.FirstFeature
     Do While Not feat Is Nothing
         If feat.GetTypeName2 = SW_REFPLANE_TYPENAME Then

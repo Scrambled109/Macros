@@ -62,8 +62,8 @@ class CoreTests(unittest.TestCase):
         self.assertIn("one thickness-group run", instructions)
         self.assertIn("0.25 in (0.00635 m)", instructions)
         self.assertIn("Tools > Macro > Run", instructions)
-        self.assertIn("Main_RunBatch1.RunBatch", instructions)
-        self.assertIn("TextStamp.RunTextStamp", instructions)
+        self.assertIn("starts automatically", instructions)
+        self.assertIn("no procedure name to choose", instructions)
         self.assertIn("folders detected beside this folder: 4", instructions)
         self.assertIn("supplied the extrusion depth", instructions)
 

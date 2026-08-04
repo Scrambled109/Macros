@@ -148,13 +148,11 @@ def plate_macro_instructions(
         "Run the assistant once for each folder.\n\n"
         "In SolidWorks:\n"
         "1. Choose Tools > Macro > Run.\n"
-        f"2. Select {macro}.\n"
-        "3. Run Main_RunBatch1.RunBatch and wait for it to finish.\n"
-        "4. From the same macro, run TextStamp.RunTextStamp and wait for it "
-        "to finish.\n"
-        "5. The assistant has supplied the extrusion depth for this run; "
-        "confirm the same value appears in BatchLog.txt.\n"
-        "6. Inspect BatchLog.txt and representative parts before selecting "
+        f"2. Select {macro}. The macro starts automatically; there is no "
+        "procedure name to choose.\n"
+        "3. Wait while it converts the DWGs and then stamps the marking text.\n"
+        "4. Confirm the supplied extrusion depth appears in BatchLog.txt.\n"
+        "5. Inspect BatchLog.txt and representative parts before selecting "
         "the next thickness folder."
     )
 

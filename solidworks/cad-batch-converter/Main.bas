@@ -1,10 +1,10 @@
-Attribute VB_Name = "Main_RunBatch1"
+Attribute VB_Name = "CADBatch"
 '==============================================================================
 ' Main.bas
 '------------------------------------------------------------------------------
 ' Entry point and orchestration for the CAD Batch Converter.
 '
-'   RunBatch()  <-- run this
+'   main()  <-- SolidWorks calls this automatically
 '
 ' Flow
 ' ----
@@ -19,14 +19,25 @@ Attribute VB_Name = "Main_RunBatch1"
 '   6. Log a per-file result block and a running progress line.
 '   7. Log a summary, optionally shut the applications down, close the log.
 '
-' Uses late-bound AutoCAD COM and requires the SolidWorks 2025 type libraries.
+' Uses late-bound AutoCAD and SolidWorks COM; no CAD type-library references.
 '==============================================================================
 Option Explicit
 
+Private mBatchProducedParts As Boolean
+
+' SolidWorks runs this conventional entry point automatically when the SWP is
+' selected through Tools > Macro > Run. Conversion and text marking are one
+' operator action; internal entry points remain public for troubleshooting.
+Public Sub main()
+    RunBatch
+    If mBatchProducedParts Then RunTextStamp
+End Sub
+
 '------------------------------------------------------------------------------
-' Main entry point. Fully unattended once started.
+' Conversion stage. Fully unattended once started.
 '------------------------------------------------------------------------------
 Public Sub RunBatch()
+    mBatchProducedParts = False
     Dim runStart As Double
     runStart = NowSeconds()
     RefreshRuntimeConfiguration
@@ -98,7 +109,7 @@ Public Sub RunBatch()
         Exit Sub
     End If
 
-    Dim swApp As SldWorks.SldWorks
+    Dim swApp As Object
     Set swApp = ConnectSolidWorks()
     If swApp Is Nothing Then
         WriteLog "FATAL: could not start or attach to SolidWorks."
@@ -128,6 +139,10 @@ Public Sub RunBatch()
                  "   (ok=" & okCount & ", fail=" & failCount & ")"
     Next i
 
+    ' At least one saved part is enough to run the marking pass. Failed files
+    ' remain failed and logged; successful parts can still be marked.
+    mBatchProducedParts = (okCount > 0)
+
     ' --- Summary ------------------------------------------------------------
     WriteLog String(67, "=")
     WriteLog "RUN COMPLETE " & TimeStamp()
@@ -153,7 +168,7 @@ End Sub
 ' loop in RunBatch always continues to the next file.
 '------------------------------------------------------------------------------
 Private Sub ProcessOneFile(ByVal acadApp As Object, _
-                           ByVal swApp As SldWorks.SldWorks, _
+                           ByVal swApp As Object, _
                            ByVal srcPath As String, _
                            ByRef r As TFileResult)
     Dim t As Double
@@ -205,7 +220,7 @@ End Sub
 ' reuse it.
 '------------------------------------------------------------------------------
 Public Sub ShutdownApps(ByRef acadApp As Object, _
-                        ByRef swApp As SldWorks.SldWorks)
+                        ByRef swApp As Object)
     On Error Resume Next
     If QUIT_APPS_ON_FINISH Then
         If Not acadApp Is Nothing Then acadApp.Quit

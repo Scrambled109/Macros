@@ -26,26 +26,27 @@ stage has structured error handling, and every file is logged.
 | `SolidWorks_Import.bas` | Connect to SolidWorks; import DWG → find sketch → detect open contour → extrude → save → close. |
 | `NativeSketch.bas`      | The DWG-import **workaround**: harvest the outline coordinates from AutoCAD and redraw them as a **native** SolidWorks sketch, then extrude. Runs automatically whenever the import path fails. |
 | `TextMarking.bas`       | Harvest the words from the text layer (AutoCAD) and recreate them as native sketch text on the part's top face (SolidWorks). |
-| `TextStamp.bas`         | `RunTextStamp()` entry point — the separate, re-runnable pass that stamps the words onto finished parts. |
-| `Main.bas`              | `RunBatch()` entry point, orchestration, progress, summary, cleanup. |
+| `TextStamp.bas`         | `RunTextStamp()` stage — the separate, re-runnable pass that stamps the words onto finished parts. |
+| `Main.bas`              | SolidWorks `main()` entry point plus conversion orchestration, progress, summary, and cleanup. |
 
 ---
 
 ## Setup
 
-1. Open the VBA IDE in your host application (AutoCAD: `VBAIDE`; or SolidWorks:
-   **Tools ▸ Macro ▸ Edit**). The project runs from **either** host.
-2. **Remove the old converter modules, then import all eight `.bas` files** (File ▸ Import File…). Do not keep old `Config1`, `Main`, or similarly suffixed copies: duplicate modules can make VBA compile the stale procedure instead.
-3. Add the **two SolidWorks** references (Tools ▸ References…). AutoCAD is late-bound, so its type-library reference is not required and a missing AutoCAD reference no longer causes `User-defined type not defined`:
-   - **SOLIDWORKS 2025 Type Library** (`sldworks.tlb`)
-   - **SOLIDWORKS 2025 Constant Type Library** (`swconst.tlb`) — **required**:
-     the import method is set with the real `swImportDxfDwg_ImportToPartSketch`
-     enum so a wrong numeric guess can never silently import the DWG as a
-     drawing. If this reference is missing the project will not compile
-     (`Variable not defined` on that name), which is intentional.
-4. Run the two stages **in order**:
-   1. **`Main_RunBatch1.RunBatch`** — converts every DWG to an extruded `SLDPRT`.
-   2. **`TextStamp.RunTextStamp`** — stamps the words onto the finished parts.
+1. In SolidWorks, choose **Tools ▸ Macro ▸ Edit** and open
+   `Main.RunBatch.swp`.
+2. **Remove the old converter modules, then import all eight `.bas` files**
+   (File ▸ Import File…). Do not keep `Config1`, `Main_RunBatch1`, or other
+   suffixed copies; duplicate modules can compile stale code.
+3. Choose **Tools ▸ References** in the VBA editor and clear any entry beginning
+   with **MISSING:**. The converter uses late-bound AutoCAD and SolidWorks COM,
+   so it requires no AutoCAD or SolidWorks type-library references.
+4. Choose **Debug ▸ Compile VBAProject**, then save the SWP.
+
+To run it, choose **Tools ▸ Macro ▸ Run** and select `Main.RunBatch.swp`.
+SolidWorks automatically executes `Sub main()`; there is no procedure name to
+select. That one entry point runs `RunBatch` and, when at least one part is
+saved, runs `RunTextStamp` automatically.
 
 The `FilteredDWGs` and `staging` folders are created automatically if missing.
 The source and filtered folders must be different; the macro stops before opening
@@ -62,13 +63,11 @@ of stacking duplicate marking geometry.
 
 ### Compile and entry-point check
 
-After importing, choose **Debug ▸ Compile VBAProject** before running anything.
-The Project Explorer must contain `Main_RunBatch1`, and the macro dialog entry is
-`Main_RunBatch1.RunBatch`. The module name is deliberately kept identical to the
-entry point used by the Job Assistant and the packaged macro. If the compiler
-highlights `SldWorks.SldWorks`, repair the two SolidWorks references above. If
-it reports a missing reference under **Tools ▸ References**, clear or repair that
-reference first; VBA can otherwise report misleading errors in unrelated lines.
+The Project Explorer must contain the `CADBatch` module with a public
+`Sub main()`. If the compiler highlights `SldWorks.SldWorks`, an old
+early-bound module is still present; remove the old modules and import the
+current eight files again. If **Tools ▸ References** contains a **MISSING:**
+entry, clear it before compiling.
 
 ## Job folder configuration (`Config.bas`)
 
@@ -122,9 +121,9 @@ one sketch is exactly the approach that fights you — `TEXT`/`MTEXT` doesn't co
 in as clean closed loops, and letters with holes (A, O, R…) become nested
 islands. So this project **doesn't** do that.
 
-This is done as a **separate pass** (`TextStamp.RunTextStamp`) that runs after
-`RunBatch`, so text can never damage the base parts and can be re-run on its
-own. For each `SLDPRT` in `staging`:
+This is done as a **separate pass** (`RunTextStamp`) that `main()` starts after
+`RunBatch`, so text can never damage the base parts and can still be re-run on
+its own. For each `SLDPRT` in `staging`:
 
 1. **AutoCAD** opens the matching **source DWG read-only** (its text layer(s)
    are still intact) and captures each word's string, position, height and
@@ -289,7 +288,7 @@ use — both are isolated and clearly commented:
   **default** import method is *create new drawing*, so this setting is the
   one thing that is **never** guarded or defaulted. `ImportMethod` is an
   **indexed** property — `ImportMethod(sheetName)` — and is set to
-  `swImportDxfDwg_ImportToPartSketch` (from `swconst.tlb`) with sheet index
+  `SW_IMPORT_TO_PART_SKETCH` (from `swconst.tlb`) with sheet index
   `""` first and the file path as fallback. If neither form is accepted the
   file **fails loudly** in the log instead of quietly becoming a drawing, and
   after `LoadFile4` the document type is verified to be a part (`swDocPART`).

@@ -23,7 +23,7 @@ Attribute VB_Name = "TextStamp"
 '     4. Close the part and continue.
 '
 ' Every file has its own error handling; one bad part never stops the pass.
-' Uses late-bound AutoCAD COM and requires the SolidWorks 2025 type libraries.
+' Uses late-bound AutoCAD COM and uses late-bound SolidWorks COM.
 '==============================================================================
 Option Explicit
 
@@ -83,7 +83,7 @@ Public Sub RunTextStamp()
         Exit Sub
     End If
 
-    Dim swApp As SldWorks.SldWorks
+    Dim swApp As Object
     Set swApp = ConnectSolidWorks()
     If swApp Is Nothing Then
         WriteLog "FATAL: could not start or attach to SolidWorks."
@@ -136,7 +136,7 @@ End Sub
 ' Stamp one part. Self-contained error handling keeps the pass running.
 '------------------------------------------------------------------------------
 Private Sub StampOnePart(ByVal acadApp As Object, _
-                         ByVal swApp As SldWorks.SldWorks, _
+                         ByVal swApp As Object, _
                          ByVal partPath As String, _
                          ByRef r As TFileResult)
     Dim t As Double
@@ -299,10 +299,10 @@ End Function
 ' Open the SLDPRT, apply the harvested text to the top face, rebuild and save in
 ' place (overwriting the same file). Returns True on success.
 '------------------------------------------------------------------------------
-Private Function StampPart(ByVal swApp As SldWorks.SldWorks, _
+Private Function StampPart(ByVal swApp As Object, _
                            ByVal partPath As String, _
                            ByRef r As TFileResult) As Boolean
-    Dim swModel As SldWorks.ModelDoc2
+    Dim swModel As Object
     Dim errs As Long
     Dim warns As Long
     On Error GoTo errHandler

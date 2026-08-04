@@ -128,12 +128,12 @@ End Function
 ' and close. Fills the same TFileResult fields as the import path so the log
 ' block reads identically.
 '------------------------------------------------------------------------------
-Public Function BuildAndExtrudeNative(ByVal swApp As SldWorks.SldWorks, _
+Public Function BuildAndExtrudeNative(ByVal swApp As Object, _
                                       ByRef segs() As TSegment, _
                                       ByVal segCount As Long, _
                                       ByVal outPath As String, _
                                       ByRef r As TFileResult) As Boolean
-    Dim swModel As SldWorks.ModelDoc2
+    Dim swModel As Object
     On Error GoTo errHandler
 
     ' --- New empty part from the user's default part template ---------------
@@ -157,7 +157,7 @@ Public Function BuildAndExtrudeNative(ByVal swApp As SldWorks.SldWorks, _
 
     ' --- Open a sketch on the front plane (first RefPlane in the tree, which
     '     is locale-independent, unlike the plane's display name) -------------
-    Dim plane As SldWorks.Feature
+    Dim plane As Object
     Set plane = FindFirstPlane(swModel)
     If plane Is Nothing Then
         r.Message = AppendMsg(r.Message, "Native-sketch workaround: no" & _
@@ -168,7 +168,7 @@ Public Function BuildAndExtrudeNative(ByVal swApp As SldWorks.SldWorks, _
     End If
 
     plane.Select2 False, 0
-    Dim skm As SldWorks.SketchManager
+    Dim skm As Object
     Set skm = swModel.SketchManager
     skm.InsertSketch True                    ' enter a sketch on the plane
 
@@ -232,7 +232,7 @@ End Function
 ' meters). AddToDB skips inference/snapping so coordinates land exactly as
 ' given. Returns the number of segments actually created (verified).
 '------------------------------------------------------------------------------
-Public Function DrawSegments(ByVal skm As SldWorks.SketchManager, _
+Public Function DrawSegments(ByVal skm As Object, _
                              ByRef segs() As TSegment, _
                              ByVal segCount As Long, _
                              ByVal unitScale As Double, _
@@ -432,8 +432,8 @@ End Sub
 '==============================================================================
 
 ' First reference plane in the tree = the front plane, locale-independent.
-Private Function FindFirstPlane(ByVal swModel As SldWorks.ModelDoc2) As SldWorks.Feature
-    Dim feat As SldWorks.Feature
+Private Function FindFirstPlane(ByVal swModel As Object) As Object
+    Dim feat As Object
     Set feat = swModel.FirstFeature
     Do While Not feat Is Nothing
         If feat.GetTypeName2 = SW_REFPLANE_TYPENAME Then
