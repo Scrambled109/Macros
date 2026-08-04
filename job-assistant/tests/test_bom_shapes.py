@@ -75,6 +75,53 @@ class StructuralShapeTests(unittest.TestCase):
             ("5/16", "HSLA-65"),
         )
 
+    def test_selected_material_keeps_last_term_before_weight(self):
+        self.assertEqual(
+            bom_converter.material_from_selected_value(
+                "G5505D-12,Plate,0.313,HSLA-65,Weight"
+            ),
+            "HSLA-65",
+        )
+
+    def test_plate_weight_converts_while_shape_keeps_full_designation(self):
+        self.assertEqual(
+            bom_converter.parse_pbom_material_description(
+                "PLATE,STL,12.75# X120.000 X312.000"
+            ),
+            ("PLATE", "5/16", "STL"),
+        )
+        self.assertEqual(
+            bom_converter.parse_pbom_material_description(
+                "TEE,STL,7.125 X5.000 X9.7#,BUILT-UP"
+            ),
+            ("TEE", "7.125X5X9.7#", "STL"),
+        )
+
+    def test_selected_material_and_pbom_shape_are_both_preserved(self):
+        dataframe = pd.DataFrame([{
+            "PART": "DS5505A-1#4012",
+            "DESC": "TEE,STL,7.125 X5.000 X9.7#,BUILT-UP",
+            "AH": "G5505D-12,Plate,0.313,HSLA-65,Weight",
+            "NameSpecA from CATIA": "G5505D-12,Plate,0.313,HSLA-65,Weight",
+        }])
+        records = bom_converter.build_records(
+            dataframe,
+            [
+                {"source": "PART", "destination": "PART NUMBER"},
+                {"source": "DESC", "destination": "DESCRIPTION"},
+                {"source": "AH", "destination": "MATERIAL TYPE"},
+            ],
+            ("DS",),
+            template_headers=[
+                {"name": "PART NUMBER"},
+                {"name": "DESCRIPTION"},
+                {"name": "THICKNESS/SHAPE"},
+                {"name": "MATERIAL TYPE"},
+            ],
+        )
+        self.assertEqual(records[0]["THICKNESS/SHAPE"], "7.125X5X9.7#")
+        self.assertEqual(records[0]["MATERIAL TYPE"], "HSLA-65")
+
     def test_catia_structural_variations_do_not_become_material(self):
         cases = {
             "G5505D,W12X26,A572-50,Weight": ("W12X26", "A572-50"),

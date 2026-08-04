@@ -504,6 +504,15 @@ def material_code_from_token(value):
     return ""
 
 
+def material_from_selected_value(value):
+    """Keep the last comma-delimited material term, ignoring trailing Weight."""
+    tokens = [token.strip() for token in str(value or "").split(",")]
+    tokens = [token for token in tokens if token]
+    while tokens and normalize_header(tokens[-1]) == "WEIGHT":
+        tokens.pop()
+    return tokens[-1] if tokens else ""
+
+
 def parse_pbom_material_description(value):
     """
     Parse a comma-delimited PBOM raw-material description.
@@ -570,19 +579,14 @@ def parse_catia_name_spec(value):
         return "", ""
 
     ignored_material_tokens = {"WEIGHT", "PL", "PLATE", "STRL", "STRUCTURAL"}
-    material = ""
-    for token in reversed(tokens):
-        normalized = normalize_header(token)
-        if normalized in ignored_material_tokens:
-            continue
-        if re.fullmatch(r"\d+(?:\.\d+)?", token):
-            continue
-        if re.match(
-            r"^(?:BT|WT|W|C|L|HSS|PIPE|T)(?=\d)", token, re.IGNORECASE
-        ):
-            continue
-        material = token
-        break
+    material = material_from_selected_value(value)
+    if (
+        re.fullmatch(r"\d+(?:\.\d+)?", material)
+        or re.match(
+            r"^(?:BT|WT|W|C|L|HSS|PIPE|T)(?=\d)", material, re.IGNORECASE
+        )
+    ):
+        material = ""
     shape = ""
     for index, token in enumerate(tokens):
         if normalize_header(token) in {"PL", "PLATE"}:
@@ -801,6 +805,10 @@ def build_paired_lr_records(
         description, derived_shape, derived_material = (
             parse_pbom_material_description(raw_material_description)
         )
+        if material_destination is not None and material_destination in record:
+            record[material_destination] = material_from_selected_value(
+                record[material_destination]
+            )
         if split_descriptions and description_destination is not None:
             record[description_destination] = description
             if shape_destination is not None:
@@ -988,9 +996,15 @@ def build_records(
                 continue
 
         if split_descriptions and description_destination is not None:
-            description, derived_shape = split_material_description(
-                record.get(description_destination, "")
-            )
+            raw_description = record.get(description_destination, "")
+            if "," in str(raw_description or ""):
+                description, derived_shape, _ = parse_pbom_material_description(
+                    raw_description
+                )
+            else:
+                description, derived_shape = split_material_description(
+                    raw_description
+                )
             record[description_destination] = description
 
             # An explicitly mapped, nonblank shape wins. Otherwise, populate
@@ -1004,13 +1018,29 @@ def build_records(
             ):
                 record[shape_destination] = derived_shape
 
+        # Material columns can contain an entire comma-delimited NameSpecA
+        # value.  Drop a terminal "Weight" label and retain only the final
+        # material term, regardless of which source column the user selected.
+        if material_destination is not None and material_destination in record:
+            record[material_destination] = material_from_selected_value(
+                record[material_destination]
+            )
+
         if catia_spec_source is not None:
             catia_shape, catia_material = parse_catia_name_spec(
                 clean_excel_value(source_row[catia_spec_source])
             )
-            if shape_destination is not None and catia_shape:
+            if (
+                shape_destination is not None
+                and catia_shape
+                and not record.get(shape_destination, "")
+            ):
                 record[shape_destination] = catia_shape
-            if material_destination is not None and catia_material:
+            if (
+                material_destination is not None
+                and catia_material
+                and not record.get(material_destination, "")
+            ):
                 record[material_destination] = catia_material
 
         records.append(record)
@@ -1221,8 +1251,9 @@ class MappingRow:
 
 
 class BomConverterApp:
-    def __init__(self, root):
+    def __init__(self, root, close_when_done=False):
         self.root = root
+        self.close_when_done = close_when_done
         self.root.title(APP_TITLE)
         self.root.geometry("1180x780")
         self.root.minsize(960, 650)
@@ -1843,6 +1874,8 @@ class BomConverterApp:
 
             if self.open_when_done.get() and os.name == "nt":
                 os.startfile(output_path)
+            if self.close_when_done:
+                self.root.destroy()
         except PermissionError:
             messagebox.showerror(
                 APP_TITLE,
@@ -1915,7 +1948,7 @@ def main(argv=None):
         return 0
 
     root = tk.Tk()
-    app = BomConverterApp(root)
+    app = BomConverterApp(root, close_when_done=all(supplied))
     if all(supplied):
         try:
             app.load_paths(args.source, args.output, args.template)
