@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONVERTER = REPO_ROOT / "solidworks" / "cad-batch-converter"
+COLOR_TO_LAYER = REPO_ROOT / "autocad" / "dxf-orchestrator" / "ColortoLayer.lsp"
 MODULE_NAMES = (
     "Config.bas",
     "Utilities.bas",
@@ -19,6 +20,7 @@ MODULE_NAMES = (
 
 # Test injection hook used only by the source audit's own validation.
 MODULE_SOURCES: dict[str, str] | None = None
+COLOR_TO_LAYER_SOURCE: str | None = None
 
 PROC_START = re.compile(
     r"^(?:Public |Private |Friend )?"
@@ -39,6 +41,12 @@ def _sources() -> dict[str, str]:
         name: (CONVERTER / name).read_text(encoding="utf-8")
         for name in MODULE_NAMES
     }
+
+
+def _color_to_layer_source() -> str:
+    if COLOR_TO_LAYER_SOURCE is not None:
+        return COLOR_TO_LAYER_SOURCE
+    return COLOR_TO_LAYER.read_text(encoding="utf-8")
 
 
 def _code_only(line: str) -> str:
@@ -169,6 +177,36 @@ class CadBatchVbaSourceTests(unittest.TestCase):
             name: modules for name, modules in declarations.items() if len(modules) > 1
         }
         self.assertEqual({}, duplicates, f"Ambiguous public VBA procedure names: {duplicates}")
+
+    def test_converter_layer_contract_matches_orchestrator(self) -> None:
+        config = self.sources["Config.bas"]
+        mappings = dict(
+            re.findall(
+                r'\((\d+)\s*\.\s*"([^"]+)"\)', _color_to_layer_source()
+            )
+        )
+        constants = dict(
+            re.findall(
+                r'(?mi)^Public Const (\w+) As String = (?:_\s*)?\n?\s*"([^"]+)"',
+                config,
+            )
+        )
+        profile_layers = {
+            name.strip() for name in constants["PROFILE_LAYERS"].split(",")
+        }
+        marking_layers = {
+            name.strip() for name in constants["TEXT_LAYER"].split(",")
+        }
+
+        self.assertEqual(mappings["1"], constants["TARGET_LAYER"])
+        self.assertEqual(mappings["5"], constants["INSIDE_CUT_LAYER"])
+        self.assertEqual({mappings["1"], mappings["5"]}, profile_layers)
+        self.assertTrue({mappings["3"], mappings["6"], mappings["7"]} <= marking_layers)
+        self.assertNotIn(mappings["2"], profile_layers | marking_layers)
+        self.assertIn("NormalizedLayerName", self.sources["Utilities.bas"])
+        self.assertIn(
+            "ModelSpaceLayerSummary(doc)", self.sources["AutoCAD_Filter.bas"]
+        )
 
     def test_autocad_object_property_assignment_uses_set(self) -> None:
         text_stamp = self.sources["TextStamp.bas"]

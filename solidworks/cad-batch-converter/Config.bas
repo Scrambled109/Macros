@@ -36,18 +36,27 @@ Private mExtrudeDepthMeters As Double
 '------------------------------------------------------------------------------
 ' 2. CORE PROCESS PARAMETERS
 '------------------------------------------------------------------------------
-' Only geometry on this layer survives the AutoCAD filter step.
-Public Const TARGET_LAYER As String = "CUT-OUTSIDE STRAIGHT"
+' Required exterior profile layer emitted by DXF Orchestrator's red-geometry
+' mapping. A drawing without this layer is rejected before anything is saved.
+' LayerEquals also tolerates legacy spacing around the hyphen.
+Public Const TARGET_LAYER As String = "CUT - OUTSIDE STRAIGHT"
 
-' Layer(s) that hold the words / part marking text (TEXT and MTEXT). The
-' strings are harvested from these layers BEFORE the filter deletes them, then
-' recreated on the part as a native SolidWorks sketch (see TextMarking.bas).
-'   >>> SET THIS to the exact layer name(s) that hold the words. <<<
+' Base-profile layers retained in the filtered DWG. The red outside contour and
+' blue inside contours (holes/cutouts) must both reach the SolidWorks import.
+Public Const INSIDE_CUT_LAYER As String = "CUT - INSIDE STRAIGHT"
+Public Const PROFILE_LAYERS As String = _
+    "CUT - OUTSIDE STRAIGHT, CUT - INSIDE STRAIGHT"
+
+' Layer(s) that hold part-marking text and reference geometry. Their entities
+' are harvested from the untouched source DWG after the base part is made,
+' then recreated as a native SolidWorks sketch (see TextMarking.bas).
+'   >>> SET THIS to the exact marking layer name(s). <<<
 ' One layer or several - separate multiple names with commas, e.g.:
 '   "PIN STAMP TEXT, PART MARKING, ETCH"
 ' (spaces around the commas are ignored; layer names themselves may contain
 ' spaces). Leave it empty ("") to disable text marking entirely.
-Public Const TEXT_LAYER As String = "PIN STAMP TEXT"
+Public Const TEXT_LAYER As String = _
+    "PIN STAMP TEXT, PIN STAMP LINE MARKING"
 
 ' DWG drawing units expressed in meters, used to place the harvested text at the
 ' same location as the imported outline. 0.0254 = inches, 0.001 = millimeters.
@@ -129,7 +138,7 @@ Public Const SW_PROGID_GENERIC As String = "SldWorks.Application"
 ' Flip to True only when debugging a specific file interactively.
 Public Const APP_VISIBLE As Boolean = False
 
-' Unlock any locked (non-target) layer so its entities can be deleted.
+' Unlock any locked (non-profile) layer so its entities can be deleted.
 ' The locked layer names are always reported in the log regardless.
 Public Const UNLOCK_LOCKED_LAYERS As Boolean = True
 

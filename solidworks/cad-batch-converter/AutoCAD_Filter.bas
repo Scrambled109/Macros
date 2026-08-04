@@ -5,7 +5,7 @@ Attribute VB_Name = "AutoCAD_Filter"
 ' Everything that touches AutoCAD:
 '   * ConnectAutoCAD        - attach to / launch AutoCAD 2026
 '   * FilterDwg             - the full per-file AutoCAD workflow (steps 1-3):
-'                               open -> strip non-target layers -> AUDIT ->
+'                               open -> retain profile layers -> AUDIT ->
 '                               PURGE -> SaveAs filtered DWG -> close
 '   * DeleteNonTargetEntities / UnlockAndReportLayers - helpers
 '
@@ -13,9 +13,8 @@ Attribute VB_Name = "AutoCAD_Filter"
 '
 ' Design notes
 ' ------------
-' * Entities are deleted by LAYER only: anything not on TARGET_LAYER is removed,
-'   which naturally keeps every line / polyline / arc / circle / spline /
-'   ellipse that lives on the cut layer.
+' * Entities are deleted by LAYER only: anything not in PROFILE_LAYERS is
+'   removed. This keeps the required outside contour and all inside cut loops.
 ' * Model space is walked BACKWARDS by index so deleting an entity never
 '   invalidates the iteration (a For Each + Delete loop is unreliable).
 ' * All work is done through the COM object model - no SendKeys, no UI. The one
@@ -70,18 +69,24 @@ Public Function FilterDwg(ByVal acadApp As Object, _
     ' --- Locked-layer handling (report; optionally unlock) ------------------
     r.LockedLayers = UnlockAndReportLayers(doc)
 
-    ' --- Step 2: delete everything not on the target layer -------------------
-    DeleteNonTargetEntities doc
-
-    Dim targetCount As Long
+    ' --- Step 2: verify the target before deleting anything ------------------
+    ' Report the actual model-space layers when a mapping contract drifts. The
+    ' source document is still closed unsaved on failure, but preflight makes
+    ' this diagnostic useful and avoids needlessly deleting the in-memory copy.
+    Dim outsideCount As Long
     Dim unwantedCount As Long
-    targetCount = CountEntitiesByTargetState(doc, True)
-    unwantedCount = CountEntitiesByTargetState(doc, False)
-
-    If targetCount = 0 Then
+    outsideCount = CountEntitiesOnLayer(doc, TARGET_LAYER)
+    If outsideCount = 0 Then
         Err.Raise vbObjectError + 1101, "FilterDwg", _
-                  "No model-space entities were found on target layer '" & TARGET_LAYER & "'."
+                  "No model-space entities were found on target layer '" & _
+                  TARGET_LAYER & "'. Model-space layers present: " & _
+                  ModelSpaceLayerSummary(doc)
     End If
+
+    ' --- Delete everything not on a base-profile layer -----------------------
+    DeleteNonTargetEntities doc
+    unwantedCount = CountEntitiesByProfileState(doc, False)
+
     If unwantedCount > 0 Then
         Err.Raise vbObjectError + 1102, "FilterDwg", _
                   unwantedCount & " non-target model-space entit" & _
@@ -119,7 +124,7 @@ errHandler:
 End Function
 
 '------------------------------------------------------------------------------
-' Delete every model-space entity that is NOT on the target layer.
+' Delete every model-space entity that is NOT on a base-profile layer.
 ' Returns the number of entities deleted. Entities that cannot be deleted
 ' (e.g. still on a locked layer when unlocking is disabled) are skipped
 ' silently - the offending layer has already been captured by
@@ -135,7 +140,7 @@ Private Function DeleteNonTargetEntities(ByVal doc As Object) As Long
 
     For i = ms.Count - 1 To 0 Step -1
         Set ent = ms.Item(i)
-        If Not LayerEquals(ent.Layer, TARGET_LAYER) Then
+        If Not LayerInList(ent.Layer, PROFILE_LAYERS) Then
             On Error Resume Next
             ent.Delete
             If Err.Number = 0 Then
@@ -152,30 +157,83 @@ Private Function DeleteNonTargetEntities(ByVal doc As Object) As Long
     DeleteNonTargetEntities = deleted
 End Function
 
-' Count target or non-target model-space entities after the delete pass. This
-' turns a failed delete or a missing target layer into a hard, logged failure
-' instead of allowing an empty or contaminated cut profile downstream.
-Private Function CountEntitiesByTargetState(ByVal doc As Object, _
-                                            ByVal countTarget As Boolean) As Long
+' Count entities on one required layer. The outside profile is mandatory even
+' though the filtered DWG also preserves optional inside-cut contours.
+Private Function CountEntitiesOnLayer(ByVal doc As Object, _
+                                      ByVal layerName As String) As Long
     Dim ms As Object
     Set ms = doc.ModelSpace
 
     Dim i As Long
-    Dim isTarget As Boolean
     For i = 0 To ms.Count - 1
-        isTarget = LayerEquals(ms.Item(i).Layer, TARGET_LAYER)
-        If isTarget = countTarget Then
-            CountEntitiesByTargetState = CountEntitiesByTargetState + 1
+        If LayerEquals(ms.Item(i).Layer, layerName) Then
+            CountEntitiesOnLayer = CountEntitiesOnLayer + 1
         End If
     Next i
 
     Set ms = Nothing
 End Function
 
+' Count profile or non-profile model-space entities after the delete pass.
+' This turns a failed delete into a hard, logged failure instead of allowing a
+' contaminated cut profile downstream.
+Private Function CountEntitiesByProfileState(ByVal doc As Object, _
+                                             ByVal countProfile As Boolean) As Long
+    Dim ms As Object
+    Set ms = doc.ModelSpace
+
+    Dim i As Long
+    Dim isProfile As Boolean
+    For i = 0 To ms.Count - 1
+        isProfile = LayerInList(ms.Item(i).Layer, PROFILE_LAYERS)
+        If isProfile = countProfile Then
+            CountEntitiesByProfileState = CountEntitiesByProfileState + 1
+        End If
+    Next i
+
+    Set ms = Nothing
+End Function
+
+' Return the unique layer names actually used by model-space entities. This is
+' intentionally different from listing doc.Layers, which includes empty seed
+' layers and would hide a color-to-layer mapping failure.
+Private Function ModelSpaceLayerSummary(ByVal doc As Object) As String
+    On Error GoTo failed
+
+    Dim ms As Object
+    Set ms = doc.ModelSpace
+    If ms.Count = 0 Then
+        ModelSpaceLayerSummary = "<model space is empty>"
+        Exit Function
+    End If
+
+    Dim seen As String
+    Dim summary As String
+    Dim layerName As String
+    Dim key As String
+    Dim i As Long
+    For i = 0 To ms.Count - 1
+        layerName = Trim$(CStr(ms.Item(i).Layer))
+        key = "|" & UCase$(layerName) & "|"
+        If InStr(1, seen, key, vbBinaryCompare) = 0 Then
+            seen = seen & key
+            If Len(summary) > 0 Then summary = summary & ", "
+            summary = summary & layerName
+        End If
+    Next i
+
+    If Len(summary) = 0 Then summary = "<no readable layer names>"
+    ModelSpaceLayerSummary = summary
+    Exit Function
+
+failed:
+    ModelSpaceLayerSummary = "<layer inspection failed: " & Err.Description & ">"
+End Function
+
 '------------------------------------------------------------------------------
 ' Scan every layer, build a comma-separated report of the locked ones, and
 ' (when UNLOCK_LOCKED_LAYERS is True) unlock every locked layer except the
-' target layer so its entities become deletable.
+' profile layers so their entities remain unchanged.
 '------------------------------------------------------------------------------
 Private Function UnlockAndReportLayers(ByVal doc As Object) As String
     Dim lay As Object
@@ -187,8 +245,8 @@ Private Function UnlockAndReportLayers(ByVal doc As Object) As String
             report = report & lay.Name
 
             If UNLOCK_LOCKED_LAYERS Then
-                ' Never disturb the target layer; unlock the rest.
-                If Not LayerEquals(lay.Name, TARGET_LAYER) Then
+                ' Never disturb either profile layer; unlock the rest.
+                If Not LayerInList(lay.Name, PROFILE_LAYERS) Then
                     On Error Resume Next
                     lay.Lock = False
                     On Error GoTo 0
