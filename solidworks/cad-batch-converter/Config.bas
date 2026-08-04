@@ -37,7 +37,9 @@ Private mExtrudeDepthMeters As Double
 ' 2. CORE PROCESS PARAMETERS
 '------------------------------------------------------------------------------
 ' Only geometry on this layer survives the AutoCAD filter step.
-Public Const TARGET_LAYER As String = "CUT-OUTSIDE STRAIGHT"
+' Exact layer emitted by DXF Orchestrator's red-geometry mapping.
+' LayerEquals also tolerates legacy spacing around the hyphen.
+Public Const TARGET_LAYER As String = "CUT - OUTSIDE STRAIGHT"
 
 ' Layer(s) that hold the words / part marking text (TEXT and MTEXT). The
 ' strings are harvested from these layers BEFORE the filter deletes them, then
