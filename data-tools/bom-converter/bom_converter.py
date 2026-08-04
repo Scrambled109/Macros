@@ -11,6 +11,7 @@ import os
 import re
 import tkinter as tk
 from copy import copy
+from fractions import Fraction
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -561,6 +562,50 @@ def parse_pbom_material_description(value):
     return description, shape, material
 
 
+def parse_catia_name_spec(value):
+    """Extract stock shape and grade from a CATIA ``NameSpecA`` value."""
+    tokens = [token.strip() for token in str(value or "").split(",")]
+    tokens = [token for token in tokens[1:] if token]
+    if not tokens:
+        return "", ""
+
+    ignored_material_tokens = {"WEIGHT", "PL", "PLATE", "STRL", "STRUCTURAL"}
+    material = ""
+    for token in reversed(tokens):
+        normalized = normalize_header(token)
+        if normalized in ignored_material_tokens:
+            continue
+        if re.fullmatch(r"\d+(?:\.\d+)?", token):
+            continue
+        if re.match(
+            r"^(?:BT|WT|W|C|L|HSS|PIPE|T)(?=\d)", token, re.IGNORECASE
+        ):
+            continue
+        material = token
+        break
+    shape = ""
+    for index, token in enumerate(tokens):
+        if normalize_header(token) in {"PL", "PLATE"}:
+            if index + 1 < len(tokens):
+                thickness = tokens[index + 1]
+                try:
+                    shape = str(Fraction(float(thickness)).limit_denominator(16))
+                except (TypeError, ValueError, ZeroDivisionError):
+                    shape = clean_structural_shape(thickness)
+            break
+        if re.match(
+            r"^(?:BT|WT|W|C|L|HSS|PIPE|T)(?=\d)", token, re.IGNORECASE
+        ):
+            shape = clean_structural_shape(
+                re.sub(r"^BT(?=\d)", "", token, flags=re.IGNORECASE)
+            )
+            break
+
+    if material == shape or normalize_header(material) in ignored_material_tokens:
+        material = ""
+    return shape, material
+
+
 def source_column_named(dataframe, *names):
     accepted = {normalize_header(name) for name in names}
     for column in dataframe.columns:
@@ -908,6 +953,12 @@ def build_records(
         "THICKNESS/SHAPE",
         "SHAPE",
     )
+    material_destination = find_template_header(
+        template_headers, "MATERIAL TYPE", "MATERIAL"
+    )
+    catia_spec_source = source_column_named(
+        dataframe, "NAMESPECA FROM CATIA", "NAMESPECA", "NAME SPEC A"
+    )
 
     paired_records = build_paired_lr_records(
         dataframe,
@@ -952,6 +1003,15 @@ def build_records(
                 )
             ):
                 record[shape_destination] = derived_shape
+
+        if catia_spec_source is not None:
+            catia_shape, catia_material = parse_catia_name_spec(
+                clean_excel_value(source_row[catia_spec_source])
+            )
+            if shape_destination is not None and catia_shape:
+                record[shape_destination] = catia_shape
+            if material_destination is not None and catia_material:
+                record[material_destination] = catia_material
 
         records.append(record)
 
@@ -1186,6 +1246,25 @@ class BomConverterApp:
         self.saved_mapping = self.load_saved_mapping()
 
         self.build_interface()
+
+    def load_paths(self, source_path=None, output_path=None, template_path=None):
+        """Preload Assistant-selected paths while retaining the setup GUI."""
+        if source_path:
+            self.source_path.set(str(source_path))
+            sheets = list_sheet_names(Path(source_path))
+            self.sheet_combo["values"] = sheets
+            self.sheet_name.set(sheets[0])
+            detected = scan_header_rows(
+                Path(source_path), sheet_name=sheets[0], template_mode=False
+            )
+            self.source_header_row.set(detected["header_row"])
+        if output_path:
+            self.output_path.set(str(output_path))
+        if template_path:
+            self.template_path.set(str(template_path))
+            self.load_template()
+        if source_path:
+            self.reload_source_columns()
 
     def build_interface(self):
         self.root.columnconfigure(0, weight=1)
@@ -1820,9 +1899,10 @@ def main(argv=None):
     parser.add_argument("source", nargs="?", type=Path)
     parser.add_argument("output", nargs="?", type=Path)
     parser.add_argument("template", nargs="?", type=Path)
+    parser.add_argument("--gui", action="store_true")
     args = parser.parse_args(argv)
     supplied = [args.source, args.output, args.template]
-    if any(supplied):
+    if any(supplied) and not args.gui:
         if not all(supplied):
             parser.error("source, output, and template must be supplied together")
         added, updated = convert_workbook(
@@ -1836,6 +1916,11 @@ def main(argv=None):
 
     root = tk.Tk()
     app = BomConverterApp(root)
+    if all(supplied):
+        try:
+            app.load_paths(args.source, args.output, args.template)
+        except Exception as error:
+            app.show_error("Could not preload the Assistant-selected files", error)
 
     # Keep a reference for the lifetime of the Tk window.
     root.bom_converter_app = app

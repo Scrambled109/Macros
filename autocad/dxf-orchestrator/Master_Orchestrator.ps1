@@ -98,16 +98,20 @@ function Wait-FileStable($path, $timeoutSec = 30) {
 function Test-BeveledDxf($path) {
     try { $lines = [System.IO.File]::ReadAllLines($path) } catch { return $false }
     $curType = ''
+    $textChunks = [System.Collections.Generic.List[string]]::new()
     for ($i = 0; $i -lt ($lines.Count - 1); $i += 2) {
         $code = $lines[$i].Trim()
         $val  = $lines[$i + 1]
         if ($code -eq '0') {
+            if (($curType -eq 'TEXT' -or $curType -eq 'MTEXT') -and (($textChunks -join '') -match '(?i)\b(BEVEL(ED)?|BVL|CHAMFER|SNIP(E|ED|ING)?|BACK\s*GOUGE|GOUGE)\b|\b(K|V|RV)\b|\b(K|V|RV)\s*[-–—:/]?\s*\d+(\.\d+)?\b|(-{1,2}>|<{1,2}-|[←↑→↓↖↗↘↙⇐⇑⇒⇓➔➜➤►◄△▽])')) { return $true }
             $curType = $val.Trim().ToUpper()
+            if ($curType -eq 'LEADER' -or $curType -eq 'MLEADER') { return $true }
+            $textChunks.Clear()
         } elseif (($code -eq '1' -or $code -eq '3') -and ($curType -eq 'TEXT' -or $curType -eq 'MTEXT')) {
-            if ($val -match '(?i)\b(BEVEL|K|V)\b') { return $true }
+            $textChunks.Add($val)
         }
     }
-    return $false
+    return (($curType -eq 'TEXT' -or $curType -eq 'MTEXT') -and (($textChunks -join '') -match '(?i)\b(BEVEL(ED)?|BVL|CHAMFER|SNIP(E|ED|ING)?|BACK\s*GOUGE|GOUGE)\b|\b(K|V|RV)\b|\b(K|V|RV)\s*[-–—:/]?\s*\d+(\.\d+)?\b|(-{1,2}>|<{1,2}-|[←↑→↓↖↗↘↙⇐⇑⇒⇓➔➜➤►◄△▽])'))
 }
 
 # --- PRE-FLIGHT VALIDATION ----------------------------------------------------

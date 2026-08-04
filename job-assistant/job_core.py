@@ -558,7 +558,7 @@ def command_bom(
         if tool_executable
         else [str(python), str(repo / "data-tools/bom-converter/bom_converter.py")]
     )
-    return [*prefix, str(source_copy), str(output), str(template)]
+    return [*prefix, "--gui", str(source_copy), str(output), str(template)]
 
 
 def command_dxf(
