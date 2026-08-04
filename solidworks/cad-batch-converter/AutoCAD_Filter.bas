@@ -59,6 +59,11 @@ Public Function FilterDwg(ByVal acadApp As Object, _
     Dim doc As Object
     On Error GoTo errHandler
 
+    If StrComp(srcPath, destPath, vbTextCompare) = 0 Then
+        Err.Raise vbObjectError + 1100, "FilterDwg", _
+                  "Source and destination paths are identical; original DWG was not overwritten."
+    End If
+
     ' --- Step 1: open the source drawing ------------------------------------
     Set doc = acadApp.Documents.Open(srcPath)
 
@@ -67,6 +72,22 @@ Public Function FilterDwg(ByVal acadApp As Object, _
 
     ' --- Step 2: delete everything not on the target layer -------------------
     DeleteNonTargetEntities doc
+
+    Dim targetCount As Long
+    Dim unwantedCount As Long
+    targetCount = CountEntitiesByTargetState(doc, True)
+    unwantedCount = CountEntitiesByTargetState(doc, False)
+
+    If targetCount = 0 Then
+        Err.Raise vbObjectError + 1101, "FilterDwg", _
+                  "No model-space entities were found on target layer '" & TARGET_LAYER & "'."
+    End If
+    If unwantedCount > 0 Then
+        Err.Raise vbObjectError + 1102, "FilterDwg", _
+                  unwantedCount & " non-target model-space entit" & _
+                  IIf(unwantedCount = 1, "y remains", "ies remain") & _
+                  " after filtering; no filtered DWG was saved."
+    End If
 
     ' --- Step 3a: AUDIT (fix errors) ----------------------------------------
     ' ActiveX SendCommand is synchronous, so PURGE below runs only after AUDIT
@@ -129,6 +150,26 @@ Private Function DeleteNonTargetEntities(ByVal doc As Object) As Long
 
     Set ms = Nothing
     DeleteNonTargetEntities = deleted
+End Function
+
+' Count target or non-target model-space entities after the delete pass. This
+' turns a failed delete or a missing target layer into a hard, logged failure
+' instead of allowing an empty or contaminated cut profile downstream.
+Private Function CountEntitiesByTargetState(ByVal doc As Object, _
+                                            ByVal countTarget As Boolean) As Long
+    Dim ms As Object
+    Set ms = doc.ModelSpace
+
+    Dim i As Long
+    Dim isTarget As Boolean
+    For i = 0 To ms.Count - 1
+        isTarget = LayerEquals(ms.Item(i).Layer, TARGET_LAYER)
+        If isTarget = countTarget Then
+            CountEntitiesByTargetState = CountEntitiesByTargetState + 1
+        End If
+    Next i
+
+    Set ms = Nothing
 End Function
 
 '------------------------------------------------------------------------------

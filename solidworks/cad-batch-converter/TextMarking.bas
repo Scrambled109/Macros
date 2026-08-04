@@ -51,6 +51,8 @@ Private mSegCount As Long
 Private Const FONT_CAP_GRID As Double = 6#     ' grid rows = cap height
 Private Const FONT_ADVANCE As Double = 6#      ' pen advance per character
 Private Const FONT_FALLBACK_HEIGHT_M As Double = 0.003  ' if the DWG height is 0
+Private Const MARKING_SKETCH_NAME As String = "CAD_BATCH_MARKING"
+Private Const SW_DELETE_ABSORBED_AND_CHILDREN As Long = 3
 
 ' First drawing failure of the current placement attempt, for the log.
 Private mLastDrawErr As String
@@ -298,7 +300,8 @@ Public Function ApplyTextMarks(ByVal swModel As SldWorks.ModelDoc2, _
 
     Dim segsDrawn As Long
     placedCount = PlaceAllWords(swModel, segsDrawn, detail)
-    ApplyTextMarks = ((placedCount + segsDrawn) > 0)
+    ApplyTextMarks = (placedCount = mCount And segsDrawn = mSegCount And _
+                      (placedCount + segsDrawn) > 0 And Len(mLastDrawErr) = 0)
 End Function
 
 '------------------------------------------------------------------------------
@@ -320,6 +323,14 @@ Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
     segsDrawn = 0
     mLastDrawErr = vbNullString
     On Error GoTo errHandler
+
+    ' A rerun replaces the sketch created by the previous successful pass.
+    ' This makes the pass idempotent instead of stacking duplicate words.
+    Dim removeProblem As String
+    If Not RemovePreviousMarking(swModel, removeProblem) Then
+        detail = removeProblem
+        Exit Function
+    End If
 
     ' --- 1) Pick the sketch surface: top face, else the front plane ---------
     If SelectTopFace(swModel) Then
@@ -368,9 +379,23 @@ Private Function PlaceAllWords(ByVal swModel As SldWorks.ModelDoc2, _
                                  DWG_UNITS_TO_METERS, TEXT_SKETCH_COLOR)
     End If
 
-    ' --- 4) Close the sketch, leaving it in the tree (reference only) -------
+    ' --- 4) Close and name the sketch, leaving it in the tree ---------------
     swModel.SketchManager.InsertSketch True
     swModel.ClearSelection2 True
+
+    Dim markingFeature As SldWorks.Feature
+    Set markingFeature = LastSketchFeature(swModel)
+    If Not markingFeature Is Nothing Then
+        On Error Resume Next
+        markingFeature.Name = MARKING_SKETCH_NAME
+        If Err.Number <> 0 And Len(mLastDrawErr) = 0 Then
+            mLastDrawErr = "could not name the marking sketch: " & Err.Description
+        End If
+        Err.Clear
+        On Error GoTo errHandler
+    ElseIf Len(mLastDrawErr) = 0 Then
+        mLastDrawErr = "the completed marking sketch was not found"
+    End If
 
     detail = "surface: " & surface & "; drew " & placed & " of " & mCount & _
              " word(s)" & _
@@ -394,6 +419,47 @@ errHandler:
     swModel.ClearSelection2 True
     On Error GoTo 0
     PlaceAllWords = placed
+End Function
+
+' Remove the sketch owned by an earlier successful text pass. Delete absorbed
+' and child features too so the optional engraving mode can also be rerun.
+Private Function RemovePreviousMarking(ByVal swModel As SldWorks.ModelDoc2, _
+                                       ByRef problem As String) As Boolean
+    On Error GoTo failed
+
+    Dim feat As SldWorks.Feature
+    Do
+        Set feat = FindFeatureByName(swModel, MARKING_SKETCH_NAME)
+        If feat Is Nothing Then Exit Do
+
+        swModel.ClearSelection2 True
+        If Not feat.Select2(False, 0) Then
+            problem = "the previous marking sketch could not be selected"
+            Exit Function
+        End If
+        If Not swModel.Extension.DeleteSelection2( _
+                   SW_DELETE_ABSORBED_AND_CHILDREN) Then
+            problem = "the previous marking sketch could not be deleted"
+            Exit Function
+        End If
+    Loop
+
+    swModel.ClearSelection2 True
+    RemovePreviousMarking = True
+    Exit Function
+
+failed:
+    problem = "could not replace the previous marking sketch: " & Err.Description
+    On Error Resume Next
+    swModel.ClearSelection2 True
+    On Error GoTo 0
+End Function
+
+Private Function FindFeatureByName(ByVal swModel As SldWorks.ModelDoc2, _
+                                   ByVal featureName As String) As SldWorks.Feature
+    On Error Resume Next
+    Set FindFeatureByName = swModel.FeatureByName(featureName)
+    On Error GoTo 0
 End Function
 
 '==============================================================================
@@ -546,6 +612,7 @@ Private Sub TintSegment(ByVal seg As Object)
     If TEXT_SKETCH_COLOR < 0 Then Exit Sub
     On Error Resume Next
     seg.Color = TEXT_SKETCH_COLOR
+    Err.Clear
     On Error GoTo 0
 End Sub
 

@@ -103,7 +103,8 @@ End Function
 ' True if the given file exists.
 Public Function FileExists(ByVal filePath As String) As Boolean
     On Error Resume Next
-    FileExists = (Len(Dir$(filePath, vbNormal)) > 0)
+    FileExists = (Len(Dir$(filePath, vbNormal Or vbReadOnly Or _
+                                vbHidden Or vbSystem Or vbArchive)) > 0)
     On Error GoTo 0
 End Function
 
@@ -154,7 +155,7 @@ Public Function CollectFiles(ByVal folderPath As String, _
     ReDim arr(0 To GROW - 1)
 
     Dim name As String
-    name = Dir$(folderPath & fileSpec, vbNormal)
+    name = Dir$(folderPath & fileSpec, vbNormal Or vbReadOnly Or vbArchive)
     Do While Len(name) > 0
         If count > UBound(arr) Then
             ReDim Preserve arr(0 To UBound(arr) + GROW)

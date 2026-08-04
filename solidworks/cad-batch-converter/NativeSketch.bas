@@ -97,7 +97,10 @@ Public Function HarvestOutline(ByVal acadApp As Object, _
 
     If Len(unsupported) > 0 Then
         r.Message = AppendMsg(r.Message, "Native-sketch workaround: DWG holds" & _
-                    " unsupported entity type(s): " & unsupported & ".")
+                    " unsupported entity type(s): " & unsupported & _
+                    "; refusing to build an incomplete part.")
+        HarvestOutline = False
+        Exit Function
     End If
 
     If segCount = 0 Then
