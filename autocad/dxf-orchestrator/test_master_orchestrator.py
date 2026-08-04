@@ -145,6 +145,24 @@ class OrchestratorHelpersTest(unittest.TestCase):
         self.assertIn("$document.SetVariable('FILEDIA', 0)", powershell)
         self.assertLess(powershell.index("SetVariable"), powershell.index("SendCommand"))
         self.assertIn("Get-Process -Name acad", powershell)
+        self.assertIn("$acad.Documents.Open", powershell)
+        self.assertIn("for ($attempt = 0; $attempt -lt 120", powershell)
+
+    def test_review_script_does_not_use_blocking_alert(self):
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn('"_ALERT"', source)
+
+    def test_output_details_builds_expected_sorted_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dxf = Path(temp_dir) / "P#1.dxf"
+            parts = {
+                "P#1": {"quantity": "2", "thickness": "3/8", "material": "A36"}
+            }
+            target, output = orchestrator.output_details(
+                dxf, parts, Path(temp_dir)
+            )
+            self.assertEqual(target, "375-A36")
+            self.assertEqual(output.name, "P-1_375-A36_2.dwg")
 
     def test_manual_review_uses_unambiguous_finish_command(self):
         source = MODULE_PATH.read_text(encoding="utf-8")

@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 
 DEFAULT_ACAD_CONSOLE = Path(
@@ -233,10 +234,21 @@ if ($null -eq $acad) {{
     if ($null -eq $acad) {{ exit 3 }}
 }}
 $acad.Visible = $true
-$document = $acad.Documents.Open('{dxf_value}')
-$document.Activate()
-$document.SetVariable('FILEDIA', 0)
-$document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
+# AutoCAD briefly rejects automation calls while another drawing's startup
+# script is running. Retry the complete open operation so a batch of review
+# tabs can be queued without treating that normal busy state as a failure.
+for ($attempt = 0; $attempt -lt 120; $attempt++) {{
+    try {{
+        $document = $acad.Documents.Open('{dxf_value}')
+        $document.Activate()
+        $document.SetVariable('FILEDIA', 0)
+        $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
+        exit 0
+    }} catch {{
+        Start-Sleep -Milliseconds 500
+    }}
+}}
+exit 4
 """
     encoded = base64.b64encode(powershell.encode("utf-16le")).decode("ascii")
     attached = subprocess.run(
@@ -267,6 +279,39 @@ $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
     return False
 
 
+class ReviewJob(NamedTuple):
+    dxf: Path
+    final_dwg: Path
+    target_name: str
+    previous_stamp: tuple[int, int] | None
+    started_at: float
+
+
+def output_details(
+    dxf: Path, parts: dict[str, dict[str, str]], workspace: Path
+) -> tuple[str, Path]:
+    """Return the sorting directory name and final DWG path for a DXF."""
+    original_stem = dxf.stem
+    part = parts.get(original_stem)
+    if part:
+        quantity = part["quantity"]
+        target_name = safe_name(
+            f"{thickness_to_mils(part['thickness'])}-{part['material']}"
+        )
+    else:
+        quantity = "1"
+        target_name = "Unsorted"
+
+    working_name = original_stem.replace("#", "-")
+    working_name = re.sub(r"\s+_", "_", working_name)
+    working_name = re.sub(r"_\d+-[A-Za-z0-9-]+_\d+$", "", working_name)
+    working_name = re.sub(r"_\d+_\d+$", "", working_name)
+    working_name = safe_name(f"{working_name}_{target_name}_{quantity}")
+    target_dir = workspace / target_name
+    target_dir.mkdir(exist_ok=True)
+    return target_name, target_dir / f"{working_name}.dwg"
+
+
 def archive_original(source: Path, archive_dir: Path) -> None:
     destination = archive_dir / source.name
     if destination.exists():
@@ -289,26 +334,7 @@ def process_file(
     console_timeout: int,
     review_timeout: int,
 ) -> str:
-    original_stem = dxf.stem
-    part = parts.get(original_stem)
-    if part:
-        quantity = part["quantity"]
-        target_name = safe_name(
-            f"{thickness_to_mils(part['thickness'])}-{part['material']}"
-        )
-    else:
-        quantity = "1"
-        target_name = "Unsorted"
-
-    working_name = original_stem.replace("#", "-")
-    working_name = re.sub(r"\s+_", "_", working_name)
-    working_name = re.sub(r"_\d+-[A-Za-z0-9-]+_\d+$", "", working_name)
-    working_name = re.sub(r"_\d+_\d+$", "", working_name)
-    working_name = safe_name(f"{working_name}_{target_name}_{quantity}")
-
-    target_dir = workspace / target_name
-    target_dir.mkdir(exist_ok=True)
-    final_dwg = target_dir / f"{working_name}.dwg"
+    target_name, final_dwg = output_details(dxf, parts, workspace)
     escaped_dwg = autocad_path(final_dwg)
     preamble = [
         "FILEDIA", "0", "SECURELOAD", "0", "-INSERT",
@@ -328,8 +354,7 @@ def process_file(
             '(setvar "FILEDIA" oldFileDia) (command "_.CLOSE") (princ))'
         )
         write_script(script_path, preamble + [
-            finish_lisp, "SECURELOAD", "1", "FILEDIA", "1", "_ALERT",
-            '"Review the part. When finished, type SPCFINISH in the command line and press Enter to automatically save and sort."',
+            finish_lisp, "SECURELOAD", "1", "FILEDIA", "1",
         ])
         previous = output_stamp(final_dwg)
         if not open_review_drawing(acad_gui, dxf, script_path):
@@ -379,6 +404,71 @@ def process_file(
         return "clean"
     print(f"    [X] ERROR: exit={exit_code}; DWG missing or too small. Original DXF kept. Log: {log_path}")
     return "failed"
+
+
+def launch_review(
+    dxf: Path,
+    parts: dict[str, dict[str, str]],
+    workspace: Path,
+    acad_gui: Path,
+    lsp_path: Path,
+    seed_path: Path,
+    h2d_path: Path,
+    script_path: Path,
+) -> ReviewJob | None:
+    """Prepare and open one beveled drawing without waiting for its review."""
+    target_name, final_dwg = output_details(dxf, parts, workspace)
+    escaped_dwg = autocad_path(final_dwg)
+    finish_lisp = (
+        '(defun c:SPCFINISH ( / oldFileDia) '
+        '(setq oldFileDia (getvar "FILEDIA")) (setvar "FILEDIA" 0) '
+        f'(if (findfile "{escaped_dwg}") '
+        f'(command "_.SAVEAS" "2018" "{escaped_dwg}" "Y") '
+        f'(command "_.SAVEAS" "2018" "{escaped_dwg}")) '
+        '(setvar "FILEDIA" oldFileDia) (command "_.CLOSE") (princ))'
+    )
+    preamble = [
+        "FILEDIA", "0", "SECURELOAD", "0", "-INSERT",
+        f'"{autocad_path(seed_path)}"', "0,0", "1", "1", "0",
+        "ERASE", "L", "", f'(load "{autocad_path(lsp_path)}")',
+        "ColorToLayer", f'(load "{autocad_path(h2d_path)}")', "HashToDash",
+    ]
+    write_script(
+        script_path,
+        preamble + [finish_lisp, "SECURELOAD", "1", "FILEDIA", "1"],
+    )
+    previous = output_stamp(final_dwg)
+    if not open_review_drawing(acad_gui, dxf, script_path):
+        return None
+    return ReviewJob(dxf, final_dwg, target_name, previous, time.monotonic())
+
+
+def wait_for_reviews(
+    jobs: list[ReviewJob], archive_dir: Path, review_timeout: int
+) -> tuple[int, int]:
+    """Watch all open review tabs, allowing the operator to finish any order."""
+    pending = list(jobs)
+    completed = failed = 0
+    while pending:
+        now = time.monotonic()
+        for job in pending[:]:
+            current = output_stamp(job.final_dwg)
+            if current is not None and current != job.previous_stamp:
+                if wait_file_stable(job.final_dwg):
+                    archive_original(job.dxf, archive_dir)
+                    print(f"    [SUCCESS] {job.dxf.name} saved and sorted to {job.target_name}")
+                    completed += 1
+                    pending.remove(job)
+            elif now - job.started_at >= review_timeout:
+                print(
+                    f"    [X] {job.dxf.name}: SPCFINISH did not produce a valid "
+                    f"DWG within {review_timeout}s. Original DXF kept."
+                )
+                failed += 1
+                pending.remove(job)
+        if pending:
+            time.sleep(0.5)
+    return completed, failed
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -434,6 +524,7 @@ def main(argv: list[str] | None = None) -> int:
         h2d_path = temp_dir / "HashToDash.lsp"
         h2d_path.write_text(HASH_TO_DASH_LISP, encoding="ascii")
         script_path = temp_dir / "automation_job.scr"
+        review_files: list[Path] = []
         folders = sorted(
             (
                 path for path in workspace.iterdir()
@@ -450,6 +541,10 @@ def main(argv: list[str] | None = None) -> int:
                 print("  -> No DXF files found in this folder.")
             for dxf in files:
                 print(f"  Processing: {dxf.name}...")
+                if is_beveled_dxf(dxf):
+                    print("    [!] BEVEL DETECTED. Queued for manual check...")
+                    review_files.append(dxf)
+                    continue
                 result = process_file(
                     dxf, parts, workspace, archive_dir, log_dir,
                     args.acad_console_path, args.acad_gui_path,
@@ -457,6 +552,33 @@ def main(argv: list[str] | None = None) -> int:
                     h2d_path, script_path, args.console_timeout, args.review_timeout,
                 )
                 counts[result] += 1
+
+        if review_files:
+            print(
+                f"\n=== OPENING {len(review_files)} BEVEL REVIEWS IN AUTOCAD ==="
+            )
+            jobs: list[ReviewJob] = []
+            for index, dxf in enumerate(review_files):
+                review_script = temp_dir / f"review_{index}.scr"
+                job = launch_review(
+                    dxf, parts, workspace, args.acad_gui_path,
+                    required["ColorToLayer LISP"], required["Seed DWG"],
+                    h2d_path, review_script,
+                )
+                if job is None:
+                    counts["failed"] += 1
+                else:
+                    jobs.append(job)
+            if jobs:
+                print(
+                    "\n--> All available reviews are open. Review each tab, then "
+                    "type SPCFINISH (Enter) in that tab. You may finish them in any order."
+                )
+                completed, failed = wait_for_reviews(
+                    jobs, archive_dir, args.review_timeout
+                )
+                counts["bevel"] += completed
+                counts["failed"] += failed
 
     print("\n=== ALL PARTS PROCESSED, SORTED, AND SAVED! ===")
     print(f"=== Clean: {counts['clean']}  Bevel: {counts['bevel']}  Failed: {counts['failed']} ===")
