@@ -200,10 +200,11 @@ def open_review_drawing(acad_gui: Path, dxf: Path, script_path: Path) -> bool:
     """
     dxf_value = str(dxf.resolve()).replace("'", "''")
     script_value = autocad_path(script_path).replace("'", "''")
+    acad_value = str(acad_gui.resolve()).replace("'", "''")
     powershell = f"""
 $ErrorActionPreference = 'Stop'
 $acad = $null
-for ($attempt = 0; $attempt -lt 20; $attempt++) {{
+for ($attempt = 0; $attempt -lt 40; $attempt++) {{
     try {{
         $acad = [Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application')
         break
@@ -217,7 +218,19 @@ for ($attempt = 0; $attempt -lt 20; $attempt++) {{
 }}
 if ($null -eq $acad) {{
     if (Get-Process -Name acad -ErrorAction SilentlyContinue) {{ exit 2 }}
-    exit 1
+    # Start an empty application and open the document through that process's
+    # COM object. Passing the DXF to acad.exe can both forward the file to an
+    # existing session and leave the newly started process as a blank second
+    # instance, which then displays a misleading read-only prompt.
+    Start-Process -FilePath '{acad_value}'
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {{
+        Start-Sleep -Milliseconds 500
+        try {{
+            $acad = [Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application')
+            break
+        }} catch {{ }}
+    }}
+    if ($null -eq $acad) {{ exit 3 }}
 }}
 $acad.Visible = $true
 $document = $acad.Documents.Open('{dxf_value}')
@@ -236,7 +249,7 @@ $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
         check=False,
     )
     if attached.returncode == 0:
-        print("    --> Reusing the open AutoCAD session.")
+        print("    --> Review opened through the AutoCAD automation session.")
         return True
 
     if attached.returncode == 2:
@@ -247,10 +260,11 @@ $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
         )
         return False
 
-    # No running automation object exists yet, so create the first session in
-    # the traditional way. Subsequent beveled drawings will use the branch above.
-    subprocess.Popen([str(acad_gui), str(dxf), "/b", str(script_path)])
-    return True
+    print(
+        "    [X] AutoCAD did not publish its automation interface in time. "
+        "The review drawing was not opened."
+    )
+    return False
 
 
 def archive_original(source: Path, archive_dir: Path) -> None:
@@ -306,7 +320,7 @@ def process_file(
     if is_beveled_dxf(dxf):
         print("    [!] BEVEL DETECTED. Loading into AutoCAD for manual check...")
         finish_lisp = (
-            '(defun c:FINISH ( / oldFileDia) '
+            '(defun c:SPCFINISH ( / oldFileDia) '
             '(setq oldFileDia (getvar "FILEDIA")) (setvar "FILEDIA" 0) '
             f'(if (findfile "{escaped_dwg}") '
             f'(command "_.SAVEAS" "2018" "{escaped_dwg}" "Y") '
@@ -315,12 +329,12 @@ def process_file(
         )
         write_script(script_path, preamble + [
             finish_lisp, "SECURELOAD", "1", "FILEDIA", "1", "_ALERT",
-            '"Review the part. When finished, type FINISH in the command line and press Enter to automatically save and sort."',
+            '"Review the part. When finished, type SPCFINISH in the command line and press Enter to automatically save and sort."',
         ])
         previous = output_stamp(final_dwg)
         if not open_review_drawing(acad_gui, dxf, script_path):
             return "failed"
-        print("    --> Review in AutoCAD, then type FINISH (Enter) to save & sort...")
+        print("    --> Review in AutoCAD, then type SPCFINISH (Enter) to save & sort...")
         deadline = time.monotonic() + review_timeout
         saved = False
         while time.monotonic() < deadline:
@@ -333,7 +347,7 @@ def process_file(
             archive_original(dxf, archive_dir)
             print(f"    [SUCCESS] Saved and sorted to {target_name}")
             return "bevel"
-        print(f"    [X] FINISH did not produce a valid DWG within {review_timeout}s. Original DXF kept.")
+        print(f"    [X] SPCFINISH did not produce a valid DWG within {review_timeout}s. Original DXF kept.")
         return "failed"
 
     print("    [+] Clean Part. Running in background core console...")
