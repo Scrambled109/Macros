@@ -3,7 +3,11 @@ To run this pipeline, you must have the following files prepared and accessible 
 
 Master_Orchestrator.ps1: The main PowerShell script.
 
-parts.csv: A spreadsheet containing PartNumber, Quantity, Thickness, and Material columns. (Note: not actually required for the script to run just wont organize or append the file names. EVERY OTHER COMPONENT IS REQUIRED FOR OPERATION).
+Master_Orchestrator.py: A separate, standard-library-only Python implementation
+of the same workflow. Use it only when Python is approved by your IT/security
+team; changing interpreters is not a substitute for endpoint-security approval.
+
+Parts List.csv: A required CSV containing PartNumber, Quantity, Thickness, and Material columns. The Job Assistant creates this automatically from the generated Parts List workbook and copies it into each DXF workspace.
 
 ColorToLayer.lsp: The AutoLISP routine responsible for mapping specific object colors to their correct layers.
 
@@ -16,7 +20,7 @@ The script scans for raw DXF files stored inside numbered subdirectories. Your w
 WORKSPACE_FOLDER/
 │
 ├── Master_Orchestrator.ps1
-├── parts.csv
+├── Parts List.csv
 ├── ColorToLayer.lsp
 ├── SPC_Seed.dwg
 │
@@ -27,9 +31,9 @@ WORKSPACE_FOLDER/
 └── 101/                       <-- Another numbered folder
     └── CleanPart_C.dxf
 3. First-Time Configuration
-By default, the script looks for parts.csv, ColorToLayer.lsp, and SPC_Seed.dwg
-in the same folder as Master_Orchestrator.ps1. The CSV is optional. You only
-need to edit these paths if you deliberately store those files elsewhere.
+By default, the Python script looks for Parts List.csv in the workspace and for
+ColorToLayer.lsp and SPC_Seed.dwg beside the script. Use --parts-list to supply
+a different CSV path.
 
 Open the .ps1 file in a text editor (like Notepad) and locate the # --- CONFIGURATION PATHS --- section. Update the absolute paths to match where the required files are stored on your specific machine:
 
@@ -57,6 +61,22 @@ powershell -ExecutionPolicy Bypass -File .\Master_Orchestrator.ps1
 The two AutoCAD executable paths default to AutoCAD 2026. The Engineering Job
 Assistant can override them safely with the `-AcadConsolePath` and
 `-AcadGuiPath` PowerShell parameters; paths containing spaces are supported.
+
+Alternatively, run the Python implementation from the workspace that contains
+the numbered input folders:
+
+Command Prompt
+py C:\Path\To\Macros\autocad\dxf-orchestrator\Master_Orchestrator.py
+
+It also defaults to AutoCAD 2026. Override installed locations when needed:
+
+Command Prompt
+py C:\Path\To\Macros\autocad\dxf-orchestrator\Master_Orchestrator.py --acad-console-path "C:\Path\To\accoreconsole.exe" --acad-gui-path "C:\Path\To\acad.exe"
+
+Use `--workspace C:\Path\To\Workspace` if the command is not launched from the
+folder containing the numbered input directories. Run `py ... --help` for the
+timeout options. The Python file does not require third-party packages. The Job
+Assistant launches this implementation instead of the PowerShell script.
 
 5. The Operator Workflow
 Once the script starts, it requires minimal input. Watch the PowerShell terminal for color-coded status updates.
@@ -88,4 +108,4 @@ The Archive Failsafe: The script will never delete your original .dxf files. Onc
 
 Diagnostics: Each headless conversion writes its console output to _ORCHESTRATOR_LOGS\<part>.log (and .err.log for errors), so a failed clean part can be diagnosed instead of just reporting "DWG missing." The run ends with a summary line counting Clean / Bevel / Failed parts.
 
-Pre-flight checks: Before doing any work, the script verifies that the seed DWG, ColorToLayer.lsp, accoreconsole.exe, and acad.exe all exist at the configured paths, and aborts with a clear message if any are missing. The parts.csv remains optional -- without it, parts still convert but land in an "Unsorted" folder with a quantity of 1.
+Pre-flight checks: Before doing any work, the script verifies that the seed DWG, ColorToLayer.lsp, accoreconsole.exe, and acad.exe all exist at the configured paths, and aborts with a clear message if any are missing. The required Parts List.csv is validated before processing starts.

@@ -15,7 +15,9 @@ py -m PyInstaller --noconfirm --clean --onefile --console --distpath "%APPDIR%" 
 if errorlevel 1 exit /b %errorlevel%
 py -m PyInstaller --noconfirm --clean --onefile --console --distpath "%APPDIR%" --name "Engineering Production Comparison" --add-data "..\data-tools\production-comparison\comparison_rules.json;." "..\data-tools\production-comparison\compare_production_parts.py"
 if errorlevel 1 exit /b %errorlevel%
-for %%E in ("Engineering Job Assistant.exe" "Engineering BOM Converter.exe" "Engineering Production Comparison.exe") do (
+py -m PyInstaller --noconfirm --clean --onefile --console --distpath "%APPDIR%" --name "Engineering DXF Orchestrator" --add-data "..\autocad\dxf-orchestrator\ColorToLayer.lsp;." --add-data "..\autocad\dxf-orchestrator\SPC_Seed.dwg;." "..\autocad\dxf-orchestrator\Master_Orchestrator.py"
+if errorlevel 1 exit /b %errorlevel%
+for %%E in ("Engineering Job Assistant.exe" "Engineering BOM Converter.exe" "Engineering Production Comparison.exe" "Engineering DXF Orchestrator.exe") do (
   if not exist "%APPDIR%\%%~E" (
     echo ERROR: Missing required build output: %APPDIR%\%%~E
     exit /b 1

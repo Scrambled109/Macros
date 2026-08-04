@@ -2,16 +2,20 @@
 
 ## What is happening
 
-The Engineering Job Assistant starts PowerShell to execute
-`autocad/dxf-orchestrator/Master_Orchestrator.ps1`. If Cylance Script Control
-blocks PowerShell, the block happens before the orchestrator can contact
-AutoCAD. Changing AutoCAD executable or macro paths therefore cannot solve this
-pre-execution security decision.
+The packaged Engineering Job Assistant launches the separate
+`Engineering DXF Orchestrator.exe` companion. Source-mode development launches
+`autocad/dxf-orchestrator/Master_Orchestrator.py` with the active Python
+interpreter. Neither path uses PowerShell.
 
-PowerShell Execution Policy and Cylance Script Control are separate controls.
-The command's `-ExecutionPolicy Bypass` option cannot override Cylance or any
-other endpoint-security decision. Do **not** disable, bypass, or attempt to evade
-endpoint security.
+If Cylance stops only `Engineering Job Assistant.exe`, changing the DXF
+orchestrator cannot make the assistant itself start: give IT the Cylance event
+for that executable and the tested build. If the assistant starts but the DXF
+stage does not, identify whether the event names the assistant, the DXF
+companion, Python, or AutoCAD before changing configuration.
+
+PowerShell Execution Policy and Cylance are separate controls, and switching the
+orchestrator to Python does not override any endpoint-security decision. Do
+**not** disable, bypass, or attempt to evade endpoint security.
 
 ## Logs and evidence
 
@@ -19,7 +23,7 @@ The assistant's `dxf-*.log` and job audit history record the exact requested
 command and argument list, workspace, assistant log path, stage, launched PID,
 and actual exit code. Provide IT with:
 
-- the full `Master_Orchestrator.ps1` path;
+- the full path of the executable named in the Cylance event;
 - the exact command at the top of `dxf-*.log`;
 - the Cylance event time and identifier;
 - the workstation name and username; and
