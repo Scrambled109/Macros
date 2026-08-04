@@ -94,10 +94,11 @@ class OrchestratorHelpersTest(unittest.TestCase):
     def test_review_reuses_running_autocad(self, run, popen):
         run.return_value.returncode = 0
 
-        orchestrator.open_review_drawing(
+        opened = orchestrator.open_review_drawing(
             Path("acad.exe"), Path("part.dxf"), Path("review.scr")
         )
 
+        self.assertTrue(opened)
         popen.assert_not_called()
         command = run.call_args.args[0]
         self.assertEqual(command[0], "powershell.exe")
@@ -108,12 +109,40 @@ class OrchestratorHelpersTest(unittest.TestCase):
     def test_review_starts_autocad_when_no_session_exists(self, run, popen):
         run.return_value.returncode = 1
 
+        opened = orchestrator.open_review_drawing(
+            Path("acad.exe"), Path("part.dxf"), Path("review.scr")
+        )
+
+        self.assertTrue(opened)
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.args[0][0], "acad.exe")
+
+    @mock.patch.object(orchestrator.subprocess, "Popen")
+    @mock.patch.object(orchestrator.subprocess, "run")
+    def test_review_does_not_start_second_autocad(self, run, popen):
+        run.return_value.returncode = 2
+
+        opened = orchestrator.open_review_drawing(
+            Path("acad.exe"), Path("part.dxf"), Path("review.scr")
+        )
+
+        self.assertFalse(opened)
+        popen.assert_not_called()
+
+    @mock.patch.object(orchestrator.subprocess, "Popen")
+    @mock.patch.object(orchestrator.subprocess, "run")
+    def test_reused_session_disables_file_dialog_before_script(self, run, popen):
+        run.return_value.returncode = 0
+
         orchestrator.open_review_drawing(
             Path("acad.exe"), Path("part.dxf"), Path("review.scr")
         )
 
-        popen.assert_called_once()
-        self.assertEqual(popen.call_args.args[0][0], "acad.exe")
+        encoded = run.call_args.args[0][-1]
+        powershell = orchestrator.base64.b64decode(encoded).decode("utf-16le")
+        self.assertIn("$document.SetVariable('FILEDIA', 0)", powershell)
+        self.assertLess(powershell.index("SetVariable"), powershell.index("SendCommand"))
+        self.assertIn("Get-Process -Name acad", powershell)
 
     def test_load_parts_accepts_legacy_quanity_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:

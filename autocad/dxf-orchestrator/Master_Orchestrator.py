@@ -190,7 +190,7 @@ def write_script(path: Path, lines: list[str]) -> None:
         handle.write("\r\n".join(lines) + "\r\n")
 
 
-def open_review_drawing(acad_gui: Path, dxf: Path, script_path: Path) -> None:
+def open_review_drawing(acad_gui: Path, dxf: Path, script_path: Path) -> bool:
     """Open a review in the running AutoCAD session, starting it if necessary.
 
     Calling acad.exe for every drawing can create another application process,
@@ -202,10 +202,27 @@ def open_review_drawing(acad_gui: Path, dxf: Path, script_path: Path) -> None:
     script_value = autocad_path(script_path).replace("'", "''")
     powershell = f"""
 $ErrorActionPreference = 'Stop'
-$acad = [Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application')
+$acad = $null
+for ($attempt = 0; $attempt -lt 20; $attempt++) {{
+    try {{
+        $acad = [Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application')
+        break
+    }} catch {{
+        # AutoCAD can have a process before it has registered its COM object.
+        # Give that process time to finish starting rather than launching a
+        # second instance immediately.
+        if (-not (Get-Process -Name acad -ErrorAction SilentlyContinue)) {{ break }}
+        Start-Sleep -Milliseconds 500
+    }}
+}}
+if ($null -eq $acad) {{
+    if (Get-Process -Name acad -ErrorAction SilentlyContinue) {{ exit 2 }}
+    exit 1
+}}
 $acad.Visible = $true
 $document = $acad.Documents.Open('{dxf_value}')
 $document.Activate()
+$document.SetVariable('FILEDIA', 0)
 $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
 """
     encoded = base64.b64encode(powershell.encode("utf-16le")).decode("ascii")
@@ -220,11 +237,20 @@ $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
     )
     if attached.returncode == 0:
         print("    --> Reusing the open AutoCAD session.")
-        return
+        return True
+
+    if attached.returncode == 2:
+        print(
+            "    [X] AutoCAD is open but its automation interface is not "
+            "available. Close that session or run this tool at the same "
+            "privilege level; a second AutoCAD instance was not opened."
+        )
+        return False
 
     # No running automation object exists yet, so create the first session in
     # the traditional way. Subsequent beveled drawings will use the branch above.
     subprocess.Popen([str(acad_gui), str(dxf), "/b", str(script_path)])
+    return True
 
 
 def archive_original(source: Path, archive_dir: Path) -> None:
@@ -292,7 +318,8 @@ def process_file(
             '"Review the part. When finished, type FINISH in the command line and press Enter to automatically save and sort."',
         ])
         previous = output_stamp(final_dwg)
-        open_review_drawing(acad_gui, dxf, script_path)
+        if not open_review_drawing(acad_gui, dxf, script_path):
+            return "failed"
         print("    --> Review in AutoCAD, then type FINISH (Enter) to save & sort...")
         deadline = time.monotonic() + review_timeout
         saved = False
