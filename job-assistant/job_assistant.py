@@ -247,7 +247,7 @@ class JobAssistant(tk.Tk):
             "Processes are still running",
             "External automation is still running. Closing the assistant will "
             "stop status monitoring and completion notifications, but will not "
-            "stop AutoCAD.\n\nClose the assistant anyway?",
+            "stop the external tools.\n\nClose the assistant anyway?",
             icon="warning",
             parent=self,
         ):
@@ -791,6 +791,15 @@ class JobAssistant(tk.Tk):
         return result
 
     def run_comparison(self) -> None:
+        if any(
+            item.get("stage") == "comparison"
+            for item in self.running_processes.values()
+        ):
+            raise JobError(
+                "A production comparison is already running. Wait for its "
+                "completion notification before starting another."
+            )
+
         nesting = self.manifest["paths"].get("nesting") or filedialog.askdirectory(
             title="Select the Nesting folder", parent=self
         )
@@ -823,34 +832,134 @@ class JobAssistant(tk.Tk):
             output,
             self.bundled_tool("Engineering Production Comparison.exe"),
         )
-        with log.open("a", encoding="utf-8") as handle:
-            result = subprocess.run(
-                command,
-                cwd=self.repo,
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-                check=False,
-            )
         record_event(
             self.manifest,
-            "external_process_finished",
+            "external_process_requested",
             stage="comparison",
-            exit_code=result.returncode,
+            command=command,
+            output=str(output),
             log=str(log),
         )
-        if result.returncode:
-            raise JobError(
-                f"Comparison exited with code {result.returncode}. Review {log}"
+        save_manifest(self.manifest, self.manifest_path)
+
+        handle = log.open("a", encoding="utf-8")
+        handle.write(f"Windows command: {subprocess.list2cmdline(command)}\n")
+        handle.write(f"Arguments: {command!r}\nOutput: {output}\nStage: comparison\n\n")
+        handle.flush()
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=existing_working_directory(self.repo),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
             )
-        self.manifest["comparison"] = parse_comparison_summary(output)
-        if self.manifest["comparison"]["status"] == "not_available":
-            raise JobError(self.manifest["comparison"]["message"] + f" Review {log}")
-        mark_needs_review(
+        except Exception:
+            handle.close()
+            raise
+
+        record_event(
             self.manifest,
-            "comparison",
-            f"{self.manifest['comparison']['message']}: {self.manifest['comparison']['errors']} errors, {self.manifest['comparison']['warnings']} warnings.",
-            [log],
+            "external_process_launched",
+            stage="comparison",
+            pid=process.pid,
+            output=str(output),
+            log=str(log),
         )
+        self.running_processes[process.pid] = {
+            "stage": "comparison",
+            "job_number": self.manifest["job"]["number"],
+            "manifest_path": str(self.manifest_path),
+            "log": str(log),
+        }
+        self.update_running_summary()
+        save_manifest(self.manifest, self.manifest_path)
+        self._poll_comparison_process(
+            process,
+            handle,
+            log,
+            output,
+            self.manifest,
+            self.manifest_path,
+        )
+
+    def _poll_comparison_process(
+        self,
+        process,
+        handle,
+        log: Path,
+        output: Path,
+        process_manifest: dict,
+        process_manifest_path: Path,
+    ) -> None:
+        exit_code = process.poll()
+        if exit_code is None:
+            self.after(
+                500,
+                self._poll_comparison_process,
+                process,
+                handle,
+                log,
+                output,
+                process_manifest,
+                process_manifest_path,
+            )
+            return
+
+        handle.write(f"\nExit code: {exit_code}\n")
+        handle.close()
+        running = self.__dict__.get("running_processes")
+        if running is not None:
+            running.pop(process.pid, None)
+            self.update_running_summary()
+        record_event(
+            process_manifest,
+            "external_process_finished",
+            stage="comparison",
+            pid=process.pid,
+            exit_code=exit_code,
+            output=str(output),
+            log=str(log),
+        )
+
+        title = "Production comparison finished"
+        if exit_code:
+            item = process_manifest["stages"]["comparison"]
+            item["status"] = "warning"
+            item["notes"] = (
+                f"Comparison exited with code {exit_code}. Review {log}"
+            )
+            record_artifact(process_manifest, "comparison", log)
+            title = "Production comparison failed"
+        else:
+            comparison = parse_comparison_summary(output)
+            process_manifest["comparison"] = comparison
+            if comparison["status"] == "not_available":
+                item = process_manifest["stages"]["comparison"]
+                item["status"] = "warning"
+                item["notes"] = comparison["message"] + f" Review {log}"
+                record_artifact(process_manifest, "comparison", log)
+                title = "Production comparison incomplete"
+            else:
+                mark_needs_review(
+                    process_manifest,
+                    "comparison",
+                    f"{comparison['message']}: {comparison['errors']} errors, "
+                    f"{comparison['warnings']} warnings.",
+                    [log],
+                )
+
+        save_manifest(process_manifest, process_manifest_path)
+        if self.manifest_path == process_manifest_path:
+            self.manifest = process_manifest
+            self.refresh()
+            self.show_stage()
+
+        notes = process_manifest["stages"]["comparison"].get("notes", "")
+        message = f"Job {process_manifest['job']['number']}\n\n{notes}\n\nLog: {log}"
+        if title.endswith(("failed", "incomplete")):
+            messagebox.showerror(title, message, parent=self)
+        else:
+            messagebox.showinfo(title, message, parent=self)
 
     def launch_solidworks_macro(self, stage: str) -> None:
         macro = self.repo / (
