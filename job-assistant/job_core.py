@@ -491,6 +491,7 @@ def export_parts_list_csv(workbook_path: Path, destination: Path) -> Path:
             "THICKNESS/SHAPE": "Thickness",
             "MATERIAL TYPE": "Material",
             "MATERIAL": "Material",
+            "DESCRIPTION": "Description",
         }
         for sheet in workbook.worksheets:
             for row_number, row in enumerate(
@@ -504,7 +505,8 @@ def export_parts_list_csv(workbook_path: Path, destination: Path) -> Path:
                     canonical = aliases.get(normalized)
                     if canonical and canonical not in found:
                         found[canonical] = index
-                if {"PartNumber", "Thickness", "Material"}.issubset(found):
+                required = {"PartNumber", "Thickness", "Material", "Description"}
+                if required.issubset(found):
                     header_row = (sheet, row_number)
                     columns = found
                     break
@@ -512,8 +514,8 @@ def export_parts_list_csv(workbook_path: Path, destination: Path) -> Path:
                 break
         if not header_row:
             raise JobError(
-                "Could not find PART NUMBER, THICKNESS/SHAPE, and MATERIAL TYPE "
-                "columns in the generated Parts List."
+                "Could not find PART NUMBER, DESCRIPTION, THICKNESS/SHAPE, and "
+                "MATERIAL TYPE columns in the generated Parts List."
             )
 
         sheet, row_number = header_row
@@ -525,6 +527,13 @@ def export_parts_list_csv(workbook_path: Path, destination: Path) -> Path:
             )
             writer.writeheader()
             for row in sheet.iter_rows(min_row=row_number + 1, values_only=True):
+                description = re.sub(
+                    r"[^A-Z0-9]+",
+                    " ",
+                    str(row[columns["Description"]] or "").upper(),
+                ).strip()
+                if description not in {"PL", "PLATE"}:
+                    continue
                 part = row[columns["PartNumber"]]
                 if part is None or not str(part).strip():
                     continue
