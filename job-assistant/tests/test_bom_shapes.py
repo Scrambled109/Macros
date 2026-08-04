@@ -23,7 +23,15 @@ class StructuralShapeTests(unittest.TestCase):
             bom_converter.parse_pbom_material_description(
                 "TEE,STL,5.000D X2.690W X4.50#,STRL"
             ),
-            ("TEE", "5.000DX2.690WX4.50#", "STL"),
+            ("TEE", "5DX2.69WX4.5#", "STL"),
+        )
+
+    def test_built_up_tee_uses_complete_shape_not_plate_thickness(self):
+        self.assertEqual(
+            bom_converter.parse_pbom_material_description(
+                "TEE,STL,7.125 X5.000 X9.7#,BUILT-UP"
+            ),
+            ("TEE", "7.125X5X9.7#", "STL"),
         )
 
     def test_common_structural_abbreviations(self):
