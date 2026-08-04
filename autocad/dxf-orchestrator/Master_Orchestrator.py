@@ -150,7 +150,12 @@ def autocad_path(path: Path) -> str:
 
 
 def write_script(path: Path, lines: list[str]) -> None:
-    path.write_text("\r\n".join(lines) + "\r\n", encoding="ascii")
+    # Do not pass pre-built CRLF text through Path.write_text on Windows.  Its
+    # normal newline translation turns each CRLF into CRCRLF, which AutoCAD
+    # interprets as an empty response between a command and its value (for
+    # example FILEDIA, Enter, blank, then a stray `0` command).
+    with path.open("w", encoding="ascii", newline="") as handle:
+        handle.write("\r\n".join(lines) + "\r\n")
 
 
 def archive_original(source: Path, archive_dir: Path) -> None:

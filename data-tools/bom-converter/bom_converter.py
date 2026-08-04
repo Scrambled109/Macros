@@ -359,6 +359,20 @@ def clean_shape_text(value):
     return text
 
 
+def clean_structural_shape(value):
+    """Normalize a complete structural designation for THICKNESS/SHAPE."""
+    text = clean_shape_text(value)
+
+    # PBOM dimensions are commonly padded to three decimals.  Keep meaningful
+    # precision but render 5.000 as 5 so, for example, the complete tee stock
+    # callout becomes 7.125X5X9.7# rather than being mistaken for plate weight.
+    def trim_decimal(match):
+        number = match.group(0)
+        return number.rstrip("0").rstrip(".")
+
+    return re.sub(r"(?<![\d.])\d+\.\d+(?![\d.])", trim_decimal, text)
+
+
 def strip_trailing_material_text(value):
     """
     Remove common material-grade suffixes from a structural shape.
@@ -472,7 +486,7 @@ def split_material_description(value):
         description = "PLATE"
         shape = plate_thickness_from_text(remainder)
     else:
-        shape = strip_trailing_material_text(remainder)
+        shape = clean_structural_shape(strip_trailing_material_text(remainder))
 
     return description, shape
 
@@ -542,7 +556,7 @@ def parse_pbom_material_description(value):
     if description == "PLATE":
         shape = plate_thickness_from_text(shape_token)
     else:
-        shape = clean_shape_text(shape_token)
+        shape = clean_structural_shape(shape_token)
 
     return description, shape, material
 
