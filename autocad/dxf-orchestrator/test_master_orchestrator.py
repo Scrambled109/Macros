@@ -3,6 +3,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("Master_Orchestrator.py")
@@ -87,6 +88,32 @@ class OrchestratorHelpersTest(unittest.TestCase):
                 b"FILEDIA\r\n0\r\n_QUIT\r\n",
             )
             self.assertNotIn(b"\r\r\n", script.read_bytes())
+
+    @mock.patch.object(orchestrator.subprocess, "Popen")
+    @mock.patch.object(orchestrator.subprocess, "run")
+    def test_review_reuses_running_autocad(self, run, popen):
+        run.return_value.returncode = 0
+
+        orchestrator.open_review_drawing(
+            Path("acad.exe"), Path("part.dxf"), Path("review.scr")
+        )
+
+        popen.assert_not_called()
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], "powershell.exe")
+        self.assertIn("-EncodedCommand", command)
+
+    @mock.patch.object(orchestrator.subprocess, "Popen")
+    @mock.patch.object(orchestrator.subprocess, "run")
+    def test_review_starts_autocad_when_no_session_exists(self, run, popen):
+        run.return_value.returncode = 1
+
+        orchestrator.open_review_drawing(
+            Path("acad.exe"), Path("part.dxf"), Path("review.scr")
+        )
+
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.args[0][0], "acad.exe")
 
     def test_load_parts_accepts_legacy_quanity_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:

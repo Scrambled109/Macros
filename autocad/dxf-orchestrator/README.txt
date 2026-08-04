@@ -95,7 +95,7 @@ Review the bevel notes on the drawing.
 
 CRITICAL: Do not use "Save" or "Save As". When you are finished reviewing the part, simply type FINISH into the AutoCAD command line and press Enter.
 
-The custom FINISH command automatically saves the file to the correct sorted directory and closes only the current drawing tab. AutoCAD itself remains open, so the next beveled part can load without paying the full application startup cost again. The orchestrator watches for the saved DWG and then moves on.
+The custom FINISH command automatically saves the file to the correct sorted directory and closes only the current drawing tab. AutoCAD itself remains open, and the Python orchestrator connects to that running AutoCAD session to open the next beveled part instead of launching acad.exe again. The orchestrator watches for the saved DWG and then moves on.
 
 If FINISH is not used, the orchestrator cannot use AutoCAD exiting as its completion signal because AutoCAD is intentionally kept open and may reuse an existing process. It waits up to $BevelReviewTimeoutSec (one hour by default), then marks the part as failed, keeps the original DXF for retry, and continues. This setting is near the top of Master_Orchestrator.ps1 and can be changed before a run.
 

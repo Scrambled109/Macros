@@ -9,6 +9,7 @@ input, output, archive, logging, and manual bevel-review behavior.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import os
 import re
@@ -189,6 +190,43 @@ def write_script(path: Path, lines: list[str]) -> None:
         handle.write("\r\n".join(lines) + "\r\n")
 
 
+def open_review_drawing(acad_gui: Path, dxf: Path, script_path: Path) -> None:
+    """Open a review in the running AutoCAD session, starting it if necessary.
+
+    Calling acad.exe for every drawing can create another application process,
+    even though FINISH deliberately leaves the current process alive.  AutoCAD's
+    COM automation object lets us add the next document to that existing session.
+    PowerShell supplies the COM bridge while keeping this module dependency-free.
+    """
+    dxf_value = str(dxf.resolve()).replace("'", "''")
+    script_value = autocad_path(script_path).replace("'", "''")
+    powershell = f"""
+$ErrorActionPreference = 'Stop'
+$acad = [Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application')
+$acad.Visible = $true
+$document = $acad.Documents.Open('{dxf_value}')
+$document.Activate()
+$document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
+"""
+    encoded = base64.b64encode(powershell.encode("utf-16le")).decode("ascii")
+    attached = subprocess.run(
+        [
+            "powershell.exe", "-NoProfile", "-NonInteractive",
+            "-EncodedCommand", encoded,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if attached.returncode == 0:
+        print("    --> Reusing the open AutoCAD session.")
+        return
+
+    # No running automation object exists yet, so create the first session in
+    # the traditional way. Subsequent beveled drawings will use the branch above.
+    subprocess.Popen([str(acad_gui), str(dxf), "/b", str(script_path)])
+
+
 def archive_original(source: Path, archive_dir: Path) -> None:
     destination = archive_dir / source.name
     if destination.exists():
@@ -254,7 +292,7 @@ def process_file(
             '"Review the part. When finished, type FINISH in the command line and press Enter to automatically save and sort."',
         ])
         previous = output_stamp(final_dwg)
-        subprocess.Popen([str(acad_gui), str(dxf), "/b", str(script_path)])
+        open_review_drawing(acad_gui, dxf, script_path)
         print("    --> Review in AutoCAD, then type FINISH (Enter) to save & sort...")
         deadline = time.monotonic() + review_timeout
         saved = False
