@@ -148,6 +148,23 @@ class OrchestratorHelpersTest(unittest.TestCase):
         self.assertIn("$acad.Documents.Open", powershell)
         self.assertIn("for ($attempt = 0; $attempt -lt 120", powershell)
 
+    @mock.patch.object(orchestrator.subprocess, "run")
+    def test_review_never_reopens_document_when_autocad_is_busy(self, run):
+        run.return_value.returncode = 0
+
+        orchestrator.open_review_drawing(
+            Path("acad.exe"), Path("part.dxf"), Path("review.scr")
+        )
+
+        encoded = run.call_args.args[0][-1]
+        powershell = orchestrator.base64.b64decode(encoded).decode("utf-16le")
+        self.assertEqual(powershell.count("$acad.Documents.Open"), 1)
+        open_position = powershell.index("$document = $acad.Documents.Open")
+        open_loop_end = powershell.index("if ($null -eq $document)", open_position)
+        send_position = powershell.index("$document.SendCommand", open_loop_end)
+        self.assertLess(open_loop_end, send_position)
+        self.assertNotIn("$acad.Documents.Open", powershell[open_loop_end:])
+
     def test_review_script_does_not_use_blocking_alert(self):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertNotIn('"_ALERT"', source)

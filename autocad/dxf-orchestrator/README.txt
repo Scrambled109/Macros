@@ -97,6 +97,11 @@ CRITICAL: Do not use "Save" or "Save As". When you are finished reviewing the pa
 
 The custom SPCFINISH command automatically saves the file to the correct sorted directory and closes only the current drawing tab. Run it once in each reviewed tab; the tabs may be finished in any order. AutoCAD itself remains open. For the first review the orchestrator starts an empty AutoCAD session and then opens every DXF through that session's automation interface; it never passes a DXF to acad.exe, avoiding the extra blank instance and read-only prompt that AutoCAD's file-forwarding behavior can cause. It retries when AutoCAD is temporarily busy loading the preceding tab, and it does not show a blocking alert between tabs. Before loading each review script it disables AutoCAD's file dialogs, so the script path is consumed at the command line rather than producing a Select Script File dialog. If an acad.exe process exists but its automation interface cannot be reached (for example, because AutoCAD and the orchestrator are running at different privilege levels), the orchestrator reports the problem and does not open a duplicate AutoCAD instance. The orchestrator watches all saved DWGs concurrently.
 
+The document-open and script-loading retries are separate. Once AutoCAD opens
+a DXF, the orchestrator retains that document and retries only the temporarily
+busy setup calls. It does not open the DXF again merely because layer/script
+setup needs more time, preventing a second read-only copy of the same drawing.
+
 If SPCFINISH is not used, the orchestrator cannot use AutoCAD exiting as its completion signal because AutoCAD is intentionally kept open and may reuse an existing process. It waits up to $BevelReviewTimeoutSec (one hour by default), then marks the part as failed, keeps the original DXF for retry, and continues. This setting is near the top of Master_Orchestrator.ps1 and can be changed before a run.
 
 6. Output and Data Safety
