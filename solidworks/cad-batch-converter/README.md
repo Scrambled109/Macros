@@ -48,10 +48,15 @@ stage has structured error handling, and every file is logged.
    2. **`TextStamp.RunTextStamp`** — stamps the words onto the finished parts.
 
 The `FilteredDWGs` and `staging` folders are created automatically if missing.
+The source and filtered folders must be different; the macro stops before opening
+a drawing if they are the same. A filtered copy is not saved when the target
+layer is empty or when any non-target model-space entities could not be deleted.
 
 The two stages are deliberately **separate** for this first version: the extrude
 batch never touches text, and the text pass can be re-run at any time against
-the `staging` folder without rebuilding parts.
+the `staging` folder without rebuilding parts. Successful text passes name
+their owned sketch `CAD_BATCH_MARKING`; later passes replace that sketch instead
+of stacking duplicate marking geometry.
 
 ---
 
@@ -78,14 +83,17 @@ stop the macro before it creates files. Rebuild `Main.RunBatch.swp` after
 importing the updated source; editing `Config.bas` alone does not alter the
 compiled macro.
 
-The extrusion depth is also runtime-configurable. `EXTRUDE_DEPTH_METERS()`
-reads the `ExtrudeDepthMeters` setting in the same registry section first,
-then `MACROS_EXTRUDE_DEPTH_METERS`, and finally defaults to `0.00635` m
-(0.25 in). Registry-first lookup lets an already-running SolidWorks process
-see the next run's thickness instead of its original environment. The
-Job Assistant writes both runtime forms for each selected thickness folder, so
-operators do not edit or rebuild VBA between runs. Rebuild the `.swp` once to
-incorporate this source change.
+The extrusion depth is also runtime-configurable. At the start of each entry
+point, the macro snapshots the configured folders and extrusion depth so an
+external registry update cannot mix two thickness groups inside one running
+batch. `EXTRUDE_DEPTH_METERS()` reads the `ExtrudeDepthMeters` setting in the
+same registry section first, then `MACROS_EXTRUDE_DEPTH_METERS`, and finally
+defaults to `0.00635` m (0.25 in). Registry-first lookup lets an already-running
+SolidWorks process see the next run's thickness when that next entry point
+starts. The Job Assistant writes both runtime forms for each selected thickness
+folder, so operators do not edit VBA between runs. Rebuild the `.swp` after
+importing source changes; changing a `.bas` file does not update the compiled
+macro automatically.
 
 ## Processing configuration (`Config.bas`)
 
