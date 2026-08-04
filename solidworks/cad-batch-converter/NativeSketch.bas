@@ -42,12 +42,12 @@ Option Explicit
 ' Opens the DWG read-only and closes it again. Returns True when at least one
 ' segment was harvested; on False, r.Message says why.
 '------------------------------------------------------------------------------
-Public Function HarvestOutline(ByVal acadApp As AcadApplication, _
+Public Function HarvestOutline(ByVal acadApp As Object, _
                                ByVal dwgPath As String, _
                                ByRef segs() As TSegment, _
                                ByRef segCount As Long, _
                                ByRef r As TFileResult) As Boolean
-    Dim doc As AcadDocument
+    Dim doc As Object
     On Error GoTo errHandler
 
     segCount = 0

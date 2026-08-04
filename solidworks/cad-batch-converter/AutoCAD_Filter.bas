@@ -9,7 +9,7 @@ Attribute VB_Name = "AutoCAD_Filter"
 '                               PURGE -> SaveAs filtered DWG -> close
 '   * DeleteNonTargetEntities / UnlockAndReportLayers - helpers
 '
-' Requires a reference to the AutoCAD 2026 Type Library.
+' Uses late-bound AutoCAD COM; no AutoCAD type-library reference is required.
 '
 ' Design notes
 ' ------------
@@ -28,8 +28,8 @@ Option Explicit
 ' Attach to a running AutoCAD instance, or start a fresh one. Versioned ProgID
 ' first, generic fallback second. Returns Nothing on total failure.
 '------------------------------------------------------------------------------
-Public Function ConnectAutoCAD() As AcadApplication
-    Dim app As AcadApplication
+Public Function ConnectAutoCAD() As Object
+    Dim app As Object
 
     On Error Resume Next
     Set app = GetObject(, ACAD_PROGID_VERSIONED)
@@ -51,12 +51,12 @@ End Function
 ' Steps 1-3 for a single DWG. Returns True only if the filtered DWG was saved.
 ' Fills r.LockedLayers (report) and, on failure, r.Message.
 '------------------------------------------------------------------------------
-Public Function FilterDwg(ByVal acadApp As AcadApplication, _
+Public Function FilterDwg(ByVal acadApp As Object, _
                           ByVal srcPath As String, _
                           ByVal destPath As String, _
                           ByRef r As TFileResult) As Boolean
 
-    Dim doc As AcadDocument
+    Dim doc As Object
     On Error GoTo errHandler
 
     ' --- Step 1: open the source drawing ------------------------------------
@@ -104,13 +104,13 @@ End Function
 ' silently - the offending layer has already been captured by
 ' UnlockAndReportLayers for the log.
 '------------------------------------------------------------------------------
-Private Function DeleteNonTargetEntities(ByVal doc As AcadDocument) As Long
-    Dim ms As AcadModelSpace
+Private Function DeleteNonTargetEntities(ByVal doc As Object) As Long
+    Dim ms As Object
     Set ms = doc.ModelSpace
 
     Dim i As Long
     Dim deleted As Long
-    Dim ent As AcadEntity
+    Dim ent As Object
 
     For i = ms.Count - 1 To 0 Step -1
         Set ent = ms.Item(i)
@@ -136,8 +136,8 @@ End Function
 ' (when UNLOCK_LOCKED_LAYERS is True) unlock every locked layer except the
 ' target layer so its entities become deletable.
 '------------------------------------------------------------------------------
-Private Function UnlockAndReportLayers(ByVal doc As AcadDocument) As String
-    Dim lay As AcadLayer
+Private Function UnlockAndReportLayers(ByVal doc As Object) As String
+    Dim lay As Object
     Dim report As String
 
     For Each lay In doc.Layers

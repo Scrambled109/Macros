@@ -31,7 +31,7 @@ Attribute VB_Name = "TextMarking"
 ' signatures do not have to change. Call sequence per file:
 '       ClearMarks  ->  HarvestTextMarks (AutoCAD)  ->  ApplyTextMarks (SW)
 '
-' Requires references to the AutoCAD 2026 and SolidWorks 2025 type libraries.
+' Uses late-bound AutoCAD COM and requires the SolidWorks 2025 type libraries.
 '==============================================================================
 Option Explicit
 
@@ -101,16 +101,16 @@ End Sub
 ' layer that TXTEXP letter outlines are collected on (see
 ' TextStamp.PrepareAndExplodeText). Reading does not require the layers to be
 ' unlocked. No-op when TEXT_LAYER is blank.
-Public Sub HarvestTextMarks(ByVal doc As AcadDocument, _
+Public Sub HarvestTextMarks(ByVal doc As Object, _
                             Optional ByVal extraGeomLayer As String = vbNullString)
     If Len(Trim$(TEXT_LAYER)) = 0 Then Exit Sub
 
-    Dim ms As AcadModelSpace
+    Dim ms As Object
     Set ms = doc.ModelSpace
 
     Dim i As Long
     Dim wanted As Boolean
-    Dim ent As Object            ' late-bound: text properties are not on AcadEntity
+    Dim ent As Object            ' late-bound: entity types expose different properties
     For i = 0 To ms.Count - 1
         On Error Resume Next
         Set ent = ms.Item(i)
