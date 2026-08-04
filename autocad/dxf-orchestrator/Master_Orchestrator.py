@@ -234,12 +234,26 @@ if ($null -eq $acad) {{
     if ($null -eq $acad) {{ exit 3 }}
 }}
 $acad.Visible = $true
-# AutoCAD briefly rejects automation calls while another drawing's startup
-# script is running. Retry the complete open operation so a batch of review
-# tabs can be queued without treating that normal busy state as a failure.
+# Opening a document and sending its script are deliberately separate retry
+# phases. Documents.Open can succeed before AutoCAD becomes busy running the
+# drawing's startup work. Retrying the *whole* operation at that point opens a
+# second, read-only tab for the same DXF.
+$document = $null
 for ($attempt = 0; $attempt -lt 120; $attempt++) {{
     try {{
         $document = $acad.Documents.Open('{dxf_value}')
+        break
+    }} catch {{
+        Start-Sleep -Milliseconds 500
+    }}
+}}
+if ($null -eq $document) {{ exit 4 }}
+
+# AutoCAD may reject automation calls temporarily while the document finishes
+# opening. Keep the document reference and retry only activation/script setup;
+# never call Documents.Open again for this review.
+for ($attempt = 0; $attempt -lt 120; $attempt++) {{
+    try {{
         $document.Activate()
         $document.SetVariable('FILEDIA', 0)
         $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
