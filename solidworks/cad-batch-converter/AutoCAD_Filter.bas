@@ -70,18 +70,24 @@ Public Function FilterDwg(ByVal acadApp As Object, _
     ' --- Locked-layer handling (report; optionally unlock) ------------------
     r.LockedLayers = UnlockAndReportLayers(doc)
 
-    ' --- Step 2: delete everything not on the target layer -------------------
-    DeleteNonTargetEntities doc
-
+    ' --- Step 2: verify the target before deleting anything ------------------
+    ' Report the actual model-space layers when a mapping contract drifts. The
+    ' source document is still closed unsaved on failure, but preflight makes
+    ' this diagnostic useful and avoids needlessly deleting the in-memory copy.
     Dim targetCount As Long
     Dim unwantedCount As Long
     targetCount = CountEntitiesByTargetState(doc, True)
-    unwantedCount = CountEntitiesByTargetState(doc, False)
-
     If targetCount = 0 Then
         Err.Raise vbObjectError + 1101, "FilterDwg", _
-                  "No model-space entities were found on target layer '" & TARGET_LAYER & "'."
+                  "No model-space entities were found on target layer '" & _
+                  TARGET_LAYER & "'. Model-space layers present: " & _
+                  ModelSpaceLayerSummary(doc)
     End If
+
+    ' --- Delete everything not on the target layer ---------------------------
+    DeleteNonTargetEntities doc
+    unwantedCount = CountEntitiesByTargetState(doc, False)
+
     If unwantedCount > 0 Then
         Err.Raise vbObjectError + 1102, "FilterDwg", _
                   unwantedCount & " non-target model-space entit" & _
@@ -170,6 +176,42 @@ Private Function CountEntitiesByTargetState(ByVal doc As Object, _
     Next i
 
     Set ms = Nothing
+End Function
+
+' Return the unique layer names actually used by model-space entities. This is
+' intentionally different from listing doc.Layers, which includes empty seed
+' layers and would hide a color-to-layer mapping failure.
+Private Function ModelSpaceLayerSummary(ByVal doc As Object) As String
+    On Error GoTo failed
+
+    Dim ms As Object
+    Set ms = doc.ModelSpace
+    If ms.Count = 0 Then
+        ModelSpaceLayerSummary = "<model space is empty>"
+        Exit Function
+    End If
+
+    Dim seen As String
+    Dim summary As String
+    Dim layerName As String
+    Dim key As String
+    Dim i As Long
+    For i = 0 To ms.Count - 1
+        layerName = Trim$(CStr(ms.Item(i).Layer))
+        key = "|" & UCase$(layerName) & "|"
+        If InStr(1, seen, key, vbBinaryCompare) = 0 Then
+            seen = seen & key
+            If Len(summary) > 0 Then summary = summary & ", "
+            summary = summary & layerName
+        End If
+    Next i
+
+    If Len(summary) = 0 Then summary = "<no readable layer names>"
+    ModelSpaceLayerSummary = summary
+    Exit Function
+
+failed:
+    ModelSpaceLayerSummary = "<layer inspection failed: " & Err.Description & ">"
 End Function
 
 '------------------------------------------------------------------------------
