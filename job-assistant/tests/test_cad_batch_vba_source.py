@@ -221,6 +221,24 @@ class CadBatchVbaSourceTests(unittest.TestCase):
             r"(?mi)^\s*Set doc\.ActiveLayer\s*=\s*scratch\s*$",
         )
 
+    def test_text_harvest_defaults_to_direct_entities_and_supports_attributes(self) -> None:
+        config = self.sources["Config.bas"]
+        text_marking = self.sources["TextMarking.bas"]
+
+        self.assertRegex(
+            config,
+            r"(?mi)^Public Const TEXT_USE_DWG_OUTLINES As Boolean = False\s*$",
+        )
+        for entity_type in (
+            "AcDbText",
+            "AcDbMText",
+            "AcDbAttribute",
+            "AcDbAttributeDefinition",
+        ):
+            self.assertIn(entity_type, text_marking)
+        self.assertIn("GetAttributes", text_marking)
+        self.assertIn("GetConstantAttributes", text_marking)
+
 
 if __name__ == "__main__":
     unittest.main()
