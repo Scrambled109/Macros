@@ -178,18 +178,31 @@ class CadBatchVbaSourceTests(unittest.TestCase):
         }
         self.assertEqual({}, duplicates, f"Ambiguous public VBA procedure names: {duplicates}")
 
-    def test_converter_target_layer_matches_orchestrator(self) -> None:
+    def test_converter_layer_contract_matches_orchestrator(self) -> None:
         config = self.sources["Config.bas"]
-        target_match = re.search(
-            r'(?mi)^Public Const TARGET_LAYER As String = "([^"]+)"', config
+        mappings = dict(
+            re.findall(
+                r'\((\d+)\s*\.\s*"([^"]+)"\)', _color_to_layer_source()
+            )
         )
-        self.assertIsNotNone(target_match)
-        orchestrator_match = re.search(
-            r'\(1\s*\.\s*"([^"]+)"\)', _color_to_layer_source()
+        constants = dict(
+            re.findall(
+                r'(?mi)^Public Const (\w+) As String = (?:_\s*)?\n?\s*"([^"]+)"',
+                config,
+            )
         )
-        self.assertIsNotNone(orchestrator_match)
-        self.assertEqual(orchestrator_match.group(1), target_match.group(1))
-        self.assertEqual("CUT - OUTSIDE STRAIGHT", target_match.group(1))
+        profile_layers = {
+            name.strip() for name in constants["PROFILE_LAYERS"].split(",")
+        }
+        marking_layers = {
+            name.strip() for name in constants["TEXT_LAYER"].split(",")
+        }
+
+        self.assertEqual(mappings["1"], constants["TARGET_LAYER"])
+        self.assertEqual(mappings["5"], constants["INSIDE_CUT_LAYER"])
+        self.assertEqual({mappings["1"], mappings["5"]}, profile_layers)
+        self.assertTrue({mappings["3"], mappings["6"], mappings["7"]} <= marking_layers)
+        self.assertNotIn(mappings["2"], profile_layers | marking_layers)
         self.assertIn("NormalizedLayerName", self.sources["Utilities.bas"])
         self.assertIn(
             "ModelSpaceLayerSummary(doc)", self.sources["AutoCAD_Filter.bas"]
