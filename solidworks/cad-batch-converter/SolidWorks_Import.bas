@@ -11,7 +11,7 @@ Attribute VB_Name = "SolidWorks_Import"
 '                             SaveAs SLDPRT -> close
 '   * FindImportedSketch / SketchHasOpenContours / ExtrudeSketch - helpers
 '
-' Requires a reference to the SolidWorks 2025 Type Library.
+' Uses late-bound SolidWorks COM; no SolidWorks type-library reference is required.
 '
 ' Design notes
 ' ------------
@@ -20,7 +20,7 @@ Attribute VB_Name = "SolidWorks_Import"
 '   DWG/DXF import wizard, so the run stays unattended.
 ' * CRITICAL: the DWG DEFAULT import method is "create new DRAWING". To get a
 '   part, ImportMethod - a per-sheet INDEXED property, ImportMethod(sheetName) -
-'   must be explicitly set to swImportDxfDwg_ImportToPartSketch (swconst.tlb).
+'   must be explicitly set to SW_IMPORT_TO_PART_SKETCH (documented value 2).
 '   Setting it is therefore NOT guarded: if it cannot be set, the file fails
 '   loudly instead of silently converting to a drawing. After LoadFile4 the
 '   document type is verified to be a part (swDocPART); a drawing is closed
@@ -55,8 +55,8 @@ Option Explicit
 ' Attach to a running SolidWorks instance, or start a fresh one. Versioned
 ' ProgID first, generic fallback second. Returns Nothing on total failure.
 '------------------------------------------------------------------------------
-Public Function ConnectSolidWorks() As SldWorks.SldWorks
-    Dim app As SldWorks.SldWorks
+Public Function ConnectSolidWorks() As Object
+    Dim app As Object
 
     On Error Resume Next
     Set app = GetObject(, SW_PROGID_VERSIONED)
@@ -78,17 +78,17 @@ End Function
 ' Steps 4-9 for a single filtered DWG. Returns True only when the SLDPRT was
 ' saved. Fills r.ImportOK / r.ExtrudeOK / r.SaveOK / r.OpenContour / r.Message.
 '------------------------------------------------------------------------------
-Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
+Public Function ImportAndExtrude(ByVal swApp As Object, _
                                  ByVal dwgPath As String, _
                                  ByVal outPath As String, _
                                  ByRef r As TFileResult) As Boolean
 
-    Dim swModel As SldWorks.ModelDoc2
+    Dim swModel As Object
     Dim errs As Long
     On Error GoTo errHandler
 
     ' --- Step 4: import the DWG as a new-part 2D sketch ---------------------
-    Dim importData As SldWorks.ImportDxfDwgData
+    Dim importData As Object
     Set importData = swApp.GetImportFileData(dwgPath)
     If importData Is Nothing Then
         r.Message = "GetImportFileData returned nothing - cannot import as a part."
@@ -99,7 +99,7 @@ Public Function ImportAndExtrude(ByVal swApp As SldWorks.SldWorks, _
     ' The one setting that decides part vs drawing. Never guarded, never
     ' defaulted: without it SolidWorks converts the DWG to a new DRAWING.
     If Not SetPartImportMethod(importData, dwgPath) Then
-        r.Message = "Could not set ImportMethod = swImportDxfDwg_ImportToPartSketch" & _
+        r.Message = "Could not set ImportMethod = SW_IMPORT_TO_PART_SKETCH" & _
                     " - aborting this file rather than importing it as a drawing."
         ImportAndExtrude = False
         Exit Function
@@ -190,17 +190,17 @@ End Function
 ' how the old code silently fell back to the DWG default of "new drawing".
 ' Returns True only if one of the two forms was accepted.
 '------------------------------------------------------------------------------
-Private Function SetPartImportMethod(ByVal d As SldWorks.ImportDxfDwgData, _
+Private Function SetPartImportMethod(ByVal d As Object, _
                                      ByVal dwgPath As String) As Boolean
     On Error Resume Next
 
     Err.Clear
-    d.ImportMethod("") = swImportDxfDwg_ImportToPartSketch
+    d.ImportMethod("") = SW_IMPORT_TO_PART_SKETCH
     SetPartImportMethod = (Err.Number = 0)
 
     If Not SetPartImportMethod Then
         Err.Clear
-        d.ImportMethod(dwgPath) = swImportDxfDwg_ImportToPartSketch
+        d.ImportMethod(dwgPath) = SW_IMPORT_TO_PART_SKETCH
         SetPartImportMethod = (Err.Number = 0)
     End If
 
@@ -231,8 +231,8 @@ End Sub
 ' the geometry produced by the import. If several sketches exist, the imported
 ' one is the most recently added and therefore the last ProfileFeature found.
 '------------------------------------------------------------------------------
-Public Function FindImportedSketch(ByVal swModel As SldWorks.ModelDoc2) As String
-    Dim feat As SldWorks.Feature
+Public Function FindImportedSketch(ByVal swModel As Object) As String
+    Dim feat As Object
     Dim name As String
 
     Set feat = swModel.FirstFeature
@@ -250,11 +250,11 @@ End Function
 ' means at least one open contour. Robust across lines/arcs/splines/ellipses
 ' because it only relies on ISketchSegment.GetStartPoint2 / GetEndPoint2.
 '------------------------------------------------------------------------------
-Public Function SketchHasOpenContours(ByVal swModel As SldWorks.ModelDoc2, _
+Public Function SketchHasOpenContours(ByVal swModel As Object, _
                                       ByVal sketchName As String) As Boolean
     On Error GoTo done
 
-    Dim feat As SldWorks.Feature
+    Dim feat As Object
     Set feat = FindFeatureByName(swModel, sketchName)
     If feat Is Nothing Then Exit Function
 
@@ -331,7 +331,7 @@ End Function
 ' simply (re)selects the sketch so it is the active target for the extrude and
 ' clears any stray selection. Kept deliberately non-destructive.
 '------------------------------------------------------------------------------
-Private Sub RepairSketch(ByVal swModel As SldWorks.ModelDoc2, _
+Private Sub RepairSketch(ByVal swModel As Object, _
                          ByVal sketchName As String)
     On Error Resume Next
     swModel.ClearSelection2 True
@@ -347,7 +347,7 @@ End Sub
 ' return means the profile could not be extruded, e.g. an open contour).
 ' On failure, `reason` says exactly which step failed so the log is diagnostic.
 '------------------------------------------------------------------------------
-Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
+Public Function ExtrudeSketch(ByVal swModel As Object, _
                               ByVal sketchName As String, _
                               ByVal depth As Double, _
                               ByRef reason As String) As Boolean
@@ -362,7 +362,7 @@ Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
     ' sketch ("could not select sketch 'Model'"), notably with the app hidden.
     ' Object selection has no name/locale/visibility dependency; SelectByID2
     ' is kept only as a secondary attempt.
-    Dim skFeat As SldWorks.Feature
+    Dim skFeat As Object
     Set skFeat = FindFeatureByName(swModel, sketchName)
 
     Dim selected As Boolean
@@ -388,7 +388,7 @@ Public Function ExtrudeSketch(ByVal swModel As SldWorks.ModelDoc2, _
     ' A sketch that could not be selected is NOT fatal any more - the
     ' closed-contour fallback below selects contour OBJECTS, not the sketch by
     ' name, so it is attempted either way.
-    Dim swFeat As SldWorks.Feature
+    Dim swFeat As Object
     If selected Then
         Set swFeat = swModel.FeatureManager.FeatureExtrusion3( _
             True, False, False, _
@@ -443,12 +443,12 @@ End Function
 ' (stray construction lines, unclosed fragments) are simply not selected, so
 ' they can no longer poison the extrude. Returns the feature or Nothing.
 '------------------------------------------------------------------------------
-Private Function ExtrudeByContours(ByVal swModel As SldWorks.ModelDoc2, _
+Private Function ExtrudeByContours(ByVal swModel As Object, _
                                    ByVal sketchName As String, _
-                                   ByVal depth As Double) As SldWorks.Feature
+                                   ByVal depth As Double) As Object
     On Error GoTo cleanup
 
-    Dim feat As SldWorks.Feature
+    Dim feat As Object
     Set feat = FindFeatureByName(swModel, sketchName)
     If feat Is Nothing Then Exit Function
 
@@ -502,7 +502,7 @@ End Function
 ' sketch open for editing, which blocks feature selection and the extrude.
 ' Guarded: safe to call when no sketch is active.
 '------------------------------------------------------------------------------
-Private Sub ExitSketchEditMode(ByVal swModel As SldWorks.ModelDoc2)
+Private Sub ExitSketchEditMode(ByVal swModel As Object)
     On Error Resume Next
     If Not swModel.SketchManager.ActiveSketch Is Nothing Then
         swModel.SketchManager.InsertSketch True
@@ -513,9 +513,9 @@ End Sub
 '------------------------------------------------------------------------------
 ' Return the feature whose name matches, or Nothing.
 '------------------------------------------------------------------------------
-Private Function FindFeatureByName(ByVal swModel As SldWorks.ModelDoc2, _
-                                   ByVal name As String) As SldWorks.Feature
-    Dim feat As SldWorks.Feature
+Private Function FindFeatureByName(ByVal swModel As Object, _
+                                   ByVal name As String) As Object
+    Dim feat As Object
     Set feat = swModel.FirstFeature
     Do While Not feat Is Nothing
         If feat.Name = name Then
@@ -537,7 +537,7 @@ End Function
 ' On failure, appends the error/warning codes to r.Message. Public: shared by
 ' the import path and the native-sketch workaround.
 '------------------------------------------------------------------------------
-Public Function SavePart(ByVal swModel As SldWorks.ModelDoc2, _
+Public Function SavePart(ByVal swModel As Object, _
                          ByVal outPath As String, _
                          ByRef r As TFileResult) As Boolean
     Dim errs As Long
@@ -596,8 +596,8 @@ End Function
 ' the saved file name after SaveAs). Errors are ignored so cleanup is safe.
 ' Public: the native-sketch workaround (NativeSketch.bas) reuses it.
 '------------------------------------------------------------------------------
-Public Sub CloseModel(ByVal swApp As SldWorks.SldWorks, _
-                      ByRef swModel As SldWorks.ModelDoc2)
+Public Sub CloseModel(ByVal swApp As Object, _
+                      ByRef swModel As Object)
     On Error Resume Next
     Dim title As String
     title = swModel.GetTitle
