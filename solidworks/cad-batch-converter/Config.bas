@@ -69,13 +69,13 @@ Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 ' environment was captured before the assistant launched. The default preserves
 ' standalone 0.25-inch behavior.
 
-' Convert the DWG text to REAL letter outlines (the drawing's own font) with
-' AutoCAD Express Tools' TXTEXP before harvesting, so the words land in
-' SolidWorks exactly as they look on the drawing. The source DWG is opened in
-' memory and closed WITHOUT saving - the file on disk is never modified. If
-' TXTEXP is unavailable (no Express Tools), the text survives and the built-in
-' stroke font takes over automatically. Set False to always use the stroke font.
-Public Const TEXT_USE_DWG_OUTLINES As Boolean = True
+' Direct TEXT/MTEXT harvesting plus the built-in stroke font is the unattended
+' default. It does not depend on AutoCAD Express Tools or command conversion.
+' Set True only when exact DWG letter outlines are required: AutoCAD TXTEXP
+' then
+' runs on an in-memory copy that is closed WITHOUT saving. If TXTEXP is absent,
+' surviving text still falls back to the stroke font.
+Public Const TEXT_USE_DWG_OUTLINES As Boolean = False
 
 ' Sketch color for the reference words and marking geometry, as an OLE RGB
 ' Long: red + green*256 + blue*65536. 255 = bright red, 65535 = yellow,
