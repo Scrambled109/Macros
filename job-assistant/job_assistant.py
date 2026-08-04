@@ -41,6 +41,7 @@ from job_core import (
     reopen_stage,
     save_manifest,
     save_settings,
+    safe_name,
     set_optional_path,
     setup_job,
     stage_checks,
@@ -884,8 +885,17 @@ class JobAssistant(tk.Tk):
             )
             if thickness is None:
                 return
-            filtered = Path(self.manifest["workspace"]["working"]) / "Filtered DWGs"
-            output = Path(self.manifest["workspace"]["staging"]) / "SolidWorks Parts"
+            run_name = safe_name(source.name)
+            filtered = (
+                Path(self.manifest["workspace"]["working"])
+                / "Filtered DWGs"
+                / run_name
+            )
+            output = (
+                Path(self.manifest["workspace"]["staging"])
+                / "SolidWorks Parts"
+                / run_name
+            )
             filtered.mkdir(parents=True, exist_ok=True)
             output.mkdir(parents=True, exist_ok=True)
             values = {
