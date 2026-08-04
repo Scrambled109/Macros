@@ -311,9 +311,16 @@ class CoreTests(unittest.TestCase):
         sheet = workbook.active
         sheet.append(["title"])
         sheet.append(
-            ["PART NUMBER", "QUANTITY", "THICKNESS/SHAPE", "MATERIAL TYPE"]
+            [
+                "PART NUMBER",
+                "DESCRIPTION",
+                "QUANTITY",
+                "THICKNESS/SHAPE",
+                "MATERIAL TYPE",
+            ]
         )
-        sheet.append(["PLATE-1", 3, "1/2", "A36"])
+        sheet.append(["PLATE-1", "PLATE", 3, "1/2", "A36"])
+        sheet.append(["ANGLE-1", "ANGLE", 2, "L3x3x1/4", "A36"])
         workbook.save(workbook_path)
         output = export_parts_list_csv(workbook_path, self.root / "Parts List.csv")
         with output.open(encoding="utf-8-sig") as handle:
@@ -327,6 +334,149 @@ class CoreTests(unittest.TestCase):
                 "Material": "A36",
             }],
         )
+
+    def test_parts_list_export_accepts_documented_aliases_and_plate_labels(self):
+        workbook_path = self.root / "aliased.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(
+            [
+                "part-number",
+                "description",
+                "total quantity",
+                "thickness shape",
+                "material",
+            ]
+        )
+        sheet.append(["P-PL", " pl ", None, "3/8", "A572"])
+        sheet.append(["P-PLATE", "Plate", 4, "1/2", "A36"])
+        sheet.append(["P-PIPE", "PIPE", 9, "6 SCH 40", "A106"])
+        workbook.save(workbook_path)
+
+        destination = self.root / "nested" / "parts.csv"
+        output = export_parts_list_csv(workbook_path, destination)
+
+        with output.open(encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            self.assertEqual(
+                reader.fieldnames,
+                ["PartNumber", "Quantity", "Thickness", "Material"],
+            )
+            self.assertEqual(
+                list(reader),
+                [
+                    {
+                        "PartNumber": "P-PL",
+                        "Quantity": "1",
+                        "Thickness": "3/8",
+                        "Material": "A572",
+                    },
+                    {
+                        "PartNumber": "P-PLATE",
+                        "Quantity": "4",
+                        "Thickness": "1/2",
+                        "Material": "A36",
+                    },
+                ],
+            )
+
+    def test_parts_list_export_rejects_workbook_without_description(self):
+        workbook_path = self.root / "missing-description.xlsx"
+        workbook = openpyxl.Workbook()
+        workbook.active.append(
+            ["PART NUMBER", "QUANTITY", "THICKNESS/SHAPE", "MATERIAL TYPE"]
+        )
+        workbook.save(workbook_path)
+        destination = self.root / "Parts List.csv"
+
+        with self.assertRaisesRegex(JobError, "DESCRIPTION"):
+            export_parts_list_csv(workbook_path, destination)
+
+        self.assertFalse(destination.exists())
+
+    def test_completing_bom_stage_exports_and_records_plate_csv(self):
+        manifest, manifest_path = self.manifest()
+        workbook_path = self.root / "reviewed-parts.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(
+            [
+                "PART NUMBER",
+                "DESCRIPTION",
+                "QUANTITY",
+                "THICKNESS/SHAPE",
+                "MATERIAL TYPE",
+            ]
+        )
+        sheet.append(["PLATE-10", "PLATE", 2, "1/4", "A36"])
+        sheet.append(["CHANNEL-10", "CHANNEL", 5, "C6x8.2", "A36"])
+        workbook.save(workbook_path)
+        manifest["stages"]["bom"].update(
+            status="needs_review", parts_list_workbook=str(workbook_path)
+        )
+
+        assistant = object.__new__(JobAssistant)
+        assistant.manifest = manifest
+        assistant.manifest_path = manifest_path
+        assistant.require_job = lambda: None
+        assistant.selected_stage = lambda: "bom"
+        assistant.handle = lambda operation: operation()
+        assistant.refresh = lambda: None
+
+        with patch(
+            "job_assistant.simpledialog.askstring", return_value="Checked plates"
+        ):
+            assistant.finish_stage()
+
+        saved = load_manifest(manifest_path)
+        csv_path = Path(saved["workspace"]["source_copies"]) / "Parts List.csv"
+        self.assertEqual(saved["stages"]["bom"]["status"], "complete")
+        self.assertEqual(
+            {item["name"] for item in saved["stages"]["bom"]["artifacts"]},
+            {"reviewed-parts.xlsx", "Parts List.csv"},
+        )
+        with csv_path.open(encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        self.assertEqual([row["PartNumber"] for row in rows], ["PLATE-10"])
+
+    def test_completing_bom_stage_recovers_moved_workbook_with_prompt(self):
+        manifest, manifest_path = self.manifest()
+        workbook_path = self.root / "moved-reviewed-parts.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(
+            ["PART NUMBER", "DESCRIPTION", "THICKNESS/SHAPE", "MATERIAL TYPE"]
+        )
+        sheet.append(["PLATE-20", "PL", "3/4", "A572"])
+        workbook.save(workbook_path)
+        manifest["stages"]["bom"].update(
+            status="needs_review",
+            parts_list_workbook=str(self.root / "old-location.xlsx"),
+        )
+
+        assistant = object.__new__(JobAssistant)
+        assistant.manifest = manifest
+        assistant.manifest_path = manifest_path
+        assistant.require_job = lambda: None
+        assistant.selected_stage = lambda: "bom"
+        assistant.handle = lambda operation: operation()
+        assistant.refresh = lambda: None
+
+        with (
+            patch("job_assistant.simpledialog.askstring", return_value="Reviewed"),
+            patch(
+                "job_assistant.filedialog.askopenfilename",
+                return_value=str(workbook_path),
+            ) as choose_workbook,
+        ):
+            assistant.finish_stage()
+
+        choose_workbook.assert_called_once()
+        saved = load_manifest(manifest_path)
+        self.assertEqual(
+            saved["stages"]["bom"]["parts_list_workbook"], str(workbook_path)
+        )
+        self.assertEqual(saved["stages"]["bom"]["status"], "complete")
 
     def test_finished_dxf_process_updates_the_job_that_launched_it(self):
         first_manifest, first_path = self.manifest()

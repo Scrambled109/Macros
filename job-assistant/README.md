@@ -66,7 +66,11 @@ Select **Create Parts List from BOP/BOM** and **Start This Step**:
 2. On first use, select the shared standard Parts List template. Its UNC/network path is remembered only in per-user settings.
 3. Confirm or change the recommended output `<JOB_NUMBER>_PARTS_LIST.xlsx` in the Engineering Process folder.
 4. The assistant copies the source into `Source Copies/BOP-BOM` and runs the existing BOM converter on that copy.
-5. Open and review the result; only then complete the stage.
+5. Open and review the result; only then complete the stage. Completion exports
+   `_JOB_ASSISTANT/Source Copies/Parts List.csv` with the orchestrator's exact
+   `PartNumber,Quantity,Thickness,Material` headers. This adapter is distinct
+   from the workbook's displayed column names and contains only rows whose
+   `DESCRIPTION` is `PL` or `PLATE`.
 
 The converter's non-interactive API uses its existing conservative mapping suggestions (`DS,DV` prefixes). If the source needs custom column mapping, use the converter GUI and record its result rather than accepting a questionable automatic output.
 

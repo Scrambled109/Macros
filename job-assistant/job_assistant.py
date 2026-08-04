@@ -24,6 +24,7 @@ from job_core import (
     dashboard_warnings,
     discover_drawings,
     existing_working_directory,
+    export_parts_list_csv,
     load_manifest,
     load_settings,
     mark_needs_review,
@@ -554,6 +555,10 @@ class JobAssistant(tk.Tk):
             "Converter setup opened. Review mappings, convert, then positively review the Parts List.",
             [source_copy, Path(output)],
         )
+        # The converter owns the output process, so it may not exist yet and
+        # cannot be recorded as an artifact above.  Retain its intended path so
+        # completion can create the orchestrator-specific, plate-only CSV.
+        self.manifest["stages"]["bom"]["parts_list_workbook"] = str(Path(output))
 
     def run_dxf(self) -> None:
         incoming = filedialog.askdirectory(
@@ -954,7 +959,35 @@ class JobAssistant(tk.Tk):
                 parent=self,
             )
             if notes is not None:
-                complete_stage(self.manifest, self.selected_stage(), notes)
+                stage = self.selected_stage()
+                if stage == "bom":
+                    workbook_value = self.manifest["stages"]["bom"].get(
+                        "parts_list_workbook", ""
+                    )
+                    workbook = Path(workbook_value) if workbook_value else None
+                    if workbook is None or not workbook.is_file():
+                        selected = filedialog.askopenfilename(
+                            title="Select the reviewed Parts List workbook",
+                            filetypes=[("Excel workbook", "*.xlsx")],
+                            parent=self,
+                        )
+                        if not selected:
+                            raise JobError(
+                                "Select the reviewed Parts List workbook before "
+                                "completing this step."
+                            )
+                        workbook = Path(selected)
+                        self.manifest["stages"]["bom"]["parts_list_workbook"] = str(
+                            workbook
+                        )
+                    csv_path = export_parts_list_csv(
+                        workbook,
+                        Path(self.manifest["workspace"]["source_copies"])
+                        / "Parts List.csv",
+                    )
+                    record_artifact(self.manifest, "bom", workbook)
+                    record_artifact(self.manifest, "bom", csv_path)
+                complete_stage(self.manifest, stage, notes)
                 save_manifest(self.manifest, self.manifest_path)
                 self.refresh()
 

@@ -7,7 +7,7 @@ Master_Orchestrator.py: A separate, standard-library-only Python implementation
 of the same workflow. Use it only when Python is approved by your IT/security
 team; changing interpreters is not a substitute for endpoint-security approval.
 
-Parts List.csv: A required CSV containing PartNumber, Quantity, Thickness, and Material columns. The Job Assistant creates this automatically from the generated Parts List workbook and copies it into each DXF workspace.
+Parts List.csv: A required, orchestrator-specific CSV containing the exact headers PartNumber, Quantity, Thickness, and Material. This is not the standard Parts List workbook's native column layout. When the operator completes the reviewed Parts List stage, the Job Assistant exports this CSV automatically, includes only rows whose DESCRIPTION is PL or PLATE, and copies it into each DXF workspace.
 
 ColorToLayer.lsp: The AutoLISP routine responsible for mapping specific object colors to their correct layers.
 
