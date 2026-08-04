@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONVERTER = REPO_ROOT / "solidworks" / "cad-batch-converter"
+COLOR_TO_LAYER = REPO_ROOT / "autocad" / "dxf-orchestrator" / "ColortoLayer.lsp"
 MODULE_NAMES = (
     "Config.bas",
     "Utilities.bas",
@@ -19,6 +20,7 @@ MODULE_NAMES = (
 
 # Test injection hook used only by the source audit's own validation.
 MODULE_SOURCES: dict[str, str] | None = None
+COLOR_TO_LAYER_SOURCE: str | None = None
 
 PROC_START = re.compile(
     r"^(?:Public |Private |Friend )?"
@@ -39,6 +41,12 @@ def _sources() -> dict[str, str]:
         name: (CONVERTER / name).read_text(encoding="utf-8")
         for name in MODULE_NAMES
     }
+
+
+def _color_to_layer_source() -> str:
+    if COLOR_TO_LAYER_SOURCE is not None:
+        return COLOR_TO_LAYER_SOURCE
+    return COLOR_TO_LAYER.read_text(encoding="utf-8")
 
 
 def _code_only(line: str) -> str:
@@ -169,6 +177,23 @@ class CadBatchVbaSourceTests(unittest.TestCase):
             name: modules for name, modules in declarations.items() if len(modules) > 1
         }
         self.assertEqual({}, duplicates, f"Ambiguous public VBA procedure names: {duplicates}")
+
+    def test_converter_target_layer_matches_orchestrator(self) -> None:
+        config = self.sources["Config.bas"]
+        target_match = re.search(
+            r'(?mi)^Public Const TARGET_LAYER As String = "([^"]+)"', config
+        )
+        self.assertIsNotNone(target_match)
+        orchestrator_match = re.search(
+            r'\(1\s*\.\s*"([^"]+)"\)', _color_to_layer_source()
+        )
+        self.assertIsNotNone(orchestrator_match)
+        self.assertEqual(orchestrator_match.group(1), target_match.group(1))
+        self.assertEqual("CUT - OUTSIDE STRAIGHT", target_match.group(1))
+        self.assertIn("NormalizedLayerName", self.sources["Utilities.bas"])
+        self.assertIn(
+            "ModelSpaceLayerSummary(doc)", self.sources["AutoCAD_Filter.bas"]
+        )
 
     def test_autocad_object_property_assignment_uses_set(self) -> None:
         text_stamp = self.sources["TextStamp.bas"]
