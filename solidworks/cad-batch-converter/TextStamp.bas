@@ -285,7 +285,7 @@ Private Function PrepareAndExplodeText(ByVal doc As Object) As String
     Dim scratch As Object
     Set scratch = doc.Layers.Add(SCRATCH_LAYER)
     If scratch Is Nothing Then Exit Function
-    doc.ActiveLayer = scratch
+    Set doc.ActiveLayer = scratch
 
     ' Synchronous; without Express Tools this is an unknown command, the text
     ' survives on its own layers, and the stroke font renders it instead.
