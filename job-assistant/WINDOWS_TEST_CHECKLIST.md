@@ -31,7 +31,9 @@ Create a disposable job with:
 ## 1. Package and startup
 
 1. Run `job-assistant\build_windows.bat` on the build workstation.
-2. Confirm all three EXEs are together in `job-assistant\dist`.
+2. Confirm all three EXEs and the `_internal` runtime directory are together in
+   `job-assistant\dist\Engineering Job Assistant`. Copy the entire directory,
+   not only the GUI EXE.
 3. Run `Launch Job Assistant.bat` without a developer Python terminal.
 4. Open Settings and browse to the shared repository, Parts List template,
    AutoCAD GUI, and AutoCAD console.
@@ -42,6 +44,8 @@ Report:
 - PASS/FAIL for each step;
 - exact error text or a screenshot for a failure;
 - whether any console window appeared unexpectedly;
+- whether Windows or endpoint security blocked, removed, or quarantined a file
+  (follow [`EXE_TROUBLESHOOTING.md`](EXE_TROUBLESHOOTING.md));
 - `%LOCALAPPDATA%\EngineeringJobAssistant\settings.json` with private server
   names redacted, if settings did not persist.
 
