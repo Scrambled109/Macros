@@ -97,8 +97,8 @@ End Sub
 ' AUTOCAD STAGE - HARVEST
 '==============================================================================
 
-' Read every TEXT / MTEXT entity on the TEXT_LAYER layer(s) from the open
-' drawing and store it. TEXT_LAYER may name several layers, comma-separated.
+' Read every TEXT / MTEXT entity and block attribute on the TEXT_LAYER layer(s)
+' from the open drawing and store it. TEXT_LAYER may name several layers.
 ' extraGeomLayer optionally names ONE more layer to harvest - the scratch
 ' layer that TXTEXP letter outlines are collected on (see
 ' TextStamp.PrepareAndExplodeText). Reading does not require the layers to be
@@ -112,9 +112,13 @@ Public Sub HarvestTextMarks(ByVal doc As Object, _
 
     Dim i As Long
     Dim wanted As Boolean
+    Dim kind As String
     Dim ent As Object            ' late-bound: entity types expose different properties
     For i = 0 To ms.Count - 1
         On Error Resume Next
+        wanted = False
+        kind = vbNullString
+        Err.Clear
         Set ent = ms.Item(i)
         If Not ent Is Nothing Then
             wanted = LayerInList(ent.Layer, TEXT_LAYER)
@@ -122,6 +126,12 @@ Public Sub HarvestTextMarks(ByVal doc As Object, _
                 wanted = LayerEquals(ent.Layer, extraGeomLayer)
             End If
             If wanted Then HarvestOne ent
+
+            ' Attribute references live inside their block reference and do
+            ' not normally appear as separate ModelSpace items. Inspect every
+            ' block so a PIN STAMP TEXT attribute is not silently skipped.
+            kind = ent.ObjectName
+            If kind = "AcDbBlockReference" Then HarvestBlockAttributes ent
         End If
         Set ent = Nothing
         On Error GoTo 0
@@ -144,7 +154,9 @@ Private Sub HarvestOne(ByVal ent As Object)
     Dim s As String
 
     Select Case kind
-        Case "AcDbText"          ' single-line TEXT
+        Case "AcDbText", "AcDbAttribute", "AcDbAttributeDefinition"
+            ' Single-line TEXT and block attribute text expose the same core
+            ' placement properties through late-bound AutoCAD ActiveX.
             ip = ent.InsertionPoint
             s = ent.TextString
             AddMark s, ip(0), ip(1), ent.Height, ent.Rotation
@@ -176,6 +188,64 @@ Private Sub HarvestOne(ByVal ent As Object)
             HarvestSplineApprox ent
     End Select
 
+    On Error GoTo 0
+End Sub
+
+' Harvest editable and constant attributes owned by one block reference. An
+' attribute is accepted when either it or its parent block is on a configured
+' marking layer. All errors remain local so an unusual block cannot stop the
+' rest of the drawing from being harvested.
+Private Sub HarvestBlockAttributes(ByVal blockRef As Object)
+    On Error Resume Next
+
+    Dim parentWanted As Boolean
+    parentWanted = LayerInList(blockRef.Layer, TEXT_LAYER)
+
+    Dim attrs As Variant
+    Err.Clear
+    attrs = blockRef.GetAttributes
+    If Err.Number = 0 Then HarvestAttributeArray attrs, parentWanted
+
+    Err.Clear
+    attrs = blockRef.GetConstantAttributes
+    If Err.Number = 0 Then HarvestAttributeArray attrs, parentWanted
+
+    Err.Clear
+    On Error GoTo 0
+End Sub
+
+Private Sub HarvestAttributeArray(ByVal attrs As Variant, _
+                                  ByVal parentWanted As Boolean)
+    On Error Resume Next
+
+    Dim firstIndex As Long
+    Dim lastIndex As Long
+    Err.Clear
+    firstIndex = LBound(attrs)
+    If Err.Number <> 0 Then
+        Err.Clear
+        Exit Sub
+    End If
+    lastIndex = UBound(attrs)
+    If Err.Number <> 0 Then
+        Err.Clear
+        Exit Sub
+    End If
+
+    Dim i As Long
+    Dim attr As Object
+    For i = firstIndex To lastIndex
+        Set attr = Nothing
+        Set attr = attrs(i)
+        If Not attr Is Nothing Then
+            If parentWanted Or LayerInList(attr.Layer, TEXT_LAYER) Then
+                HarvestOne attr
+            End If
+        End If
+    Next i
+
+    Set attr = Nothing
+    Err.Clear
     On Error GoTo 0
 End Sub
 

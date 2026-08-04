@@ -55,6 +55,11 @@ Public Sub RunTextStamp()
     WriteLog "Staging folder  : " & OUTPUT_FOLDER
     WriteLog "Source folder   : " & SOURCE_FOLDER
     WriteLog "Text layer      : " & TEXT_LAYER
+    If TEXT_USE_DWG_OUTLINES Then
+        WriteLog "Text rendering  : AutoCAD TXTEXP outlines"
+    Else
+        WriteLog "Text rendering  : direct text + native stroke font"
+    End If
     WriteLog String(67, "=")
 
     If Len(Trim$(TEXT_LAYER)) = 0 Then
@@ -171,6 +176,12 @@ Private Sub StampOnePart(ByVal acadApp As Object, _
                     "' - nothing to stamp."
         r.TextOK = True                       ' not a failure, just empty
         GoTo finish
+    End If
+
+    If r.TextCount = 0 And Not TEXT_USE_DWG_OUTLINES Then
+        r.Message = AppendMsg(r.Message, _
+                    "No supported text entities were harvested; marking " & _
+                    "geometry only.")
     End If
 
     ' Say which text path is in play: with outline conversion on, surviving

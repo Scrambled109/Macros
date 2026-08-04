@@ -163,16 +163,17 @@ reference marking) are captured as well and drawn into the same un-consumed
 sketch, at the same scale. The log reports both: `drew X of Y word(s) + Z of N
 marking segment(s)`.
 
-**Real letterforms (default):** with `TEXT_USE_DWG_OUTLINES = True`, the text
-pass first runs AutoCAD Express Tools' **`TXTEXP`** on an in-memory copy of
-the source DWG (closed without saving — the file on disk is never modified).
-That explodes every TEXT/MTEXT into **true letter-outline polylines in the
-drawing's own font**, which flow through the geometry harvest — so the words
-appear in SolidWorks exactly as they look on the drawing, in that font. With
-outline conversion active the log shows the words as marking segments
-(`Words found : 0` + many segments) — that's expected. If Express Tools /
-`TXTEXP` isn't installed, the text survives intact and the built-in
-single-stroke font renders it instead, automatically.
+**Reliable direct text (default):** with `TEXT_USE_DWG_OUTLINES = False`,
+the pass reads AutoCAD TEXT, MTEXT and block attributes directly and renders
+their strings with the built-in single-stroke font. This path is read-only and
+does not depend on Express Tools or AutoCAD command-line conversion.
+The text-stamp log identifies this as `direct text + native stroke font`.
+
+Set `TEXT_USE_DWG_OUTLINES = True` only when exact drawing-font outlines are
+required. That optional path runs AutoCAD Express Tools' **`TXTEXP`** on an
+in-memory copy closed without saving. With successful outline conversion the
+log reports marking segments rather than words; if TXTEXP is unavailable,
+surviving text falls back to the single-stroke font.
 
 **Reference only by default:** everything stays as a plain sketch — nothing is
 cut into the steel. If you ever DO want the words physically engraved, set
