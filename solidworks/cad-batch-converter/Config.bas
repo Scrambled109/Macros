@@ -9,7 +9,7 @@ Attribute VB_Name = "Config"
 '
 ' Target hosts : AutoCAD 2026 (COM) + SolidWorks 2025 (API)
 ' Language     : VBA only (VBA7 / 64-bit)
-' Required refs: SolidWorks 2025 Type + Constant Type Libraries
+' Required refs: none (AutoCAD and SolidWorks are both late-bound)
 '==============================================================================
 Option Explicit
 
@@ -216,11 +216,10 @@ Public Const SW_START_SKETCH_PLANE As Long = 0
 Public Const SW_SAVEAS_CURRENT As Long = 0
 ' swSaveAsOptions_e.swSaveAsOptions_Silent
 Public Const SW_SAVE_SILENT As Long = 1
-' NOTE: the DWG import method is NOT a numeric constant here on purpose.
-' SolidWorks_Import uses the real swconst enum swImportDxfDwg_ImportToPartSketch
-' (SOLIDWORKS Constant Type Library, swconst.tlb - see README "Setup"), because
-' a wrong numeric guess silently falls back to the DWG default, which is
-' "create new DRAWING" - exactly the failure this project must never have.
+' the SolidWorks import-method enum member for importing to a part sketch.
+' SOLIDWORKS documents this enum value as 2. Defining it locally keeps the VBA
+' project late-bound and avoids broken/missing type-library references.
+Public Const SW_IMPORT_TO_PART_SKETCH As Long = 2
 ' Argument string passed to LoadFile4 for a DWG/DXF import.
 Public Const SW_IMPORT_ARGS As String = "r"
 ' swDocumentTypes_e.swDocPART - used when re-opening an SLDPRT in the text pass
