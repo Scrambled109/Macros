@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import getpass
 import json
 import os
@@ -13,6 +14,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
+
+import openpyxl
 
 MANIFEST_NAME = "job_manifest.json"
 MANIFEST_VERSION = 3
@@ -53,7 +56,7 @@ STAGE_GUIDANCE = {
         "need": "The folder containing received DXFs and shape sketches.",
         "action": "Review every proposed file. DXFs start selected; DWGs start excluded.",
         "changes": "Selected files are copied into numbered working folder 001. Originals are untouched.",
-        "tool": "Existing PowerShell DXF orchestrator, run against working copies.",
+        "tool": "Python DXF orchestrator, run against working copies.",
         "review": "Review every staged DWG and the orchestrator logs; bevel drawings require FINISH in AutoCAD.",
     },
     "plate_model": {
@@ -440,7 +443,9 @@ def discover_drawings(folder: Path) -> list[DrawingCandidate]:
     return result
 
 
-def prepare_dxf_workspace(manifest: dict[str, Any], selected: Sequence[Path]) -> Path:
+def prepare_dxf_workspace(
+    manifest: dict[str, Any], selected: Sequence[Path], parts_list_csv: Path
+) -> Path:
     if not selected:
         raise JobError("Select at least one drawing before preparing the workspace.")
     base = Path(manifest["workspace"]["working"]) / "DXF Orchestrator"
@@ -452,6 +457,9 @@ def prepare_dxf_workspace(manifest: dict[str, Any], selected: Sequence[Path]) ->
         sequence += 1
     numbered = run / "001"
     numbered.mkdir(parents=True, exist_ok=False)
+    if not parts_list_csv.is_file():
+        raise JobError(f"The DXF Parts List CSV does not exist: {parts_list_csv}")
+    shutil.copy2(parts_list_csv, run / "Parts List.csv")
     seen: set[str] = set()
     for source in selected:
         if not source.is_file():
@@ -465,6 +473,76 @@ def prepare_dxf_workspace(manifest: dict[str, Any], selected: Sequence[Path]) ->
     manifest["stages"]["dxf"]["status"] = "ready"
     manifest["stages"]["dxf"]["workspace"] = str(run)
     return run
+
+
+def export_parts_list_csv(workbook_path: Path, destination: Path) -> Path:
+    """Export the orchestrator columns from a generated Parts List workbook."""
+    if not workbook_path.is_file():
+        raise JobError(f"The generated Parts List does not exist: {workbook_path}")
+    workbook = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+    try:
+        header_row = None
+        columns: dict[str, int] = {}
+        aliases = {
+            "PART NUMBER": "PartNumber",
+            "QUANTITY": "Quantity",
+            "TOTAL QUANTITY": "Quantity",
+            "THICKNESS SHAPE": "Thickness",
+            "THICKNESS/SHAPE": "Thickness",
+            "MATERIAL TYPE": "Material",
+            "MATERIAL": "Material",
+        }
+        for sheet in workbook.worksheets:
+            for row_number, row in enumerate(
+                sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 50)), start=1
+            ):
+                found: dict[str, int] = {}
+                for index, cell in enumerate(row):
+                    normalized = re.sub(
+                        r"[^A-Z0-9]+", " ", str(cell.value or "").upper()
+                    ).strip()
+                    canonical = aliases.get(normalized)
+                    if canonical and canonical not in found:
+                        found[canonical] = index
+                if {"PartNumber", "Thickness", "Material"}.issubset(found):
+                    header_row = (sheet, row_number)
+                    columns = found
+                    break
+            if header_row:
+                break
+        if not header_row:
+            raise JobError(
+                "Could not find PART NUMBER, THICKNESS/SHAPE, and MATERIAL TYPE "
+                "columns in the generated Parts List."
+            )
+
+        sheet, row_number = header_row
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=["PartNumber", "Quantity", "Thickness", "Material"],
+            )
+            writer.writeheader()
+            for row in sheet.iter_rows(min_row=row_number + 1, values_only=True):
+                part = row[columns["PartNumber"]]
+                if part is None or not str(part).strip():
+                    continue
+                writer.writerow(
+                    {
+                        "PartNumber": str(part).strip(),
+                        "Quantity": str(
+                            row[columns["Quantity"]]
+                            if "Quantity" in columns and row[columns["Quantity"]] is not None
+                            else "1"
+                        ).strip(),
+                        "Thickness": str(row[columns["Thickness"]] or "").strip(),
+                        "Material": str(row[columns["Material"]] or "").strip(),
+                    }
+                )
+    finally:
+        workbook.close()
+    return destination
 
 
 def command_bom(
@@ -484,22 +562,24 @@ def command_bom(
 
 
 def command_dxf(
+    python: Path | str,
     repo: Path,
+    workspace: Path,
+    parts_list_csv: Path,
     autocad_console: Path | str | None = None,
     autocad_gui: Path | str | None = None,
+    tool_executable: Path | None = None,
 ) -> list[str]:
-    command = [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(repo / "autocad/dxf-orchestrator/Master_Orchestrator.ps1"),
-    ]
+    command = (
+        [str(tool_executable)]
+        if tool_executable
+        else [str(python), str(repo / "autocad/dxf-orchestrator/Master_Orchestrator.py")]
+    )
+    command.extend(["--workspace", str(workspace), "--parts-list", str(parts_list_csv)])
     if autocad_console:
-        command.extend(["-AcadConsolePath", str(autocad_console)])
+        command.extend(["--acad-console-path", str(autocad_console)])
     if autocad_gui:
-        command.extend(["-AcadGuiPath", str(autocad_gui)])
+        command.extend(["--acad-gui-path", str(autocad_gui)])
     return command
 
 

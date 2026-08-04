@@ -1,10 +1,13 @@
 import io
+import csv
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from job_core import (  # noqa: E402
@@ -17,6 +20,7 @@ from job_core import (  # noqa: E402
     command_dxf,
     dashboard_warnings,
     discover_drawings,
+    export_parts_list_csv,
     load_manifest,
     load_settings,
     migrate_manifest,
@@ -125,11 +129,14 @@ class CoreTests(unittest.TestCase):
             [("Plate A.dxf", True), ("Shape B.DWG", False)],
         )
         manifest, _ = self.manifest()
-        run = prepare_dxf_workspace(manifest, [dxf])
+        parts_csv = self.root / "Parts List.csv"
+        parts_csv.write_text("PartNumber,Quantity,Thickness,Material\nPlate A,1,1/2,A36\n")
+        run = prepare_dxf_workspace(manifest, [dxf], parts_csv)
         self.assertEqual((run / "001" / dxf.name).read_text(), "dxf")
+        self.assertEqual((run / "Parts List.csv").read_text(), parts_csv.read_text())
         self.assertTrue(dxf.exists())
 
-        second_run = prepare_dxf_workspace(manifest, [dxf])
+        second_run = prepare_dxf_workspace(manifest, [dxf], parts_csv)
         self.assertNotEqual(run, second_run)
         self.assertTrue(second_run.name.startswith(run.name))
 
@@ -261,19 +268,24 @@ class CoreTests(unittest.TestCase):
         self.assertIn("Nest Data", compare)
 
         dxf = command_dxf(
+            "python.exe",
             repo,
+            Path(r"C:\Job Workspace"),
+            Path(r"C:\Job Workspace\Parts List.csv"),
             Path(r"C:\CAD Suite\accoreconsole.exe"),
             Path(r"C:\CAD Suite\acad.exe"),
         )
         self.assertEqual(
             dxf[-4:],
             [
-                "-AcadConsolePath",
+                "--acad-console-path",
                 r"C:\CAD Suite\accoreconsole.exe",
-                "-AcadGuiPath",
+                "--acad-gui-path",
                 r"C:\CAD Suite\acad.exe",
             ],
         )
+        self.assertEqual(dxf[0], "python.exe")
+        self.assertIn("Master_Orchestrator.py", dxf[1])
 
         packaged = command_bom(
             "ignored-python.exe",
@@ -285,6 +297,29 @@ class CoreTests(unittest.TestCase):
         )
         self.assertEqual(packaged[0], "Engineering BOM Converter.exe")
         self.assertNotIn("bom_converter.py", " ".join(packaged))
+
+    def test_generated_parts_list_exports_orchestrator_csv(self):
+        workbook_path = self.root / "123_PARTS_LIST.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["title"])
+        sheet.append(
+            ["PART NUMBER", "QUANTITY", "THICKNESS/SHAPE", "MATERIAL TYPE"]
+        )
+        sheet.append(["PLATE-1", 3, "1/2", "A36"])
+        workbook.save(workbook_path)
+        output = export_parts_list_csv(workbook_path, self.root / "Parts List.csv")
+        with output.open(encoding="utf-8-sig") as handle:
+            rows = list(csv.DictReader(handle))
+        self.assertEqual(
+            rows,
+            [{
+                "PartNumber": "PLATE-1",
+                "Quantity": "3",
+                "Thickness": "1/2",
+                "Material": "A36",
+            }],
+        )
 
     def test_finished_dxf_process_updates_the_job_that_launched_it(self):
         first_manifest, first_path = self.manifest()

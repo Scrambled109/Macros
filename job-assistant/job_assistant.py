@@ -23,6 +23,7 @@ from job_core import (
     copy_source,
     dashboard_warnings,
     discover_drawings,
+    export_parts_list_csv,
     load_manifest,
     load_settings,
     mark_needs_review,
@@ -556,11 +557,15 @@ class JobAssistant(tk.Tk):
             raise JobError(
                 f"BOM converter exited with code {result.returncode}. Review {log}"
             )
+        orchestrator_csv = export_parts_list_csv(
+            Path(output),
+            Path(self.manifest["workspace"]["source_copies"]) / "Parts List.csv",
+        )
         mark_needs_review(
             self.manifest,
             "bom",
             "Converter finished. Open and positively review the Parts List before completion.",
-            [Path(output), log],
+            [Path(output), orchestrator_csv, log],
         )
 
     def run_dxf(self) -> None:
@@ -589,7 +594,22 @@ class JobAssistant(tk.Tk):
         )
         if not selected or not self._accept_warnings("dxf"):
             return
-        run = prepare_dxf_workspace(self.manifest, selected)
+        parts_list_csv = (
+            Path(self.manifest["workspace"]["source_copies"]) / "Parts List.csv"
+        )
+        if not parts_list_csv.is_file():
+            selected_csv = filedialog.askopenfilename(
+                title="Select the Parts List CSV required by the DXF orchestrator",
+                filetypes=[("CSV Parts List", "*.csv")],
+                parent=self,
+            )
+            if not selected_csv:
+                raise JobError(
+                    "The DXF orchestrator requires Parts List.csv. Run the Parts "
+                    "List stage first or select an existing CSV."
+                )
+            parts_list_csv = Path(selected_csv)
+        run = prepare_dxf_workspace(self.manifest, selected, parts_list_csv)
         if not messagebox.askyesno(
             "Workspace prepared",
             f"Copied {len(selected)} file(s) to:\n{run / '001'}\n\nOriginals were not changed. Launch the orchestrator now?",
@@ -603,9 +623,13 @@ class JobAssistant(tk.Tk):
             return
         log = Path(self.manifest["workspace"]["logs"]) / f"dxf-{run.name}.log"
         command = command_dxf(
+            sys.executable,
             self.repo,
+            run,
+            run / "Parts List.csv",
             self.settings.get("autocad_console") or None,
             self.settings.get("autocad_executable") or None,
+            self.bundled_tool("Engineering DXF Orchestrator.exe"),
         )
         record_event(
             self.manifest,
@@ -707,8 +731,7 @@ class JobAssistant(tk.Tk):
             item["status"] = "warning"
             item["notes"] = (
                 f"Orchestrator failed with exit code {exit_code}. Review {log}. "
-                "If Cylance Script Control blocked PowerShell, -ExecutionPolicy Bypass "
-                "cannot override that endpoint-security decision."
+                "Review the Python orchestrator log and the endpoint-security event."
             )
             record_artifact(process_manifest, "dxf", log)
             messagebox.showerror("DXF orchestrator failed", item["notes"], parent=self)
