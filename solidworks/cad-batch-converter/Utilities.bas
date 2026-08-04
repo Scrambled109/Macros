@@ -216,9 +216,24 @@ End Function
 ' SMALL HELPERS
 '==============================================================================
 
-' Case-insensitive, whitespace-tolerant layer name comparison.
+' Canonicalize layer names so legacy files using CUT-OUTSIDE and current
+' orchestrator files using CUT - OUTSIDE compare as the same layer.
+Private Function NormalizedLayerName(ByVal value As String) As String
+    Dim s As String
+    s = Trim$(value)
+    Do While InStr(s, "  ") > 0
+        s = Replace(s, "  ", " ")
+    Loop
+    s = Replace(s, " - ", "-")
+    s = Replace(s, "- ", "-")
+    s = Replace(s, " -", "-")
+    NormalizedLayerName = s
+End Function
+
+' Case-insensitive, whitespace- and hyphen-spacing-tolerant comparison.
 Public Function LayerEquals(ByVal a As String, ByVal b As String) As Boolean
-    LayerEquals = (StrComp(Trim$(a), Trim$(b), vbTextCompare) = 0)
+    LayerEquals = (StrComp(NormalizedLayerName(a), NormalizedLayerName(b), _
+                           vbTextCompare) = 0)
 End Function
 
 ' "OK" / "FAILED" text for a boolean stage flag.
