@@ -33,6 +33,7 @@ Option Explicit
 Public Sub RunTextStamp()
     Dim runStart As Double
     runStart = NowSeconds()
+    RefreshRuntimeConfiguration
 
     If Len(SOURCE_FOLDER) = 0 Or Len(OUTPUT_FOLDER) = 0 Then
         MsgBox "CAD batch source/output folders are not configured. " & _
@@ -41,7 +42,11 @@ Public Sub RunTextStamp()
         Exit Sub
     End If
 
-    EnsureFolder OUTPUT_FOLDER
+    If Not EnsureFolder(OUTPUT_FOLDER) Then
+        MsgBox "Could not create or access the output folder:" & vbCrLf & _
+               OUTPUT_FOLDER, vbCritical, "CAD Batch Converter"
+        Exit Sub
+    End If
     OpenLog OUTPUT_FOLDER
 
     WriteLog ""
@@ -153,7 +158,13 @@ Private Sub StampOnePart(ByVal acadApp As Object, _
 
     ' --- Harvest the words from the untouched source DWG --------------------
     TextMarking.ClearMarks
-    HarvestFromSource acadApp, dwgPath
+    Dim harvestProblem As String
+    If Not HarvestFromSource(acadApp, dwgPath, harvestProblem) Then
+        r.Message = "Could not harvest marking data from the source DWG: " & _
+                    harvestProblem
+        r.TextOK = False
+        GoTo finish
+    End If
     r.TextCount = TextMarking.MarkCount()
     If r.TextCount = 0 And TextMarking.SegCount() = 0 Then
         r.Message = "No text or marking geometry on '" & TEXT_LAYER & _
@@ -198,12 +209,17 @@ End Sub
 ' not available the text entities simply survive, the harvest captures them as
 ' words, and the built-in stroke font renders them - automatic fallback.
 '------------------------------------------------------------------------------
-Private Sub HarvestFromSource(ByVal acadApp As Object, _
-                              ByVal dwgPath As String)
+Private Function HarvestFromSource(ByVal acadApp As Object, _
+                                   ByVal dwgPath As String, _
+                                   ByRef problem As String) As Boolean
     Dim doc As Object
-    On Error GoTo cleanup
+    On Error GoTo failed
 
     Set doc = acadApp.Documents.Open(dwgPath, Not TEXT_USE_DWG_OUTLINES)
+    If doc Is Nothing Then
+        problem = "AutoCAD returned no document."
+        Exit Function
+    End If
 
     Dim outlineLayer As String
     If TEXT_USE_DWG_OUTLINES Then
@@ -213,14 +229,17 @@ Private Sub HarvestFromSource(ByVal acadApp As Object, _
     TextMarking.HarvestTextMarks doc, outlineLayer
     doc.Close False                     ' discard the exploded copy
     Set doc = Nothing
-    Exit Sub
+    HarvestFromSource = True
+    Exit Function
 
-cleanup:
+failed:
+    problem = Err.Description
+    If Len(problem) = 0 Then problem = "unknown AutoCAD error"
     On Error Resume Next
     If Not doc Is Nothing Then doc.Close False
     Set doc = Nothing
     On Error GoTo 0
-End Sub
+End Function
 
 '------------------------------------------------------------------------------
 ' TXTEXP is WMF-based: its exploded output lands on the CURRENT layer, not on
@@ -307,11 +326,12 @@ Private Function StampPart(ByVal swApp As SldWorks.SldWorks, _
     Dim applied As Boolean
     applied = TextMarking.ApplyTextMarks(swModel, placed, detail)
     If Not applied Then
-        r.Message = "No words could be placed (" & r.TextCount & _
-                    " harvested): " & detail
-    ElseIf placed < r.TextCount Then
-        r.Message = "Placed " & placed & " of " & r.TextCount & _
-                    " words (" & detail & ")."
+        r.Message = AppendMsg(r.Message, "Marking was incomplete; the part was" & _
+                    " closed without saving (" & detail & ").")
+        swApp.CloseDoc swModel.GetTitle
+        Set swModel = Nothing
+        StampPart = False
+        Exit Function
     End If
 
     swModel.ForceRebuild3 False
