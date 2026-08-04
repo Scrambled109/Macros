@@ -92,7 +92,7 @@ AutoBOM is high impact: it updates properties and saves models. Make a recoverab
 
 ## Comparison summary
 
-The comparison wizard selects the Parts List CSV and SolidWorks/model CSV, reuses the selected Nesting folder, writes beneath Assistant Reports, and invokes the existing comparison CLI in headless mode (no second process-owned completion dialog). The comparison tool writes a versioned `comparison_summary.json` beside its Excel and HTML outputs, including input paths, detailed counts, outcome, and report locations. After a successful exit, the assistant requires and reads that stable contract—even when the tool creates its normal timestamped run folder—and summarizes:
+The comparison wizard selects the Parts List CSV and SolidWorks/model CSV, reuses the selected Nesting folder, writes beneath Assistant Reports, and launches the existing comparison CLI in headless mode without blocking the assistant window. The toolbar's running-process indicator remains active while the comparison runs, and the completion callback updates the job manifest and shows the result (with no second process-owned completion dialog). The comparison tool writes a versioned `comparison_summary.json` beside its Excel and HTML outputs, including input paths, detailed counts, outcome, and report locations. After a successful exit, the assistant requires and reads that stable contract—even when the tool creates its normal timestamped run folder—and summarizes:
 
 - No discrepancies found
 - Review recommended
