@@ -66,8 +66,12 @@ of stacking duplicate marking geometry.
 The Project Explorer must contain the `CADBatch` module with a public
 `Sub main()`. If the compiler highlights `SldWorks.SldWorks`, an old
 early-bound module is still present; remove the old modules and import the
-current eight files again. If **Tools ▸ References** contains a **MISSING:**
-entry, clear it before compiling.
+current eight files again. If it highlights `TFileResult`, `TSegment`, or
+`TTextMark`, the `Config.bas` custom-type declarations are missing or are
+below a procedure; in the current file they appear above every Sub/Function.
+If **Tools ▸ References** contains a **MISSING:** entry, clear it before
+compiling. You do not need to enable an AutoCAD or SolidWorks reference;
+both APIs are late-bound. The normal VBA and OLE references can remain.
 
 ## Job folder configuration (`Config.bas`)
 
