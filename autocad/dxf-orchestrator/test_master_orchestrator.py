@@ -104,18 +104,20 @@ class OrchestratorHelpersTest(unittest.TestCase):
         self.assertEqual(command[0], "powershell.exe")
         self.assertIn("-EncodedCommand", command)
 
-    @mock.patch.object(orchestrator.subprocess, "Popen")
     @mock.patch.object(orchestrator.subprocess, "run")
-    def test_review_starts_autocad_when_no_session_exists(self, run, popen):
-        run.return_value.returncode = 1
+    def test_review_start_is_managed_by_powershell(self, run):
+        run.return_value.returncode = 0
 
         opened = orchestrator.open_review_drawing(
             Path("acad.exe"), Path("part.dxf"), Path("review.scr")
         )
 
         self.assertTrue(opened)
-        popen.assert_called_once()
-        self.assertEqual(popen.call_args.args[0][0], "acad.exe")
+        encoded = run.call_args.args[0][-1]
+        powershell = orchestrator.base64.b64decode(encoded).decode("utf-16le")
+        self.assertIn("Start-Process -FilePath", powershell)
+        self.assertNotIn("/b", powershell)
+        self.assertLess(powershell.index("Start-Process"), powershell.index("Documents.Open"))
 
     @mock.patch.object(orchestrator.subprocess, "Popen")
     @mock.patch.object(orchestrator.subprocess, "run")
@@ -143,6 +145,12 @@ class OrchestratorHelpersTest(unittest.TestCase):
         self.assertIn("$document.SetVariable('FILEDIA', 0)", powershell)
         self.assertLess(powershell.index("SetVariable"), powershell.index("SendCommand"))
         self.assertIn("Get-Process -Name acad", powershell)
+
+    def test_manual_review_uses_unambiguous_finish_command(self):
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn("(defun c:SPCFINISH", source)
+        self.assertIn("type SPCFINISH", source)
+        self.assertNotIn("(defun c:FINISH", source)
 
     def test_load_parts_accepts_legacy_quanity_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:
