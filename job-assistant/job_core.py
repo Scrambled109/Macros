@@ -561,6 +561,14 @@ def command_bom(
     return [*prefix, "--gui", str(source_copy), str(output), str(template)]
 
 
+def existing_working_directory(path: Path | str | None) -> Path | None:
+    """Return *path* only when it is safe to pass to ``subprocess`` as cwd."""
+    if not path:
+        return None
+    candidate = Path(path)
+    return candidate if candidate.is_dir() else None
+
+
 def command_dxf(
     python: Path | str,
     repo: Path,

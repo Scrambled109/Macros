@@ -20,6 +20,7 @@ from job_core import (  # noqa: E402
     command_dxf,
     dashboard_warnings,
     discover_drawings,
+    existing_working_directory,
     export_parts_list_csv,
     load_manifest,
     load_settings,
@@ -298,6 +299,11 @@ class CoreTests(unittest.TestCase):
         )
         self.assertEqual(packaged[0], "Engineering BOM Converter.exe")
         self.assertNotIn("bom_converter.py", " ".join(packaged))
+
+    def test_missing_working_directory_is_not_passed_to_subprocess(self):
+        missing = self.root / "disconnected macros share"
+        self.assertIsNone(existing_working_directory(missing))
+        self.assertEqual(existing_working_directory(self.root), self.root)
 
     def test_generated_parts_list_exports_orchestrator_csv(self):
         workbook_path = self.root / "123_PARTS_LIST.xlsx"

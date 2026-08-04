@@ -23,6 +23,7 @@ from job_core import (
     copy_source,
     dashboard_warnings,
     discover_drawings,
+    existing_working_directory,
     load_manifest,
     load_settings,
     mark_needs_review,
@@ -535,7 +536,12 @@ class JobAssistant(tk.Tk):
             Path(template_value),
             self.bundled_tool("Engineering BOM Converter.exe"),
         )
-        subprocess.Popen(command, cwd=self.repo)
+        # A remembered repository can be unavailable (especially a disconnected
+        # network drive).  Passing that stale path as cwd raises WinError 267
+        # before the packaged converter can even start.  The command already
+        # contains absolute executable/script paths, so it is safe to inherit the
+        # assistant's working directory when the preferred repository is absent.
+        subprocess.Popen(command, cwd=existing_working_directory(self.repo))
         record_event(
             self.manifest,
             "external_process_started",
