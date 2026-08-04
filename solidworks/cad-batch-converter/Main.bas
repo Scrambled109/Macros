@@ -1,4 +1,4 @@
-Attribute VB_Name = "Main"
+Attribute VB_Name = "Main_RunBatch1"
 '==============================================================================
 ' Main.bas
 '------------------------------------------------------------------------------
@@ -19,7 +19,7 @@ Attribute VB_Name = "Main"
 '   6. Log a per-file result block and a running progress line.
 '   7. Log a summary, optionally shut the applications down, close the log.
 '
-' Requires references to the AutoCAD 2026 and SolidWorks 2025 type libraries.
+' Uses late-bound AutoCAD COM and requires the SolidWorks 2025 type libraries.
 '==============================================================================
 Option Explicit
 
@@ -74,7 +74,7 @@ Public Sub RunBatch()
     WriteLog "Found " & fileCount & " DWG file(s) to process."
 
     ' --- Connect to both applications once ----------------------------------
-    Dim acadApp As AcadApplication
+    Dim acadApp As Object
     Set acadApp = ConnectAutoCAD()
     If acadApp Is Nothing Then
         WriteLog "FATAL: could not start or attach to AutoCAD."
@@ -136,7 +136,7 @@ End Sub
 ' Process a single DWG end to end. Self-contained error handling guarantees the
 ' loop in RunBatch always continues to the next file.
 '------------------------------------------------------------------------------
-Private Sub ProcessOneFile(ByVal acadApp As AcadApplication, _
+Private Sub ProcessOneFile(ByVal acadApp As Object, _
                            ByVal swApp As SldWorks.SldWorks, _
                            ByVal srcPath As String, _
                            ByRef r As TFileResult)
@@ -188,7 +188,7 @@ End Sub
 ' failure here never masks the batch result. Public so the text-stamp pass can
 ' reuse it.
 '------------------------------------------------------------------------------
-Public Sub ShutdownApps(ByRef acadApp As AcadApplication, _
+Public Sub ShutdownApps(ByRef acadApp As Object, _
                         ByRef swApp As SldWorks.SldWorks)
     On Error Resume Next
     If QUIT_APPS_ON_FINISH Then

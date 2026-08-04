@@ -35,9 +35,8 @@ stage has structured error handling, and every file is logged.
 
 1. Open the VBA IDE in your host application (AutoCAD: `VBAIDE`; or SolidWorks:
    **Tools ▸ Macro ▸ Edit**). The project runs from **either** host.
-2. **Import all eight `.bas` files** (File ▸ Import File…).
-3. Add **all three** references (Tools ▸ References…):
-   - **AutoCAD 2026 Type Library**
+2. **Remove the old converter modules, then import all eight `.bas` files** (File ▸ Import File…). Do not keep old `Config1`, `Main`, or similarly suffixed copies: duplicate modules can make VBA compile the stale procedure instead.
+3. Add the **two SolidWorks** references (Tools ▸ References…). AutoCAD is late-bound, so its type-library reference is not required and a missing AutoCAD reference no longer causes `User-defined type not defined`:
    - **SOLIDWORKS 2025 Type Library** (`sldworks.tlb`)
    - **SOLIDWORKS 2025 Constant Type Library** (`swconst.tlb`) — **required**:
      the import method is set with the real `swImportDxfDwg_ImportToPartSketch`
@@ -45,7 +44,7 @@ stage has structured error handling, and every file is logged.
      drawing. If this reference is missing the project will not compile
      (`Variable not defined` on that name), which is intentional.
 4. Run the two stages **in order**:
-   1. **`Main.RunBatch`** — converts every DWG to an extruded `SLDPRT`.
+   1. **`Main_RunBatch1.RunBatch`** — converts every DWG to an extruded `SLDPRT`.
    2. **`TextStamp.RunTextStamp`** — stamps the words onto the finished parts.
 
 The `FilteredDWGs` and `staging` folders are created automatically if missing.
@@ -55,6 +54,16 @@ batch never touches text, and the text pass can be re-run at any time against
 the `staging` folder without rebuilding parts.
 
 ---
+
+### Compile and entry-point check
+
+After importing, choose **Debug ▸ Compile VBAProject** before running anything.
+The Project Explorer must contain `Main_RunBatch1`, and the macro dialog entry is
+`Main_RunBatch1.RunBatch`. The module name is deliberately kept identical to the
+entry point used by the Job Assistant and the packaged macro. If the compiler
+highlights `SldWorks.SldWorks`, repair the two SolidWorks references above. If
+it reports a missing reference under **Tools ▸ References**, clear or repair that
+reference first; VBA can otherwise report misleading errors in unrelated lines.
 
 ## Job folder configuration (`Config.bas`)
 

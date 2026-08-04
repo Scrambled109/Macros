@@ -23,7 +23,7 @@ Attribute VB_Name = "TextStamp"
 '     4. Close the part and continue.
 '
 ' Every file has its own error handling; one bad part never stops the pass.
-' Requires references to the AutoCAD 2026 and SolidWorks 2025 type libraries.
+' Uses late-bound AutoCAD COM and requires the SolidWorks 2025 type libraries.
 '==============================================================================
 Option Explicit
 
@@ -70,7 +70,7 @@ Public Sub RunTextStamp()
     WriteLog "Found " & partCount & " part(s) to stamp."
 
     ' --- Connect to both applications once ----------------------------------
-    Dim acadApp As AcadApplication
+    Dim acadApp As Object
     Set acadApp = ConnectAutoCAD()
     If acadApp Is Nothing Then
         WriteLog "FATAL: could not start or attach to AutoCAD."
@@ -130,7 +130,7 @@ End Sub
 '------------------------------------------------------------------------------
 ' Stamp one part. Self-contained error handling keeps the pass running.
 '------------------------------------------------------------------------------
-Private Sub StampOnePart(ByVal acadApp As AcadApplication, _
+Private Sub StampOnePart(ByVal acadApp As Object, _
                          ByVal swApp As SldWorks.SldWorks, _
                          ByVal partPath As String, _
                          ByRef r As TFileResult)
@@ -198,9 +198,9 @@ End Sub
 ' not available the text entities simply survive, the harvest captures them as
 ' words, and the built-in stroke font renders them - automatic fallback.
 '------------------------------------------------------------------------------
-Private Sub HarvestFromSource(ByVal acadApp As AcadApplication, _
+Private Sub HarvestFromSource(ByVal acadApp As Object, _
                               ByVal dwgPath As String)
-    Dim doc As AcadDocument
+    Dim doc As Object
     On Error GoTo cleanup
 
     Set doc = acadApp.Documents.Open(dwgPath, Not TEXT_USE_DWG_OUTLINES)
@@ -237,18 +237,18 @@ End Sub
 ' Returns the scratch layer name for the harvest, or "" if setup failed
 ' (the stroke-font fallback then takes over automatically).
 '------------------------------------------------------------------------------
-Private Function PrepareAndExplodeText(ByVal doc As AcadDocument) As String
+Private Function PrepareAndExplodeText(ByVal doc As Object) As String
     On Error Resume Next
     Const SCRATCH_LAYER As String = "ZZ_TXTEXP_OUT"
 
     ' Unlock everything so stray text can be deleted.
-    Dim lay As AcadLayer
+    Dim lay As Object
     For Each lay In doc.Layers
         lay.Lock = False
     Next lay
 
     ' Remove text that is not marking text (in-memory copy only).
-    Dim ms As AcadModelSpace
+    Dim ms As Object
     Set ms = doc.ModelSpace
     Dim i As Long
     Dim ent As Object
@@ -263,7 +263,7 @@ Private Function PrepareAndExplodeText(ByVal doc As AcadDocument) As String
     Next i
 
     ' Scratch layer becomes current; TXTEXP output collects there.
-    Dim scratch As AcadLayer
+    Dim scratch As Object
     Set scratch = doc.Layers.Add(SCRATCH_LAYER)
     If scratch Is Nothing Then Exit Function
     doc.ActiveLayer = scratch
