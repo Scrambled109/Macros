@@ -32,46 +32,6 @@ Private mFilteredFolder As String
 Private mOutputFolder As String
 Private mExtrudeDepthMeters As Double
 
-Private Function ConfiguredFolder(ByVal environmentName As String, _
-                                  ByVal registryName As String) As String
-    Dim value As String
-    value = Trim$(Environ$(environmentName))
-    If Len(value) = 0 Then
-        value = Trim$(GetSetting(SETTINGS_APP, SETTINGS_SECTION, _
-                                 registryName, vbNullString))
-    End If
-    If Len(value) > 0 Then
-        If Right$(value, 1) <> "\" Then value = value & "\"
-    End If
-    ConfiguredFolder = value
-End Function
-
-Public Sub RefreshRuntimeConfiguration()
-    mSourceFolder = ConfiguredFolder("MACROS_SOURCE_FOLDER", "SourceFolder")
-    mFilteredFolder = ConfiguredFolder("MACROS_FILTERED_FOLDER", "FilteredFolder")
-    mOutputFolder = ConfiguredFolder("MACROS_OUTPUT_FOLDER", "OutputFolder")
-    mExtrudeDepthMeters = ReadConfiguredDepthMeters()
-    mRuntimeConfigured = True
-End Sub
-
-Private Sub EnsureRuntimeConfiguration()
-    If Not mRuntimeConfigured Then RefreshRuntimeConfiguration
-End Sub
-
-Public Function SOURCE_FOLDER() As String
-    EnsureRuntimeConfiguration
-    SOURCE_FOLDER = mSourceFolder
-End Function
-
-Public Function FILTERED_FOLDER() As String
-    EnsureRuntimeConfiguration
-    FILTERED_FOLDER = mFilteredFolder
-End Function
-
-Public Function OUTPUT_FOLDER() As String
-    EnsureRuntimeConfiguration
-    OUTPUT_FOLDER = mOutputFolder
-End Function
 
 '------------------------------------------------------------------------------
 ' 2. CORE PROCESS PARAMETERS
@@ -99,26 +59,6 @@ Public Const DWG_UNITS_TO_METERS As Double = 0.0254
 ' lets an already-running SolidWorks process see the value because its process
 ' environment was captured before the assistant launched. The default preserves
 ' standalone 0.25-inch behavior.
-Private Function ReadConfiguredDepthMeters() As Double
-    Dim value As String
-    ' Registry wins here (unlike static folders) so a SolidWorks process that
-    ' remains open between runs sees the newly selected thickness.
-    value = Trim$(GetSetting(SETTINGS_APP, SETTINGS_SECTION, _
-                             "ExtrudeDepthMeters", vbNullString))
-    If Len(value) = 0 Then
-        value = Trim$(Environ$("MACROS_EXTRUDE_DEPTH_METERS"))
-    End If
-    If Len(value) > 0 And Val(value) > 0# Then
-        ReadConfiguredDepthMeters = Val(value)
-    Else
-        ReadConfiguredDepthMeters = 0.00635
-    End If
-End Function
-
-Public Function EXTRUDE_DEPTH_METERS() As Double
-    EnsureRuntimeConfiguration
-    EXTRUDE_DEPTH_METERS = mExtrudeDepthMeters
-End Function
 
 ' Convert the DWG text to REAL letter outlines (the drawing's own font) with
 ' AutoCAD Express Tools' TXTEXP before harvesting, so the words land in
@@ -310,3 +250,71 @@ Public Type TTextMark
     Height As Double            ' text height, DWG units
     Rotation As Double          ' rotation, radians
 End Type
+
+
+'------------------------------------------------------------------------------
+' 10. RUNTIME CONFIGURATION PROCEDURES
+'    VBA requires module declarations, constants, and Public Type blocks to
+'    remain above every Sub/Function. Keep these procedures at the end.
+'------------------------------------------------------------------------------
+Private Function ConfiguredFolder(ByVal environmentName As String, _
+                                  ByVal registryName As String) As String
+    Dim value As String
+    value = Trim$(Environ$(environmentName))
+    If Len(value) = 0 Then
+        value = Trim$(GetSetting(SETTINGS_APP, SETTINGS_SECTION, _
+                                 registryName, vbNullString))
+    End If
+    If Len(value) > 0 Then
+        If Right$(value, 1) <> "\" Then value = value & "\"
+    End If
+    ConfiguredFolder = value
+End Function
+
+Public Sub RefreshRuntimeConfiguration()
+    mSourceFolder = ConfiguredFolder("MACROS_SOURCE_FOLDER", "SourceFolder")
+    mFilteredFolder = ConfiguredFolder("MACROS_FILTERED_FOLDER", "FilteredFolder")
+    mOutputFolder = ConfiguredFolder("MACROS_OUTPUT_FOLDER", "OutputFolder")
+    mExtrudeDepthMeters = ReadConfiguredDepthMeters()
+    mRuntimeConfigured = True
+End Sub
+
+Private Sub EnsureRuntimeConfiguration()
+    If Not mRuntimeConfigured Then RefreshRuntimeConfiguration
+End Sub
+
+Public Function SOURCE_FOLDER() As String
+    EnsureRuntimeConfiguration
+    SOURCE_FOLDER = mSourceFolder
+End Function
+
+Public Function FILTERED_FOLDER() As String
+    EnsureRuntimeConfiguration
+    FILTERED_FOLDER = mFilteredFolder
+End Function
+
+Public Function OUTPUT_FOLDER() As String
+    EnsureRuntimeConfiguration
+    OUTPUT_FOLDER = mOutputFolder
+End Function
+
+Private Function ReadConfiguredDepthMeters() As Double
+    Dim value As String
+    ' Registry wins here (unlike static folders) so a SolidWorks process that
+    ' remains open between runs sees the newly selected thickness.
+    value = Trim$(GetSetting(SETTINGS_APP, SETTINGS_SECTION, _
+                             "ExtrudeDepthMeters", vbNullString))
+    If Len(value) = 0 Then
+        value = Trim$(Environ$("MACROS_EXTRUDE_DEPTH_METERS"))
+    End If
+    If Len(value) > 0 And Val(value) > 0# Then
+        ReadConfiguredDepthMeters = Val(value)
+    Else
+        ReadConfiguredDepthMeters = 0.00635
+    End If
+End Function
+
+Public Function EXTRUDE_DEPTH_METERS() As Double
+    EnsureRuntimeConfiguration
+    EXTRUDE_DEPTH_METERS = mExtrudeDepthMeters
+End Function
