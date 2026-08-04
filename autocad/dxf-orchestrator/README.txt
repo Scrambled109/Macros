@@ -82,7 +82,7 @@ Assistant launches this implementation instead of the PowerShell script.
 Once the script starts, it requires minimal input. Watch the PowerShell terminal for color-coded status updates.
 
 The Background Auto-Pilot (Green)
-If a part does not contain a bevel flag (K, V, or BEVEL) in its TEXT/MTEXT notes, the terminal will display [+] Clean Part. The script will use accoreconsole.exe to invisibly open the part, inject the layers, swap hashtags to dashes, save the file as a DWG, and move it to a sorted folder (e.g., 250-DH-36). No action is required. (Bevel detection now reads only the drawing's text entities, so stray K/V characters elsewhere in the file no longer force an unnecessary manual gate.)
+If a part does not contain a bevel flag (K, V, BEVEL/BVL, SNIPE, CHAMFER, an angle callout such as V22.5, V-22.5, RV9, or K30, or an arrow/leader annotation), the terminal will display [+] Clean Part. The script will use accoreconsole.exe to invisibly open the part, inject the layers, swap hashtags to dashes, save the file as a DWG, and move it to a sorted folder (e.g., 250-DH-36). No action is required. Detection deliberately favors an extra manual review over missing a potentially beveled part.
 
 If a headless job fails or hangs, the script logs it (see _ORCHESTRATOR_LOGS), keeps the original DXF, and moves on to the next part instead of stalling the whole batch. A per-job timeout (default 180s, set via $ConsoleTimeoutSec) guards against a wedged accoreconsole.
 

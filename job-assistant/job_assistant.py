@@ -23,7 +23,6 @@ from job_core import (
     copy_source,
     dashboard_warnings,
     discover_drawings,
-    export_parts_list_csv,
     load_manifest,
     load_settings,
     mark_needs_review,
@@ -536,36 +535,18 @@ class JobAssistant(tk.Tk):
             Path(template_value),
             self.bundled_tool("Engineering BOM Converter.exe"),
         )
-        log = Path(self.manifest["workspace"]["logs"]) / "bom_converter.log"
-        with log.open("a", encoding="utf-8") as handle:
-            result = subprocess.run(
-                command,
-                cwd=self.repo,
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-                check=False,
-            )
+        subprocess.Popen(command, cwd=self.repo)
         record_event(
             self.manifest,
-            "external_process_finished",
+            "external_process_started",
             stage="bom",
             command=command,
-            exit_code=result.returncode,
-            log=str(log),
-        )
-        if result.returncode:
-            raise JobError(
-                f"BOM converter exited with code {result.returncode}. Review {log}"
-            )
-        orchestrator_csv = export_parts_list_csv(
-            Path(output),
-            Path(self.manifest["workspace"]["source_copies"]) / "Parts List.csv",
         )
         mark_needs_review(
             self.manifest,
             "bom",
-            "Converter finished. Open and positively review the Parts List before completion.",
-            [Path(output), orchestrator_csv, log],
+            "Converter setup opened. Review mappings, convert, then positively review the Parts List.",
+            [source_copy, Path(output)],
         )
 
     def run_dxf(self) -> None:

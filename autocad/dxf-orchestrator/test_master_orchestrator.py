@@ -38,6 +38,46 @@ class OrchestratorHelpersTest(unittest.TestCase):
                     dxf.write_text(f"0\nTEXT\n1\n{note}\n", encoding="ascii")
                     self.assertTrue(orchestrator.is_beveled_dxf(dxf))
 
+    def test_bevel_detection_recognizes_angle_annotations(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dxf = Path(temp_dir) / "part.dxf"
+            for note in ("V22.5", "RV9", "K 30", "V - 22.5", "RV/9"):
+                with self.subTest(note=note):
+                    dxf.write_text(f"0\nTEXT\n1\n{note}\n", encoding="ascii")
+                    self.assertTrue(orchestrator.is_beveled_dxf(dxf))
+
+    def test_bevel_detection_combines_mtext_chunks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dxf = Path(temp_dir) / "part.dxf"
+            dxf.write_text("0\nMTEXT\n3\nRV\n1\n9\n0\nLINE\n", encoding="ascii")
+            self.assertTrue(orchestrator.is_beveled_dxf(dxf))
+
+    def test_similar_non_bevel_text_is_not_flagged(self):
+        for note in ("EVERY", "VERIFY", "MARK", "STR-36"):
+            with self.subTest(note=note):
+                self.assertFalse(orchestrator.has_bevel_annotation(note))
+
+    def test_snipe_synonyms_and_arrows_are_manual_review_flags(self):
+        for note in (
+            "SNIPE",
+            "SNIPED END",
+            "BVL OTHER SIDE",
+            "CHAMFER",
+            "BACK GOUGE",
+            "APPLY SETS -> OTHER SIDE",
+            "HOLD EDGE ↓",
+        ):
+            with self.subTest(note=note):
+                self.assertTrue(orchestrator.has_bevel_annotation(note))
+
+    def test_leader_entities_are_sent_to_manual_review(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for entity in ("LEADER", "MLEADER"):
+                with self.subTest(entity=entity):
+                    dxf = Path(temp_dir) / f"{entity}.dxf"
+                    dxf.write_text(f"0\n{entity}\n10\n1.0\n", encoding="ascii")
+                    self.assertTrue(orchestrator.is_beveled_dxf(dxf))
+
     def test_write_script_has_one_autocad_enter_per_line(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             script = Path(temp_dir) / "job.scr"

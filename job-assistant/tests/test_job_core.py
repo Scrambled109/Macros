@@ -257,6 +257,7 @@ class CoreTests(unittest.TestCase):
             Path("template.xlsx"),
         )
         self.assertEqual(bom[-3:], ["source copy.xlsx", "out.xlsx", "template.xlsx"])
+        self.assertIn("--gui", bom)
         compare = command_comparison(
             "python.exe",
             repo,

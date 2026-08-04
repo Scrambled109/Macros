@@ -72,23 +72,54 @@ def safe_name(value: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "-", value)
 
 
+def has_bevel_annotation(value: str) -> bool:
+    """Recognize conservative bevel/snipe notes from drawing text.
+
+    Missing a manual gate is more costly than opening one unnecessarily, so
+    this intentionally accepts punctuation, spacing, common shop synonyms,
+    and arrow glyphs used in exported callouts.
+    """
+    return bool(
+        re.search(
+            r"\b(?:BEVEL(?:ED)?|BVL|CHAMFER|SNIP(?:E|ED|ING)?|BACK\s*GOUGE|GOUGE)\b"
+            r"|\b(?:K|V|RV)\b"
+            r"|\b(?:K|V|RV)\s*[-–—:/]?\s*\d+(?:\.\d+)?\b"
+            r"|(?:-{1,2}>|<{1,2}-|[←↑→↓↖↗↘↙⇐⇑⇒⇓➔➜➤►◄△▽])",
+            value,
+            re.IGNORECASE,
+        )
+    )
+
+
 def is_beveled_dxf(path: Path) -> bool:
-    """Look for whole-word BEVEL, K, or V flags in ASCII DXF text entities."""
+    """Look for bevel annotations in ASCII DXF TEXT/MTEXT entities."""
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return False
 
     entity_type = ""
+    text_chunks: list[str] = []
     for index in range(0, len(lines) - 1, 2):
         code = lines[index].strip()
         value = lines[index + 1]
         if code == "0":
-            entity_type = value.strip().upper()
-        elif code in {"1", "3"} and entity_type in {"TEXT", "MTEXT"}:
-            if re.search(r"\b(?:BEVEL|K|V)\b", value, re.IGNORECASE):
+            if entity_type in {"TEXT", "MTEXT"} and has_bevel_annotation(
+                "".join(text_chunks)
+            ):
                 return True
-    return False
+            entity_type = value.strip().upper()
+            # LEADER/MLEADER entities explicitly attach an arrow to a note.
+            # Route them through manual review even when their annotation text
+            # is stored in a referenced block rather than inline in the DXF.
+            if entity_type in {"LEADER", "MLEADER"}:
+                return True
+            text_chunks = []
+        elif code in {"1", "3"} and entity_type in {"TEXT", "MTEXT"}:
+            text_chunks.append(value)
+    return entity_type in {"TEXT", "MTEXT"} and has_bevel_annotation(
+        "".join(text_chunks)
+    )
 
 
 def wait_file_stable(path: Path, timeout_seconds: float = 30) -> bool:
