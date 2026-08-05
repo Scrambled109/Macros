@@ -14,7 +14,7 @@ from job_core import (
     STAGES,
     STAGE_GUIDANCE,
     JobError,
-    PromotionItem,
+    OutputMoveItem,
     change_revision,
     command_bom,
     command_comparison,
@@ -32,9 +32,9 @@ from job_core import (
     parse_comparison_summary,
     plate_macro_instructions,
     plate_run_folders,
-    plan_promotions,
+    plan_completed_outputs,
     prepare_dxf_workspace,
-    promote_files,
+    move_completed_outputs,
     recommended_next_action,
     record_artifact,
     record_event,
@@ -62,15 +62,18 @@ def open_path(path: Path) -> None:
 class JobAssistant(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Engineering Job Assistant — Beta")
-        self.geometry("1280x860")
-        self.minsize(1050, 700)
+        self.title("Engineering Job Assistant")
+        self.geometry("1320x840")
+        self.minsize(1080, 680)
         self.settings = load_settings(repo_root=DEFAULT_REPO)
         self.manifest: dict | None = None
         self.manifest_path: Path | None = None
         self.active_stage: str | None = None
         self.candidates = []
         self.running_processes: dict[int, dict] = {}
+        self.notice_path: Path | None = None
+        self.stage_detail_text = ""
+        self._configure_style()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.close_application)
 
@@ -90,8 +93,73 @@ class JobAssistant(tk.Tk):
             )
         return path
 
+    def _configure_style(self) -> None:
+        self.configure(background="#f3f5f7")
+        style = ttk.Style(self)
+        if sys.platform == "win32":
+            try:
+                style.theme_use("vista")
+            except tk.TclError:
+                pass
+        style.configure("TFrame", background="#f3f5f7")
+        style.configure(
+            "TLabel",
+            background="#f3f5f7",
+            foreground="#25313a",
+            font=("Segoe UI", 10),
+        )
+        style.configure("TLabelframe", background="#f3f5f7")
+        style.configure(
+            "TLabelframe.Label",
+            background="#f3f5f7",
+            foreground="#25313a",
+            font=("Segoe UI Semibold", 10),
+        )
+        style.configure("Toolbar.TFrame", background="#243746")
+        style.configure(
+            "Toolbar.TLabel",
+            background="#243746",
+            foreground="#ffffff",
+            font=("Segoe UI", 10),
+        )
+        style.configure("TButton", font=("Segoe UI", 10), padding=(10, 6))
+        style.configure(
+            "Primary.TButton",
+            font=("Segoe UI Semibold", 10),
+            padding=(13, 8),
+        )
+        style.configure(
+            "Heading.TLabel",
+            background="#f3f5f7",
+            foreground="#17242e",
+            font=("Segoe UI Semibold", 17),
+        )
+        style.configure(
+            "Next.TLabel",
+            background="#e7f0f7",
+            foreground="#173f5f",
+            font=("Segoe UI Semibold", 11),
+            padding=(12, 8),
+        )
+        style.configure(
+            "Notice.TLabel",
+            background="#e8f5ec",
+            foreground="#176b32",
+            padding=(12, 7),
+        )
+        style.configure(
+            "Warning.TLabel",
+            background="#fff4df",
+            foreground="#7a4b00",
+            padding=(12, 7),
+        )
+        style.configure("Treeview", rowheight=28, font=("Segoe UI", 10))
+        style.configure(
+            "Treeview.Heading", font=("Segoe UI Semibold", 10), padding=(5, 6)
+        )
+
     def _build(self) -> None:
-        toolbar = ttk.Frame(self, padding=8)
+        toolbar = ttk.Frame(self, padding=(10, 8), style="Toolbar.TFrame")
         toolbar.pack(fill="x")
         for text, command in (
             ("Set Up / Attach Job", self.setup_job),
@@ -104,30 +172,43 @@ class JobAssistant(tk.Tk):
         self.running_summary = ttk.Label(
             toolbar,
             text="No external processes running",
-            foreground="#176b32",
+            style="Toolbar.TLabel",
         )
         self.running_summary.pack(side="right", padx=8)
         self.heading = ttk.Label(
             self,
             text="Set up a new job or attach to an existing Engineering Process folder.",
-            font=("Segoe UI", 14, "bold"),
-            padding=(12, 3),
+            style="Heading.TLabel",
+            padding=(14, 10, 14, 4),
         )
         self.heading.pack(fill="x")
         self.next_action = ttk.Label(
             self,
             text="The assistant works on controlled copies and keeps generated files in staging.",
-            padding=(12, 3),
+            style="Next.TLabel",
         )
-        self.next_action.pack(fill="x")
+        self.next_action.pack(fill="x", padx=12, pady=(2, 5))
+        notice_row = ttk.Frame(self, padding=(12, 0))
+        notice_row.pack(fill="x")
+        self.notice_label = ttk.Label(
+            notice_row,
+            text="Ready. Select a step to see exactly what to do.",
+            style="Notice.TLabel",
+            wraplength=1080,
+        )
+        self.notice_label.pack(side="left", fill="x", expand=True)
+        self.notice_open_button = ttk.Button(
+            notice_row,
+            text="Open Result",
+            command=self.open_notice_path,
+        )
         self.warning_summary = ttk.Label(
             self,
             text="No outstanding warnings.",
-            padding=(12, 5),
-            foreground="#7a2e00",
+            style="Warning.TLabel",
             wraplength=1220,
         )
-        self.warning_summary.pack(fill="x")
+        self.warning_summary.pack(fill="x", padx=12, pady=(5, 0))
         self.paths_label = ttk.Label(self, text="", padding=(12, 3), wraplength=1140)
         self.paths_label.pack(fill="x")
 
@@ -167,47 +248,69 @@ class JobAssistant(tk.Tk):
         self.recent_tree.pack(fill="x")
         self.recent_tree.bind("<Double-1>", lambda _event: self.open_recent_file())
 
-        ttk.Label(right, text="Stage guide", font=("Segoe UI", 12, "bold")).pack(
+        ttk.Label(right, text="Selected step", font=("Segoe UI", 12, "bold")).pack(
             anchor="w"
         )
         self.guide = tk.Text(
-            right, wrap="word", height=22, state="disabled", padx=8, pady=8
+            right,
+            wrap="word",
+            height=22,
+            state="disabled",
+            padx=10,
+            pady=10,
+            relief="flat",
+            background="#ffffff",
+            foreground="#25313a",
+            font=("Segoe UI", 10),
         )
         self.guide.pack(fill="both", expand=True, pady=(5, 8))
         actions = ttk.Frame(right)
         actions.pack(fill="x")
+        ttk.Button(
+            actions,
+            text="Start Selected Step",
+            command=self.run_stage,
+            style="Primary.TButton",
+        ).pack(side="left", padx=2, pady=2)
         for text, command in (
-            ("Check This Step", self.run_checks),
-            ("Start This Step", self.run_stage),
-            ("Open This Step's Folder", self.open_stage_folder),
-            ("Record File", self.record_file),
-            ("Complete After Review", self.finish_stage),
-            ("Reopen", self.reopen),
+            ("Check Readiness", self.run_checks),
+            ("Open Step Folder", self.open_stage_folder),
+            ("Mark Complete", self.finish_stage),
         ):
-            ttk.Button(actions, text=text, command=command).pack(
-                side="left", padx=2, pady=2
+            ttk.Button(actions, text=text, command=command).pack(side="left", padx=2)
+        advanced_actions = ttk.Frame(right)
+        advanced_actions.pack(fill="x", pady=(5, 0))
+        for text, command in (
+            ("Technical Details", self.show_technical_details),
+            ("Record File", self.record_file),
+            ("Reopen Step", self.reopen),
+        ):
+            ttk.Button(advanced_actions, text=text, command=command).pack(
+                side="left", padx=2
             )
 
         bottom = ttk.Frame(self, padding=(12, 0, 12, 10))
         bottom.pack(fill="x")
         ttk.Button(
-            bottom, text="Set Optional Folder", command=self.set_optional_folder
+            bottom,
+            text="Move Completed Outputs",
+            command=self.move_outputs,
+            style="Primary.TButton",
         ).pack(side="left", padx=3)
-        ttk.Button(
-            bottom, text="Copy Approved Files to Production", command=self.promote
-        ).pack(side="left", padx=3)
-        ttk.Button(
-            bottom, text="Open Assistant Workspace", command=self.open_workspace
-        ).pack(side="left", padx=3)
-        ttk.Button(bottom, text="Open Staging", command=self.open_staging).pack(
+        ttk.Button(bottom, text="Job Folders…", command=self.set_optional_folder).pack(
             side="left", padx=3
         )
-        ttk.Button(bottom, text="Open Logs", command=self.open_logs).pack(
-            side="left", padx=3
+        open_menu_button = ttk.Menubutton(bottom, text="Open…")
+        open_menu = tk.Menu(open_menu_button, tearoff=False)
+        open_menu.add_command(label="Assistant Workspace", command=self.open_workspace)
+        open_menu.add_command(label="Staging", command=self.open_staging)
+        open_menu.add_command(label="Logs", command=self.open_logs)
+        open_menu.add_separator()
+        open_menu.add_command(
+            label="Comparison Report", command=self.open_comparison_report
         )
-        ttk.Button(
-            bottom, text="Open Comparison Report", command=self.open_comparison_report
-        ).pack(side="left", padx=3)
+        open_menu_button.configure(menu=open_menu)
+        open_menu_button.pack(side="left", padx=3)
         self.progress = ttk.Progressbar(bottom, length=220)
         self.progress.pack(side="right", padx=5)
         self.progress_text = ttk.Label(bottom, text="0 of 0 complete")
@@ -233,14 +336,54 @@ class JobAssistant(tk.Tk):
     def update_running_summary(self) -> None:
         count = len(self.running_processes)
         if not count:
-            text, color = "No external processes running", "#176b32"
+            text = "No external processes running"
         else:
             jobs = sorted(
                 {item["job_number"] for item in self.running_processes.values()}
             )
             text = f"Running: {count} process(es) for job(s) {', '.join(jobs)}"
-            color = "#7a4b00"
-        self.running_summary.configure(text=text, foreground=color)
+        self.running_summary.configure(text=text)
+
+    def post_background_notice(
+        self,
+        title: str,
+        message: str,
+        *,
+        level: str = "info",
+        path: Path | None = None,
+    ) -> None:
+        """Show process completion in the dashboard without a blocking dialog.
+
+        A modal completion message can land behind another application on
+        Windows. Tk then disables the assistant while that hidden dialog waits,
+        making the entire dashboard appear frozen. Background work always posts
+        here instead; dialogs remain reserved for operator-initiated decisions.
+        """
+
+        self.notice_path = Path(path) if path else None
+        self.notice_label.configure(
+            text=f"{title}: {message}",
+            style="Warning.TLabel" if level == "warning" else "Notice.TLabel",
+        )
+        if self.notice_path:
+            if not self.notice_open_button.winfo_manager():
+                self.notice_open_button.pack(side="right", padx=(8, 0))
+        else:
+            self.notice_open_button.pack_forget()
+        self.bell()
+
+    def open_notice_path(self) -> None:
+        def operation() -> None:
+            if not self.notice_path:
+                raise JobError("There is no result path to open yet.")
+            target = self.notice_path
+            if target.is_file():
+                target = target.parent
+            if not target.exists():
+                raise JobError(f"The result location is no longer available: {target}")
+            open_path(target)
+
+        self.handle(operation)
 
     def close_application(self) -> None:
         if self.running_processes and not messagebox.askyesno(
@@ -412,14 +555,55 @@ class JobAssistant(tk.Tk):
         guide = STAGE_GUIDANCE[stage]
         item = self.manifest["stages"][stage]
         checks = stage_checks(self.manifest, stage)
+        status = item["status"].replace("_", " ").title()
         text = (
-            f"STATUS: {item['status'].replace('_', ' ').upper()}\n\nUse Check This Step to review readiness, Start This Step to begin, and Open This Step's Folder to inspect its files.\n\n1. WHAT IS NEEDED\n{guide['need']}\n\n2. WHAT TO SELECT\n{guide['action']}\n\n3. WHAT WILL CHANGE\n{guide['changes']}\n\n4. TOOL / MACRO\n{guide['tool']}\n\n5. REVIEW AFTERWARD\n{guide['review']}\n\n6. OUTPUTS AND LOGS\nStaging: {self.manifest['workspace']['staging']}\nLogs: {self.manifest['workspace']['logs']}\n\n7. WARNINGS AND OVERRIDES\nOrdinary sequence warnings can be continued after confirmation and are logged with your Windows username. Missing files or executables cannot be launched.\n\nCURRENT CHECKS\n"
-            + "\n".join(f"• {c.level.upper()}: {c.message}" for c in checks)
+            f"Status: {status}\n\n"
+            f"What you need\n{guide['need']}\n\n"
+            f"What to do\n{guide['action']}\n\n"
+            f"Review before completion\n{guide['review']}\n\n"
+            "Readiness\n"
+            + "\n".join(f"• {c.level.title()}: {c.message}" for c in checks)
+        )
+        self.stage_detail_text = (
+            f"{item['label']}\n\n"
+            f"Status: {status}\n\n"
+            f"Tool / macro\n{guide['tool']}\n\n"
+            f"Changes made\n{guide['changes']}\n\n"
+            "Workspace locations\n"
+            f"Staging: {self.manifest['workspace']['staging']}\n"
+            f"Logs: {self.manifest['workspace']['logs']}\n\n"
+            "Warnings and overrides\n"
+            "Sequence warnings can be continued after confirmation and are "
+            "recorded with the Windows username. Missing inputs or tools block "
+            "launch.\n\n"
+            "All readiness checks\n"
+            + "\n\n".join(
+                f"{c.level.upper()} — {c.message}\nResolution: "
+                f"{c.correction or 'No action required.'}"
+                for c in checks
+            )
         )
         self.guide.configure(state="normal")
         self.guide.delete("1.0", "end")
         self.guide.insert("end", text)
         self.guide.configure(state="disabled")
+
+    def show_technical_details(self) -> None:
+        if not self.manifest or not self.active_stage:
+            self.handle(lambda: self.require_job())
+            return
+        window = tk.Toplevel(self)
+        window.title("Selected Step — Technical Details")
+        window.geometry("860x620")
+        window.minsize(650, 420)
+        window.transient(self)
+        text = tk.Text(window, wrap="word", padx=12, pady=12)
+        scrollbar = ttk.Scrollbar(window, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=scrollbar.set)
+        text.insert("1.0", self.stage_detail_text)
+        text.configure(state="disabled")
+        text.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     def run_checks(self) -> None:
         def operation() -> None:
@@ -475,21 +659,7 @@ class JobAssistant(tk.Tk):
             elif stage in {"plate_model", "autobom"}:
                 self.launch_solidworks_macro(stage)
             else:
-                if not self._accept_warnings(stage):
-                    return
-                open_path(
-                    Path(
-                        self.manifest["paths"]["model_3d"]
-                        if stage in {"manual_model", "assembly"}
-                        else self.manifest["paths"].get("nesting")
-                        or self.manifest["root"]
-                    )
-                )
-                mark_needs_review(
-                    self.manifest,
-                    stage,
-                    "Manual workflow opened. Complete the listed engineering review.",
-                )
+                raise JobError(f"Unknown assistant step: {stage}")
             save_manifest(self.manifest, self.manifest_path)
             self.refresh()
             self.show_stage()
@@ -626,6 +796,7 @@ class JobAssistant(tk.Tk):
             self.settings.get("autocad_console") or None,
             self.settings.get("autocad_executable") or None,
             self.bundled_tool("Engineering DXF Orchestrator.exe"),
+            workers=self.settings.get("autocad_workers", 2),
         )
         record_event(
             self.manifest,
@@ -730,17 +901,16 @@ class JobAssistant(tk.Tk):
                 "Review the Python orchestrator log and the endpoint-security event."
             )
             record_artifact(process_manifest, "dxf", log)
-            messagebox.showerror("DXF orchestrator failed", item["notes"], parent=self)
         save_manifest(process_manifest, process_manifest_path)
         if self.manifest_path == process_manifest_path:
             self.manifest = process_manifest
             self.refresh()
         outcome = "finished and needs review" if exit_code == 0 else "failed"
-        messagebox.showinfo(
+        self.post_background_notice(
             "DXF automation finished",
-            f"Job {process_manifest['job']['number']} DXF automation {outcome}.\n\n"
-            f"Log: {log}",
-            parent=self,
+            f"Job {process_manifest['job']['number']} {outcome}. Review the log.",
+            level="warning" if exit_code else "info",
+            path=log,
         )
 
     def review_drawings(self) -> list[Path]:
@@ -956,10 +1126,14 @@ class JobAssistant(tk.Tk):
 
         notes = process_manifest["stages"]["comparison"].get("notes", "")
         message = f"Job {process_manifest['job']['number']}\n\n{notes}\n\nLog: {log}"
-        if title.endswith(("failed", "incomplete")):
-            messagebox.showerror(title, message, parent=self)
-        else:
-            messagebox.showinfo(title, message, parent=self)
+        self.post_background_notice(
+            title,
+            message.replace("\n\n", " "),
+            level=(
+                "warning" if title.endswith(("failed", "incomplete")) else "info"
+            ),
+            path=output if output.exists() else log,
+        )
 
     def launch_solidworks_macro(self, stage: str) -> None:
         macro = self.repo / (
@@ -1079,9 +1253,9 @@ class JobAssistant(tk.Tk):
             stage = self.selected_stage()
             key = (
                 "model_3d"
-                if stage in {"plate_model", "manual_model", "assembly", "autobom"}
+                if stage in {"plate_model", "autobom"}
                 else "nesting"
-                if stage in {"nesting", "comparison"}
+                if stage == "comparison"
                 and self.manifest["paths"].get("nesting")
                 else "cut_files"
                 if stage == "dxf"
@@ -1203,209 +1377,163 @@ class JobAssistant(tk.Tk):
 
         self.handle(operation)
 
-    def promote(self) -> None:
-        def operation():
+    def move_outputs(self) -> None:
+        def operation() -> None:
             self.require_job()
-            selected = filedialog.askopenfilenames(
-                title="Select approved staged files",
-                initialdir=self.manifest["workspace"]["staging"],
-                parent=self,
-            )
-            if not selected:
-                return
-            staging_root = Path(self.manifest["workspace"]["staging"]).resolve()
-            outside = [
-                Path(path)
-                for path in selected
-                if not Path(path).resolve().is_relative_to(staging_root)
-            ]
-            if outside:
+            plan = plan_completed_outputs(self.manifest)
+            if not plan:
+                complete = [
+                    label
+                    for key, label in STAGES
+                    if key in {"dxf", "plate_model"}
+                    and self.manifest["stages"][key]["status"] == "complete"
+                ]
+                if complete:
+                    raise JobError(
+                        "No completed cut files or plate models remain in the "
+                        "assistant workspace. They may already have been moved."
+                    )
                 raise JobError(
-                    "Promotion only accepts files inside Assistant Staging. "
-                    f"Not staged: {outside[0]}"
+                    "Complete and positively review the Cut Files or Plate Models "
+                    "step before moving its outputs to production."
                 )
-            destination = filedialog.askdirectory(
-                title="Select production destination folder", parent=self
-            )
-            if not destination:
-                return
-            plan = plan_promotions(map(Path, selected), Path(destination))
-            self.show_promotion_table(plan)
+            self.show_output_move_table(plan)
 
         self.handle(operation)
 
-    def show_promotion_table(self, plan: list[PromotionItem]) -> None:
-        """Review and execute a promotion plan without sequential dialogs."""
+    def show_output_move_table(self, plan: list[OutputMoveItem]) -> None:
+        """Show one review screen for automatic, recoverable production moves."""
+
         window = tk.Toplevel(self)
-        window.title("Copy Approved Files to Production")
-        window.geometry("1180x620")
+        window.title("Move Completed Outputs")
+        window.geometry("1220x650")
         window.minsize(900, 480)
         window.transient(self)
         window.grab_set()
 
+        cut_count = sum(item.category == "cut_file" for item in plan)
+        plate_count = sum(item.category == "plate_model" for item in plan)
+        conflict_count = sum(item.conflict for item in plan)
         ttk.Label(
             window,
             text=(
-                "Review every source and destination. Conflicts default to Do Not "
-                "Replace. Use Back Up + Replace only after engineering review."
+                f"Ready: {cut_count} cut file(s) and {plate_count} plate model(s). "
+                f"{conflict_count} destination conflict(s) will be backed up "
+                "automatically before replacement. Source files are removed only "
+                "after a verified copy reaches production."
             ),
             padding=10,
-            wraplength=1120,
+            wraplength=1160,
         ).pack(fill="x")
 
-        columns = ("source", "destination", "conflict", "action", "result")
+        columns = ("type", "run", "source", "destination", "conflict", "result")
         tree_frame = ttk.Frame(window, padding=(10, 0))
         tree_frame.pack(fill="both", expand=True)
         tree = ttk.Treeview(tree_frame, columns=columns, show="headings")
         widths = {
-            "source": 300,
-            "destination": 360,
+            "type": 100,
+            "run": 130,
+            "source": 290,
+            "destination": 350,
             "conflict": 90,
-            "action": 145,
             "result": 150,
         }
         for column in columns:
-            tree.heading(column, text=column.replace("_", " ").title())
+            tree.heading(column, text=column.title())
             tree.column(column, width=widths[column], anchor="w")
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
         tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        actions: dict[str, str] = {}
         for index, item in enumerate(plan):
-            iid = str(index)
-            actions[iid] = item.action
             tree.insert(
                 "",
                 "end",
-                iid=iid,
+                iid=str(index),
                 values=(
+                    "Cut file" if item.category == "cut_file" else "Plate model",
+                    item.run_name,
                     str(item.source),
                     str(item.destination),
-                    "YES" if item.conflict else "No",
-                    self.promotion_action_label(item.action),
-                    "Waiting for approval",
+                    "Back up + replace" if item.conflict else "No",
+                    "Ready",
                 ),
                 tags=("conflict" if item.conflict else "new",),
             )
-        tree.tag_configure("conflict", foreground="#a31621")
+        tree.tag_configure("conflict", foreground="#8a3f00")
         tree.tag_configure("new", foreground="#176b32")
         tree.tag_configure("failed", foreground="#a31621")
         tree.tag_configure("finished", foreground="#176b32")
 
         detail = tk.StringVar(
-            value="Select one or more rows, then choose the intended action."
+            value="Review the destinations, then move all completed outputs."
         )
         ttk.Label(window, textvariable=detail, padding=(10, 7)).pack(fill="x")
-
-        def set_action(action: str) -> None:
-            selected_rows = tree.selection()
-            if not selected_rows:
-                detail.set("Select at least one file row first.")
-                return
-            rejected = 0
-            for iid in selected_rows:
-                item = plan[int(iid)]
-                if action == "backup_replace" and not item.conflict:
-                    rejected += 1
-                    continue
-                actions[iid] = action
-                values = list(tree.item(iid, "values"))
-                values[3] = self.promotion_action_label(action)
-                values[4] = "Waiting for approval"
-                tree.item(iid, values=values)
-            detail.set(
-                "Updated selected rows."
-                if not rejected
-                else f"Updated conflicts; {rejected} non-conflicting row(s) cannot use Back Up + Replace."
-            )
-
-        controls = ttk.Frame(window, padding=(10, 0, 10, 8))
+        controls = ttk.Frame(window, padding=(10, 0, 10, 10))
         controls.pack(fill="x")
-        ttk.Button(
-            controls, text="Copy New File", command=lambda: set_action("copy")
-        ).pack(side="left", padx=3)
-        ttk.Button(
-            controls, text="Do Not Replace", command=lambda: set_action("skip")
-        ).pack(side="left", padx=3)
-        ttk.Button(
+        execute_button = ttk.Button(
             controls,
-            text="Back Up Existing + Replace",
-            command=lambda: set_action("backup_replace"),
-        ).pack(side="left", padx=3)
-
-        execute_button = ttk.Button(controls, text="Execute Approved Plan")
+            text="Move All Completed Outputs",
+            style="Primary.TButton",
+        )
         execute_button.pack(side="right", padx=3)
-        ttk.Button(controls, text="Close", command=window.destroy).pack(
+        ttk.Button(controls, text="Cancel", command=window.destroy).pack(
             side="right", padx=3
         )
 
         def execute() -> None:
-            approved = [
-                PromotionItem(
-                    item.source,
-                    item.destination,
-                    item.conflict,
-                    actions[str(index)],
-                )
-                for index, item in enumerate(plan)
-            ]
-            copy_count = sum(item.action != "skip" for item in approved)
-            if copy_count == 0:
-                detail.set("Every row is Do Not Replace; there is nothing to copy.")
-                return
             if not messagebox.askyesno(
-                "Execute approved promotion plan?",
-                f"{copy_count} file(s) will be copied or replaced. Existing files "
-                "marked for replacement will be backed up first. Continue?",
+                "Move completed outputs?",
+                f"Move all {len(plan)} listed file(s) to the selected production "
+                "folders? Existing files will be backed up before replacement.",
                 parent=window,
             ):
                 return
-            results = promote_files(self.manifest, approved)
+            execute_button.configure(state="disabled")
+            detail.set("Moving outputs and verifying each copy…")
+            window.update_idletasks()
+            results = move_completed_outputs(self.manifest, plan)
             save_manifest(self.manifest, self.manifest_path)
             for index, result in enumerate(results):
-                iid = str(index)
-                values = list(tree.item(iid, "values"))
-                values[4] = result["status"].replace("_", " ").title()
+                values = list(tree.item(str(index), "values"))
+                values[5] = result["status"].replace("_", " ").title()
                 if result.get("error"):
-                    values[4] += f": {result['error']}"
+                    values[5] += f": {result['error']}"
                 tree.item(
-                    iid,
+                    str(index),
                     values=values,
-                    tags=("failed" if result["status"] == "failed" else "finished",),
+                    tags=(
+                        "failed" if result["status"] == "failed" else "finished",
+                    ),
                 )
             counts = {
                 status: sum(result["status"] == status for result in results)
-                for status in ("copied", "replaced", "skipped", "failed")
+                for status in ("moved", "replaced", "already_current", "failed")
             }
-            report = next((result.get("report") for result in results), "")
-            detail.set(
-                f"Finished: {counts['copied']} copied, {counts['replaced']} replaced, "
-                f"{counts['skipped']} skipped, {counts['failed']} failed. "
-                + (
-                    f"Report: {report}"
-                    if report
-                    else "Promotion report could not be written; see row results and manifest events."
-                )
+            report_value = next(
+                (result.get("report") for result in results if result.get("report")),
+                "",
             )
-            execute_button.configure(state="disabled")
+            detail.set(
+                f"Finished: {counts['moved']} moved, {counts['replaced']} replaced, "
+                f"{counts['already_current']} already current, "
+                f"{counts['failed']} failed."
+            )
+            self.post_background_notice(
+                "Completed output move finished",
+                detail.get(),
+                level="warning" if counts["failed"] else "info",
+                path=Path(report_value) if report_value else None,
+            )
             self.refresh()
 
         execute_button.configure(command=lambda: self.handle(execute))
 
-    @staticmethod
-    def promotion_action_label(action: str) -> str:
-        return {
-            "copy": "Copy New File",
-            "skip": "Do Not Replace",
-            "backup_replace": "Back Up + Replace",
-        }.get(action, action)
-
     def edit_settings(self) -> None:
         window = tk.Toplevel(self)
         window.title("Per-user settings (not stored in the repository)")
-        window.geometry("820x330")
+        window.geometry("820x390")
         window.transient(self)
         entries = {}
         labels = (
@@ -1438,17 +1566,35 @@ class JobAssistant(tk.Tk):
             ttk.Button(window, text="Browse…", command=browse).grid(
                 row=row, column=2, padx=5
             )
+        workers_row = len(labels)
+        ttk.Label(window, text="AutoCAD clean-file workers").grid(
+            row=workers_row, column=0, sticky="w", padx=8, pady=7
+        )
+        workers = tk.IntVar(value=self.settings.get("autocad_workers", 2))
+        ttk.Spinbox(
+            window,
+            from_=1,
+            to=4,
+            textvariable=workers,
+            width=8,
+            state="readonly",
+        ).grid(row=workers_row, column=1, sticky="w", padx=5)
+        ttk.Label(
+            window,
+            text="2 recommended; use 1 if AutoCAD or licensing is unstable.",
+        ).grid(row=workers_row + 1, column=1, sticky="w", padx=5)
         window.columnconfigure(1, weight=1)
 
         def save():
             self.settings.update(
                 {key: var.get().strip() for key, var in entries.items()}
             )
+            self.settings["autocad_workers"] = workers.get()
             save_settings(self.settings)
             window.destroy()
 
         ttk.Button(window, text="Save", command=lambda: self.handle(save)).grid(
-            row=len(labels), column=2, pady=12
+            row=workers_row + 2, column=2, pady=12
         )
 
     def open_workspace(self) -> None:
