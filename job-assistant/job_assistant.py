@@ -1048,9 +1048,8 @@ class JobAssistant(tk.Tk):
             self.repo,
             run,
             run / "Parts List.csv",
-            self.settings.get("autocad_console") or None,
-            self.settings.get("autocad_executable") or None,
-            self.bundled_tool("Engineering DXF Orchestrator.exe"),
+            autocad_console=self.settings.get("autocad_console") or None,
+            tool_executable=self.bundled_tool("Engineering DXF Orchestrator.exe"),
             workers=self.settings.get("autocad_workers", 2),
         )
         record_event(
@@ -1795,7 +1794,6 @@ class JobAssistant(tk.Tk):
             ("macros_repo", "Shared Macros repository"),
             ("parts_list_template", "Standard Parts List template"),
             ("default_jobs_parent", "Default jobs parent"),
-            ("autocad_executable", "AutoCAD executable"),
             ("autocad_console", "AutoCAD console executable"),
             ("solidworks_executable", "SolidWorks executable"),
         )
@@ -1822,7 +1820,7 @@ class JobAssistant(tk.Tk):
                 row=row, column=2, padx=5
             )
         workers_row = len(labels)
-        ttk.Label(window, text="AutoCAD clean-file workers").grid(
+        ttk.Label(window, text="Parallel AutoCAD processes").grid(
             row=workers_row, column=0, sticky="w", padx=8, pady=7
         )
         workers = tk.IntVar(value=self.settings.get("autocad_workers", 2))
@@ -1836,7 +1834,7 @@ class JobAssistant(tk.Tk):
         ).grid(row=workers_row, column=1, sticky="w", padx=5)
         ttk.Label(
             window,
-            text="2 recommended; use 1 if AutoCAD or licensing is unstable.",
+            text="2 recommended. Each process converts one DXF; bevel files get (B).",
         ).grid(row=workers_row + 1, column=1, sticky="w", padx=5)
         window.columnconfigure(1, weight=1)
 
