@@ -20,7 +20,7 @@ import openpyxl
 
 MANIFEST_NAME = "job_manifest.json"
 MANIFEST_VERSION = 4
-SETTINGS_VERSION = 2
+SETTINGS_VERSION = 3
 ASSISTANT_DIR = "_JOB_ASSISTANT"
 
 STAGES = [
@@ -63,7 +63,7 @@ STAGE_GUIDANCE = {
         "action": "Review every proposed file. DXFs start selected; DWGs start excluded.",
         "changes": "Selected files are copied into numbered working folder 001. Originals are untouched.",
         "tool": "Python DXF orchestrator, run against working copies.",
-        "review": "Review every generated DWG and the orchestrator logs; bevel drawings require SPCFINISH in AutoCAD.",
+        "review": "Review every generated DWG and the orchestrator logs; detected bevel drawings are identified by the (B) filename suffix.",
     },
     "plate_model": {
         "need": "Reviewed, prepared DWGs.",
@@ -201,7 +201,6 @@ def default_settings(repo_root: Path | None = None) -> dict[str, Any]:
         "macros_repo": str(repo_root.resolve()) if repo_root else "",
         "parts_list_template": "",
         "default_jobs_parent": "",
-        "autocad_executable": "",
         "autocad_console": "",
         "autocad_workers": 2,
         "solidworks_executable": "",
@@ -625,7 +624,6 @@ def command_dxf(
     workspace: Path,
     parts_list_csv: Path,
     autocad_console: Path | str | None = None,
-    autocad_gui: Path | str | None = None,
     tool_executable: Path | None = None,
     workers: int = 2,
 ) -> list[str]:
@@ -642,8 +640,6 @@ def command_dxf(
     command.extend(["--workers", str(max(1, min(4, int(workers))))])
     if autocad_console:
         command.extend(["--acad-console-path", str(autocad_console)])
-    if autocad_gui:
-        command.extend(["--acad-gui-path", str(autocad_gui)])
     return command
 
 
