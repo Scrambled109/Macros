@@ -39,9 +39,10 @@ Include:
 
 SolidWorks is the baseline for required quantity and geometry.
 
-Known SolidWorks configuration suffixes such as `Default` and
-`Default Machined` are removed from the end of the file name. Revision suffixes
-are preserved.
+Known SolidWorks configuration suffixes such as `Default`, `Default Machined`,
+and `(Default<As Machined>)` are removed from the end of the file name. Parts
+List `#` separators are normalized to the `-` used by nesting and SolidWorks.
+Revision suffixes are preserved.
 
 ### Linear nesting files
 
@@ -65,6 +66,10 @@ The program asks you to select:
 4. A base output folder
 
 It creates a timestamped report folder.
+
+Automation callers should provide all four paths and `--no-open`. That mode
+never opens a browser, completion dialog, or console-input prompt. Progress is
+flushed as each major source is read so a supervising UI can update its log.
 
 ## Primary outputs
 
