@@ -15,8 +15,9 @@ if str(ROOT) not in sys.path:
 from cutfile_core import (  # noqa: E402
     CutfileValidationError,
     INSIDE_LAYER,
-    MARKING_LAYER,
+    LINE_MARKING_LAYER,
     OUTSIDE_LAYER,
+    TEXT_MARKING_LAYER,
     add_marking_paths,
     assign_cut_layers,
     infer_model_to_dxf_scale,
@@ -67,18 +68,31 @@ class CutfileCoreTests(unittest.TestCase):
         self.assertEqual(len(msp.query(f'*[layer=="{OUTSIDE_LAYER}"]')), 4)
         self.assertEqual(len(msp.query(f'*[layer=="{INSIDE_LAYER}"]')), 1)
 
-    def test_adds_all_marking_to_one_layer(self):
+    def test_adds_line_and_text_marking_to_separate_layers(self):
         doc = self.make_plate()
         assign_cut_layers(doc, expected_outer_loops=1, expected_inner_loops=2)
-        result = add_marking_paths(
+        line_result = add_marking_paths(
+            doc,
+            [[(1, 1), (3, 1)]],
+            layer=LINE_MARKING_LAYER,
+        )
+        text_result = add_marking_paths(
             doc,
             [
-                [(1, 1), (3, 1)],
                 [(4, 4), (5, 5), (6, 4)],
             ],
+            layer=TEXT_MARKING_LAYER,
         )
-        self.assertEqual(result.paths_added, 2)
-        self.assertEqual(len(doc.modelspace().query(f'*[layer=="{MARKING_LAYER}"]')), 2)
+        self.assertEqual(line_result.paths_added, 1)
+        self.assertEqual(text_result.paths_added, 1)
+        self.assertEqual(
+            len(doc.modelspace().query(f'*[layer=="{LINE_MARKING_LAYER}"]')), 1
+        )
+        self.assertEqual(
+            len(doc.modelspace().query(f'*[layer=="{TEXT_MARKING_LAYER}"]')), 1
+        )
+        self.assertEqual(doc.layers.get(LINE_MARKING_LAYER).color, 3)
+        self.assertEqual(doc.layers.get(TEXT_MARKING_LAYER).color, 7)
 
     def test_infers_inches_from_meter_model_extent(self):
         doc = self.make_plate()
