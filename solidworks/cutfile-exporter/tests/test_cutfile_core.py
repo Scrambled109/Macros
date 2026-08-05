@@ -98,6 +98,23 @@ class CutfileCoreTests(unittest.TestCase):
             self.assertIn(OUTSIDE_LAYER, loaded.layers)
             self.assertIn(INSIDE_LAYER, loaded.layers)
 
+    def test_failed_save_does_not_replace_existing_dxf(self):
+        class BrokenDocument:
+            def saveas(self, path):
+                raise OSError("simulated write failure")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plate.dxf"
+            path.write_text("existing production file", encoding="utf-8")
+
+            with self.assertRaisesRegex(CutfileValidationError, "Could not save"):
+                save_dxf(BrokenDocument(), path)
+
+            self.assertEqual(
+                path.read_text(encoding="utf-8"), "existing production file"
+            )
+            self.assertEqual(list(Path(directory).glob(".*.tmp.dxf")), [])
+
 
 if __name__ == "__main__":
     unittest.main()
