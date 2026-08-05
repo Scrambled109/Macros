@@ -115,14 +115,16 @@ The assistant proposes DXFs and initially excludes DWGs as likely manual shape
 sketches. Confirmed files are copied into
 `Working/DXF Orchestrator/<run>/001`, together with `Parts List.csv`.
 
-Clean drawings use two AutoCAD Core Console workers by default. Set **AutoCAD
-clean-file workers** from 1–4 in Settings; use 1 if licensing or workstation
-stability requires serial processing. Every worker receives a unique AutoCAD
+All drawings use two AutoCAD Core Console processes by default. Set **Parallel
+AutoCAD processes** from 1–4 in Settings; use 1 if licensing or workstation
+stability requires serial processing. Every process receives a unique AutoCAD
 script and log. Inputs that resolve to the same output DWG are rejected before
 AutoCAD runs instead of racing or silently overwriting one another.
 
-Bevel drawings remain in one interactive AutoCAD session. Review each tab and
-type `SPCFINISH`; it saves the sorted DWG and closes that drawing, not AutoCAD.
+Detected bevel drawings use the same headless process and receive the exact
+suffix `(B)` before `.dwg`. Bevel callout text and all leader arrows are moved
+to `PLOT`, while ordinary pin-stamp entities retain their normal layers.
+Graphical AutoCAD no longer opens for bevel review.
 
 ## SolidWorks plate models and AutoBOM
 
@@ -170,8 +172,8 @@ Settings are stored outside the repository, normally at
 - shared Macros repository;
 - standard Parts List template;
 - default jobs parent;
-- AutoCAD GUI/console and SolidWorks executable paths;
-- AutoCAD clean-file workers (default 2, maximum 4).
+- AutoCAD Core Console and SolidWorks executable paths;
+- parallel AutoCAD processes (default 2, maximum 4).
 
 ## Tests and Windows validation
 
