@@ -29,7 +29,8 @@ class _Curve:
         return False
 
     def Evaluate2(self, parameter, derivative_count):
-        return (float(parameter), 2.0 * float(parameter), 0.0)
+        # Transient sketch-text edges are already returned in model space.
+        return (float(parameter), 2.0 * float(parameter), 0.01)
 
 
 class _CurveParams:
@@ -113,6 +114,22 @@ class _LegacyTransformSketch(_Sketch):
     ModelToSketchXform = _MathTransform.ArrayData
 
 
+class _OffsetMathTransform:
+    ArrayData = (
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+        -10.0, -20.0, -0.01,
+        1.0, 0.0, 0.0, 0.0,
+    )
+
+
+class _OffsetSketch(_Sketch):
+    @property
+    def ModelToSketchTransform(self):
+        return _OffsetMathTransform()
+
+
 class _Feature:
     Name = "CUTFILE MARKING"
 
@@ -129,6 +146,16 @@ class _Feature:
 class _Model:
     def FirstFeature(self):
         return _Feature()
+
+
+class _OffsetFeature(_Feature):
+    def GetSpecificFeature2(self):
+        return _OffsetSketch()
+
+
+class _OffsetModel:
+    def FirstFeature(self):
+        return _OffsetFeature()
 
 
 class _Loop:
@@ -296,6 +323,17 @@ class SolidWorksAdapterTests(unittest.TestCase):
         self.assertEqual(paths.line_paths[0][0], (3.0, 4.0, 0.01))
         self.assertEqual(paths.line_paths[0][-1], (5.0, 6.0, 0.01))
         self.assertEqual(len(paths.text_paths), 1)
+        self.assertEqual(paths.text_paths[0][0], (0.0, 0.0, 0.01))
+        self.assertEqual(paths.text_paths[0][-1], (1.0, 2.0, 0.01))
+
+    def test_does_not_apply_sketch_transform_twice_to_text_edges(self):
+        session = SolidWorksSession(object(), started_by_tool=False)
+
+        paths = session.marking_paths_model_space(
+            _OffsetModel(), "CUTFILE MARKING", curve_samples=4
+        )
+
+        self.assertEqual(paths.line_paths[0][0], (13.0, 24.0, 0.01))
         self.assertEqual(paths.text_paths[0][0], (0.0, 0.0, 0.01))
         self.assertEqual(paths.text_paths[0][-1], (1.0, 2.0, 0.01))
 
