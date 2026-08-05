@@ -10,7 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from cutfile_exporter import discover_parts  # noqa: E402
+from cutfile_exporter import (  # noqa: E402
+    _reject_duplicate_output_names,
+    discover_parts,
+)
+from solidworks_adapter import SolidWorksExportError  # noqa: E402
 
 
 class CutfileExporterTests(unittest.TestCase):
@@ -24,6 +28,15 @@ class CutfileExporterTests(unittest.TestCase):
             result = discover_parts(folder, recursive=False)
 
             self.assertEqual(result, [real_part])
+
+    def test_rejects_same_named_outputs_from_different_folders(self):
+        sources = [
+            Path("first") / "PART.SLDPRT",
+            Path("second") / "part.sldprt",
+        ]
+
+        with self.assertRaisesRegex(SolidWorksExportError, "same DXF filename"):
+            _reject_duplicate_output_names(sources)
 
 
 if __name__ == "__main__":
