@@ -578,6 +578,21 @@ Private Function DrawOneWord(ByVal swModel As Object, _
     prevAddToDB = skm.AddToDB
     skm.AddToDB = True                 ' exact coordinates, no snapping
 
+    ' Do not redraw the model window for every stroke. SOLIDWORKS documents
+    ' AddToDB + DisplayWhenAdded as the fast path for bulk sketch creation.
+    ' Keep this guarded for service packs that expose the late-bound property
+    ' differently, and restore the user's prior state on every exit path.
+    Dim prevDisplayWhenAdded As Boolean
+    Dim displayStateRead As Boolean
+    On Error Resume Next
+    Err.Clear
+    prevDisplayWhenAdded = skm.DisplayWhenAdded
+    displayStateRead = (Err.Number = 0)
+    Err.Clear
+    skm.DisplayWhenAdded = False
+    Err.Clear
+    On Error GoTo done
+
     Dim penX As Double                 ' cursor, in grid units
     Dim i As Long
     Dim drawn As Boolean
@@ -672,6 +687,7 @@ done:
     End If
     On Error Resume Next
     skm.AddToDB = prevAddToDB
+    If displayStateRead Then skm.DisplayWhenAdded = prevDisplayWhenAdded
     On Error GoTo 0
     DrawOneWord = drawn
 End Function
