@@ -85,6 +85,7 @@ class SolidWorksSession:
                 raise SolidWorksExportError(
                     "Could not start or connect to SolidWorks. Open SolidWorks and try again."
                 ) from exc
+        app = _dynamic_dispatch(app)
         try:
             app.Visible = bool(visible)
         except Exception:
@@ -96,14 +97,16 @@ class SolidWorksSession:
         if not source.is_file():
             raise SolidWorksExportError(f"Part file not found: {source}")
 
-        active = self.app.ActiveDoc
+        active = _com_value(self.app, "ActiveDoc")
         if active is not None:
             try:
                 if Path(_com_value(active, "GetPathName")).resolve() == source:
                     if int(_com_value(active, "GetType")) != SW_DOC_PART:
                         raise SolidWorksExportError(f"Not a SolidWorks part: {source}")
                     return OpenedPart(active, source, False)
-            except (OSError, ValueError):
+            except SolidWorksExportError:
+                raise
+            except Exception:
                 pass
 
         try:
@@ -155,7 +158,7 @@ class SolidWorksSession:
             if face is None:
                 continue
             try:
-                normal_values = tuple(float(value) for value in face.Normal)
+                normal_values = tuple(float(value) for value in _com_value(face, "Normal"))
                 if len(normal_values) < 3:
                     raise ValueError("Normal returned fewer than three values")
                 normal_length = math.sqrt(sum(value * value for value in normal_values[:3]))
@@ -190,15 +193,36 @@ class SolidWorksSession:
         max_area = max(item[0] for item in candidates)
         area_tolerance = max(max_area * 1e-7, 1e-12)
         largest = [item for item in candidates if max_area - item[0] <= area_tolerance]
-        _, _, face, frame, loops, model_points = max(
+        selected_area, selected_offset, face, frame, loops, model_points = max(
             largest, key=lambda item: item[1]
         )
+        model_span = max(
+            max(point[axis] for point in model_points)
+            - min(point[axis] for point in model_points)
+            for axis in range(3)
+        )
+        plane_tolerance = max(model_span * 1e-7, 1e-9)
+        coplanar_faces = [
+            item
+            for item in candidates
+            if _dot(item[3].normal, frame.normal) >= 1.0 - 1e-8
+            and abs(item[1] - selected_offset) <= plane_tolerance
+        ]
+        coplanar_area = sum(item[0] for item in coplanar_faces)
+        if len(coplanar_faces) > 1 and coplanar_area > selected_area + area_tolerance:
+            raise SolidWorksExportError(
+                "The intended cut side is split into multiple coplanar faces. Exporting "
+                "only the largest face would omit part of the perimeter. Merge/remove "
+                "the split-face features so the full cut shape is one continuous planar face."
+            )
         outer = 0
         for loop in loops:
             try:
                 outer += 1 if bool(_com_value(loop, "IsOuter")) else 0
             except Exception as exc:
-                raise SolidWorksExportError(f"Could not classify a SolidWorks face loop: {exc}") from exc
+                raise SolidWorksExportError(
+                    f"Could not classify a SolidWorks face loop: {exc}"
+                ) from exc
         if outer != 1:
             raise SolidWorksExportError(
                 f"The selected face has {outer} outside loops; exactly one is required."
@@ -231,7 +255,8 @@ class SolidWorksSession:
             _select_face(face_info.face)
             alignment = _double_array_variant(face_info.frame.alignment())
             ok = bool(
-                model.ExportToDWG2(
+                _export_to_dwg2(
+                    model,
                     str(target),
                     str(opened.path),
                     SW_EXPORT_SELECTED_FACES_OR_LOOPS,
@@ -329,7 +354,7 @@ class SolidWorksSession:
             for point in points:
                 math_point = math_utility.CreatePoint(_double_array_variant(_vec3(point)))
                 converted_point = math_point.MultiplyTransform(transform)
-                converted.append(_vec3(converted_point.ArrayData))
+                converted.append(_vec3(_com_value(converted_point, "ArrayData")))
             return converted
         except Exception as exc:
             raise SolidWorksExportError(
@@ -500,6 +525,43 @@ def _select_face(face) -> None:
     except Exception as exc:
         raise SolidWorksExportError(f"Could not select the export face: {exc}") from exc
     raise SolidWorksExportError("Could not select the export face.")
+
+
+def _export_to_dwg2(model, *args):
+    """Call the part-only exporter even when pywin32 returned IModelDoc2."""
+
+    failures: list[str] = []
+    for candidate in (model, _dynamic_dispatch(model)):
+        try:
+            method = getattr(candidate, "ExportToDWG2")
+            return method(*args)
+        except Exception as exc:
+            failures.append(f"{type(exc).__name__}: {exc}")
+
+    try:
+        import win32com.client
+
+        part_model = win32com.client.CastTo(model, "IPartDoc")
+        return part_model.ExportToDWG2(*args)
+    except Exception as exc:
+        failures.append(f"IPartDoc cast: {type(exc).__name__}: {exc}")
+
+    detail = "; ".join(failures[-3:])
+    raise SolidWorksExportError(
+        "SolidWorks did not expose the part DXF export interface. "
+        f"Details: {detail}"
+    )
+
+
+def _dynamic_dispatch(obj):
+    """Ignore stale makepy wrappers while preserving normal COM dispatch."""
+
+    try:
+        from win32com.client.dynamic import DumbDispatch
+
+        return DumbDispatch(obj)
+    except Exception:
+        return obj
 
 
 def _double_array_variant(values: Sequence[float]):
