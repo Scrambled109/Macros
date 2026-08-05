@@ -99,17 +99,19 @@ py .\autocad\dxf-orchestrator\Master_Orchestrator.py --workspace "C:\Job\DXF Wor
 ```
 
 The AutoCAD workflow converts and organizes the cut files and uses the Parts
-List data for material, thickness, and quantity-based sorting. Beveled drawings
-require an operator review; type `SPCFINISH` only after that drawing has been
-checked.
+List data for material, thickness, and quantity-based sorting. Every drawing
+runs headlessly through AutoCAD Core Console. Detected bevel drawings receive
+the exact filename suffix `(B)` before `.dwg`; graphical AutoCAD does not open.
+Bevel callout text and leader arrows are placed on `PLOT`, not on either
+pin-stamp layer.
 
 ### Checkpoint before plate modeling
 
 - Review `_ORCHESTRATOR_LOGS` and resolve all failed files.
 - Confirm every expected plate DXF produced a valid output.
 - Confirm material and thickness folders agree with the Parts List.
-- Check beveled parts manually; the automatic plate-modeling pass is not a
-  substitute for bevel modeling.
+- Use the `(B)` filenames to identify parts that still require manual bevel
+  modeling; automatic plate modeling does not create bevel geometry.
 - Keep the source archive until the model and final comparison are accepted.
 
 Full operating instructions are in
