@@ -51,6 +51,32 @@ class JobAssistantSourceTests(unittest.TestCase):
         }
         self.assertIn("process.poll", calls)
         self.assertIn("self.after", calls)
+        self.assertIn("self.post_background_notice", calls)
+        self.assertNotIn("messagebox.showinfo", calls)
+        self.assertNotIn("messagebox.showerror", calls)
+
+    def test_dashboard_only_contains_assistant_owned_stages(self) -> None:
+        core_source = SOURCE.with_name("job_core.py").read_text(encoding="utf-8")
+        core_tree = ast.parse(core_source)
+        stages = next(
+            node
+            for node in core_tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "STAGES" for target in node.targets)
+        )
+        values = ast.literal_eval(stages.value)
+        self.assertEqual(
+            [key for key, _label in values],
+            ["bom", "dxf", "plate_model", "autobom", "comparison"],
+        )
+
+    def test_launcher_uses_shared_source_checkout(self) -> None:
+        launcher = SOURCE.with_name("Launch Job Assistant.bat").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("py job-assistant\\job_assistant.py", launcher)
+        self.assertIn("py -m pip install -r requirements.txt", launcher)
+        self.assertNotIn("Engineering Job Assistant.exe", launcher)
 
 
 if __name__ == "__main__":
