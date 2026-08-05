@@ -97,7 +97,10 @@ class SolidWorksSession:
         if not source.is_file():
             raise SolidWorksExportError(f"Part file not found: {source}")
 
-        active = _com_value(self.app, "ActiveDoc")
+        try:
+            active = _com_value(self.app, "ActiveDoc")
+        except Exception:
+            active = None
         if active is not None:
             try:
                 if Path(_com_value(active, "GetPathName")).resolve() == source:
@@ -609,7 +612,13 @@ def _com_value(obj, name: str):
     """
 
     value = getattr(obj, name)
-    return value() if callable(value) else value
+    # pywin32 COM objects implement ``__call__`` for an optional default
+    # dispatch member, so ``callable(value)`` alone cannot distinguish a
+    # returned COM property object (such as ActiveDoc) from a bound method.
+    # Generated and dynamic pywin32 COM wrappers both expose ``_oleobj_``.
+    if callable(value) and not hasattr(value, "_oleobj_"):
+        return value()
+    return value
 
 
 def _is_windows() -> bool:
