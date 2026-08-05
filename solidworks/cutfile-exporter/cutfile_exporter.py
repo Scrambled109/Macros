@@ -13,6 +13,8 @@ from typing import Callable, Iterable
 
 from cutfile_core import (
     CutfileValidationError,
+    LINE_MARKING_LAYER,
+    TEXT_MARKING_LAYER,
     add_marking_paths,
     assign_cut_layers,
     infer_model_to_dxf_scale,
@@ -71,10 +73,25 @@ def export_part(
             marking_model_paths = session.marking_paths_model_space(
                 opened.model, sketch_name
             )
-            marking_paths = project_marking_paths(
-                marking_model_paths, face_info.frame, scale
+            line_marking_paths = project_marking_paths(
+                marking_model_paths.line_paths, face_info.frame, scale
             )
-            marking = add_marking_paths(document, marking_paths)
+            text_marking_paths = project_marking_paths(
+                marking_model_paths.text_paths, face_info.frame, scale
+            )
+            line_marking = add_marking_paths(
+                document,
+                line_marking_paths,
+                layer=LINE_MARKING_LAYER,
+            )
+            text_marking = add_marking_paths(
+                document,
+                text_marking_paths,
+                layer=TEXT_MARKING_LAYER,
+            )
+            marking_path_count = (
+                line_marking.paths_added + text_marking.paths_added
+            )
             save_dxf(document, output)
 
         units = layering.drawing_units
@@ -87,11 +104,12 @@ def export_part(
             outside_loops=layering.outside_loops,
             inside_loops=layering.inside_loops,
             cut_entities=layering.cut_entities,
-            marking_paths=marking.paths_added,
+            marking_paths=marking_path_count,
             units=units,
             message=(
                 f"Created layered DXF; marking sketch '{sketch_name}' "
-                f"produced {marking.paths_added} path(s)."
+                f"produced {line_marking.paths_added} line-marking path(s) and "
+                f"{text_marking.paths_added} text path(s)."
             ),
         )
     except (SolidWorksExportError, CutfileValidationError) as exc:
@@ -281,7 +299,10 @@ def run_gui() -> None:
 
     ttk.Label(frame, text="Marking sketch name").grid(row=3, column=0, sticky="w", pady=4)
     ttk.Entry(frame, textvariable=sketch_var).grid(row=3, column=1, sticky="ew", padx=8)
-    ttk.Label(frame, text="All its geometry/text → PIN STAMP TEXT").grid(
+    ttk.Label(
+        frame,
+        text="Lines → PIN STAMP LINE MARKING; text → PIN STAMP TEXT",
+    ).grid(
         row=3, column=2, sticky="w"
     )
 
