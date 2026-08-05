@@ -302,11 +302,12 @@ class SolidWorksSession:
                 f"Feature '{sketch_name}' exists but is not a readable SolidWorks sketch."
             )
 
-        transform = None
         try:
-            transform = _com_value(sketch.ModelToSketchTransform, "Inverse")
-        except Exception:
-            pass
+            sketch_to_model = _sketch_to_model_matrix(sketch)
+        except Exception as exc:
+            raise SolidWorksExportError(
+                f"Could not read marking sketch '{sketch_name}' coordinates: {exc}"
+            ) from exc
 
         paths: list[list[Vector3]] = []
         for segment in _as_sequence(_com_value(sketch, "GetSketchSegments")):
@@ -323,38 +324,30 @@ class SolidWorksSession:
                 segment_type = -1
             if segment_type != SW_SKETCH_TEXT:
                 points = _sample_sketch_segment(segment, curve_samples)
-                points = self._to_model_points(points, transform)
+                points = self._to_model_points(points, sketch_to_model)
                 if len(points) >= 2:
                     paths.append(points)
                 continue
 
             try:
-                edges = _as_sequence(_com_value(segment, "GetEdges2"))
-            except Exception:
-                try:
-                    edges = _as_sequence(_com_value(segment, "GetEdges"))
-                except Exception as exc:
-                    raise SolidWorksExportError(
-                        f"Could not render text from marking sketch '{sketch_name}': {exc}"
-                    ) from exc
+                edges = _sketch_text_edges(segment)
+            except Exception as exc:
+                raise SolidWorksExportError(
+                    f"Could not render text from marking sketch '{sketch_name}': {exc}"
+                ) from exc
             if not edges:
                 raise SolidWorksExportError(
                     f"Sketch text in '{sketch_name}' did not produce any rendered edges."
                 )
             for edge in edges:
                 points = _sample_edge(edge, curve_samples)
-                points = self._to_model_points(points, transform)
+                points = self._to_model_points(points, sketch_to_model)
                 if len(points) >= 2:
                     paths.append(points)
         return paths
 
-    def _to_model_points(self, points, transform) -> list[Vector3]:
-        if transform is None:
-            return [_vec3(point) for point in points]
+    def _to_model_points(self, points, matrix) -> list[Vector3]:
         try:
-            matrix = tuple(
-                float(value) for value in _com_value(transform, "ArrayData")
-            )
             return [_transform_point(_vec3(point), matrix) for point in points]
         except Exception as exc:
             raise SolidWorksExportError(
@@ -564,6 +557,99 @@ def _dynamic_dispatch(obj):
         return obj
 
 
+def _sketch_to_model_matrix(sketch) -> tuple[float, ...]:
+    """Read and invert a sketch's model-to-sketch transform defensively."""
+
+    failures: list[str] = []
+    try:
+        transform = _com_value(sketch, "ModelToSketchTransform")
+        model_to_sketch = _math_transform_array(transform)
+        return _invert_transform_matrix(model_to_sketch)
+    except Exception as exc:
+        failures.append(f"ModelToSketchTransform: {type(exc).__name__}: {exc}")
+
+    # Older SolidWorks APIs return the same matrix as a raw array. Keeping
+    # this fallback mirrors cad-batch-converter's late-bound, version-tolerant
+    # COM strategy and avoids relying on a returned IMathTransform wrapper.
+    for member in ("ModelToSketchXform", "IModelToSketchXform"):
+        try:
+            values = tuple(float(value) for value in _com_value(sketch, member))
+            return _invert_transform_matrix(values)
+        except Exception as exc:
+            failures.append(f"{member}: {type(exc).__name__}: {exc}")
+
+    raise SolidWorksExportError(
+        "SolidWorks did not expose a readable sketch transform. "
+        + "; ".join(failures[-3:])
+    )
+
+
+def _math_transform_array(transform) -> tuple[float, ...]:
+    failures: list[str] = []
+    candidates: list[tuple[str, object]] = [("direct", transform)]
+    dynamic = _dynamic_dispatch(transform)
+    if dynamic is not transform:
+        candidates.append(("dynamic", dynamic))
+    try:
+        import win32com.client
+
+        candidates.append(
+            ("IMathTransform cast", win32com.client.CastTo(transform, "IMathTransform"))
+        )
+    except Exception as exc:
+        failures.append(f"IMathTransform cast: {type(exc).__name__}: {exc}")
+
+    for label, candidate in candidates:
+        for member in ("ArrayData", "IArrayData"):
+            try:
+                return tuple(
+                    float(value) for value in _com_value(candidate, member)
+                )
+            except Exception as exc:
+                failures.append(
+                    f"{label}.{member}: {type(exc).__name__}: {exc}"
+                )
+    raise SolidWorksExportError(
+        "SolidWorks returned a math-transform object without readable array data. "
+        + "; ".join(failures[-4:])
+    )
+
+
+def _sketch_text_edges(segment) -> list:
+    """Read ISketchText edges through whichever COM interface is available."""
+
+    failures: list[str] = []
+    candidates: list[tuple[str, object]] = [("direct", segment)]
+    dynamic = _dynamic_dispatch(segment)
+    if dynamic is not segment:
+        candidates.append(("dynamic", dynamic))
+    try:
+        import win32com.client
+
+        candidates.append(
+            ("ISketchText cast", win32com.client.CastTo(segment, "ISketchText"))
+        )
+    except Exception as exc:
+        failures.append(f"ISketchText cast: {type(exc).__name__}: {exc}")
+
+    for label, candidate in candidates:
+        for member in ("GetEdges2", "GetEdges"):
+            try:
+                edges = _as_sequence(_com_value(candidate, member))
+                if edges:
+                    return edges
+            except Exception as exc:
+                failures.append(
+                    f"{label}.{member}: {type(exc).__name__}: {exc}"
+                )
+    if failures:
+        raise SolidWorksExportError(
+            "SolidWorks did not expose rendered sketch-text edges. "
+            + "; ".join(failures[-4:])
+        )
+    return []
+
+
 def _double_array_variant(values: Sequence[float]):
     try:
         import pythoncom
@@ -602,6 +688,53 @@ def _transform_point(point: Vector3, matrix: Sequence[float]) -> Vector3:
         + matrix[10],
         scale_factor * (x * matrix[2] + y * matrix[5] + z * matrix[8])
         + matrix[11],
+    )
+
+
+def _invert_transform_matrix(matrix: Sequence[float]) -> tuple[float, ...]:
+    """Invert a SolidWorks affine transform without COM math objects."""
+
+    if len(matrix) < 13:
+        raise SolidWorksExportError(
+            f"SolidWorks returned {len(matrix)} transform values; expected 16."
+        )
+    scale_factor = float(matrix[12])
+    if not math.isfinite(scale_factor) or abs(scale_factor) <= 1e-15:
+        raise SolidWorksExportError(
+            f"SolidWorks returned an invalid sketch-transform scale: {scale_factor}."
+        )
+
+    a00, a01, a02 = (scale_factor * float(matrix[i]) for i in (0, 1, 2))
+    a10, a11, a12 = (scale_factor * float(matrix[i]) for i in (3, 4, 5))
+    a20, a21, a22 = (scale_factor * float(matrix[i]) for i in (6, 7, 8))
+    determinant = (
+        a00 * (a11 * a22 - a12 * a21)
+        - a01 * (a10 * a22 - a12 * a20)
+        + a02 * (a10 * a21 - a11 * a20)
+    )
+    if not math.isfinite(determinant) or abs(determinant) <= 1e-15:
+        raise SolidWorksExportError("SolidWorks returned a singular sketch transform.")
+
+    inv00 = (a11 * a22 - a12 * a21) / determinant
+    inv01 = (a02 * a21 - a01 * a22) / determinant
+    inv02 = (a01 * a12 - a02 * a11) / determinant
+    inv10 = (a12 * a20 - a10 * a22) / determinant
+    inv11 = (a00 * a22 - a02 * a20) / determinant
+    inv12 = (a02 * a10 - a00 * a12) / determinant
+    inv20 = (a10 * a21 - a11 * a20) / determinant
+    inv21 = (a01 * a20 - a00 * a21) / determinant
+    inv22 = (a00 * a11 - a01 * a10) / determinant
+
+    tx, ty, tz = (float(matrix[i]) for i in (9, 10, 11))
+    inverse_tx = -(tx * inv00 + ty * inv10 + tz * inv20)
+    inverse_ty = -(tx * inv01 + ty * inv11 + tz * inv21)
+    inverse_tz = -(tx * inv02 + ty * inv12 + tz * inv22)
+    return (
+        inv00, inv01, inv02,
+        inv10, inv11, inv12,
+        inv20, inv21, inv22,
+        inverse_tx, inverse_ty, inverse_tz,
+        1.0, 0.0, 0.0, 0.0,
     )
 
 
