@@ -352,8 +352,11 @@ class SolidWorksSession:
                     f"Sketch text in '{sketch_name}' did not produce any rendered edges."
                 )
             for edge in edges:
+                # GetEdges2 returns transient Edge geometry in model space. Normal
+                # sketch segments are sketch-local and require sketch_to_model, but
+                # applying that transform to text edges again moves rotated/offset
+                # sketch text away from the rest of its marking geometry.
                 points = _sample_edge(edge, curve_samples)
-                points = self._to_model_points(points, sketch_to_model)
                 if len(points) >= 2:
                     text_paths.append(tuple(points))
         return SolidWorksMarkingPaths(tuple(line_paths), tuple(text_paths))
