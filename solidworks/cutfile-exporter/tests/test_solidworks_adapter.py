@@ -14,6 +14,7 @@ from solidworks_adapter import (  # noqa: E402
     PlaneFrame,
     SolidWorksExportError,
     SolidWorksSession,
+    _transform_point,
     project_marking_paths,
 )
 
@@ -49,10 +50,24 @@ class _SketchText:
         return [_Edge()]
 
 
+class _MathTransform:
+    ArrayData = (
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+        0.0, 0.0, 0.01,
+        1.0, 0.0, 0.0, 0.0,
+    )
+
+    @property
+    def Inverse(self):
+        return self
+
+
 class _Sketch:
     @property
     def ModelToSketchTransform(self):
-        raise RuntimeError("No transform needed in this unit test")
+        return _MathTransform()
 
     def GetSketchSegments(self):
         return [_SketchText()]
@@ -200,8 +215,21 @@ class SolidWorksAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(len(paths), 1)
-        self.assertEqual(paths[0][0], (0.0, 0.0, 0.0))
-        self.assertEqual(paths[0][-1], (1.0, 2.0, 0.0))
+        self.assertEqual(paths[0][0], (0.0, 0.0, 0.01))
+        self.assertEqual(paths[0][-1], (1.0, 2.0, 0.01))
+
+    def test_applies_solidworks_rotation_scale_and_translation_matrix(self):
+        matrix = (
+            0.0, 1.0, 0.0,
+            -1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0,
+            10.0, 20.0, 30.0,
+            2.0, 0.0, 0.0, 0.0,
+        )
+
+        result = _transform_point((1.0, 0.0, 3.0), matrix)
+
+        self.assertEqual(result, (10.0, 22.0, 36.0))
 
     def test_projects_marking_on_face_plane(self):
         frame = PlaneFrame(
