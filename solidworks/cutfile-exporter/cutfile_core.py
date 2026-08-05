@@ -12,7 +12,8 @@ from ezdxf import bbox, edgeminer, edgesmith, path as ezdxf_path
 
 OUTSIDE_LAYER = "CUT - OUTSIDE STRAIGHT"
 INSIDE_LAYER = "CUT - INSIDE STRAIGHT"
-MARKING_LAYER = "PIN STAMP TEXT"
+LINE_MARKING_LAYER = "PIN STAMP LINE MARKING"
+TEXT_MARKING_LAYER = "PIN STAMP TEXT"
 
 
 class CutfileValidationError(RuntimeError):
@@ -60,7 +61,8 @@ def ensure_required_layers(doc) -> None:
     layer_specs = (
         (OUTSIDE_LAYER, 1),
         (INSIDE_LAYER, 5),
-        (MARKING_LAYER, 7),
+        (LINE_MARKING_LAYER, 3),
+        (TEXT_MARKING_LAYER, 7),
     )
     for name, color in layer_specs:
         if name not in doc.layers:
@@ -220,7 +222,7 @@ def add_marking_paths(
     doc,
     paths: Iterable[Sequence[Sequence[float]]],
     *,
-    layer: str = MARKING_LAYER,
+    layer: str = TEXT_MARKING_LAYER,
     close_tolerance: float = 1e-9,
 ) -> MarkingResult:
     ensure_required_layers(doc)
