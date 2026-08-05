@@ -53,6 +53,26 @@ class _SketchText:
         return [_Edge()]
 
 
+class _Point:
+    def __init__(self, x, y, z=0.0):
+        self.X = float(x)
+        self.Y = float(y)
+        self.Z = float(z)
+
+
+class _SketchLine:
+    ConstructionGeometry = False
+
+    def GetType(self):
+        return 0
+
+    def GetStartPoint2(self):
+        return _Point(3.0, 4.0)
+
+    def GetEndPoint2(self):
+        return _Point(5.0, 6.0)
+
+
 class _LegacySketchText:
     def GetEdges(self):
         return [_Edge()]
@@ -80,7 +100,7 @@ class _Sketch:
         return _MathTransform()
 
     def GetSketchSegments(self):
-        return [_SketchText()]
+        return [_SketchLine(), _SketchText()]
 
 
 class _LegacyTransformSketch(_Sketch):
@@ -225,16 +245,19 @@ class SolidWorksAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(SolidWorksExportError, "split into multiple"):
             session.find_export_face(_SplitPartModel())
 
-    def test_reads_text_from_normal_sketch_segment_enumeration(self):
+    def test_separates_line_marking_from_sketch_text(self):
         session = SolidWorksSession(object(), started_by_tool=False)
 
         paths = session.marking_paths_model_space(
             _Model(), "CUTFILE MARKING", curve_samples=4
         )
 
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(paths[0][0], (0.0, 0.0, 0.01))
-        self.assertEqual(paths[0][-1], (1.0, 2.0, 0.01))
+        self.assertEqual(len(paths.line_paths), 1)
+        self.assertEqual(paths.line_paths[0][0], (3.0, 4.0, 0.01))
+        self.assertEqual(paths.line_paths[0][-1], (5.0, 6.0, 0.01))
+        self.assertEqual(len(paths.text_paths), 1)
+        self.assertEqual(paths.text_paths[0][0], (0.0, 0.0, 0.01))
+        self.assertEqual(paths.text_paths[0][-1], (1.0, 2.0, 0.01))
 
     def test_applies_solidworks_rotation_scale_and_translation_matrix(self):
         matrix = (
