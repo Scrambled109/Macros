@@ -354,16 +354,16 @@ class CoreTests(unittest.TestCase):
         )
         self.assertNotIn("U:\\Engineering\\CAD Services\\Current Jobs", config)
 
-    def test_bevel_finish_closes_the_drawing_not_autocad(self):
+    def test_powershell_bevel_path_is_marked_and_headless(self):
         orchestrator = (
             Path(__file__).resolve().parents[2]
             / "autocad/dxf-orchestrator/Master_Orchestrator.ps1"
         ).read_text(encoding="utf-8-sig")
-        finish_definition = next(
-            line for line in orchestrator.splitlines() if "$finishLisp =" in line
-        )
-        self.assertIn('command `"_.CLOSE`"', finish_definition)
-        self.assertNotIn("_.QUIT", finish_definition)
+        self.assertIn('$workingName = "${workingName}(B)"', orchestrator)
+        self.assertIn("Start-Process $AcadConsolePath", orchestrator)
+        self.assertNotIn("$AcadGuiPath", orchestrator)
+        self.assertNotIn("$finishLisp", orchestrator)
+        self.assertNotIn("SPCFINISH", orchestrator)
 
     def test_external_commands_are_argument_lists_with_spaces(self):
         repo = Path(r"Z:\Shared Macros")
@@ -391,18 +391,16 @@ class CoreTests(unittest.TestCase):
             repo,
             Path(r"C:\Job Workspace"),
             Path(r"C:\Job Workspace\Parts List.csv"),
-            Path(r"C:\CAD Suite\accoreconsole.exe"),
-            Path(r"C:\CAD Suite\acad.exe"),
+            autocad_console=Path(r"C:\CAD Suite\accoreconsole.exe"),
         )
         self.assertEqual(
-            dxf[-4:],
+            dxf[-2:],
             [
                 "--acad-console-path",
                 r"C:\CAD Suite\accoreconsole.exe",
-                "--acad-gui-path",
-                r"C:\CAD Suite\acad.exe",
             ],
         )
+        self.assertNotIn("--acad-gui-path", dxf)
         self.assertEqual(dxf[0], "python.exe")
         self.assertIn("-u", dxf)
         self.assertIn("Master_Orchestrator.py", " ".join(dxf))
