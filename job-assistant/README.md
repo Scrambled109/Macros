@@ -55,9 +55,9 @@ assistant opens it rather than replacing its audit history.
 The default view intentionally shows only the job, recommended next action,
 overall progress, five workflow statuses, and one selected-step action. Use the
 selected step's **More** menu for readiness, folders, file recording,
-completion, reopening, and technical details. **View > Job Details** contains
-production paths, assistant workspace paths, warnings, and recent files.
-**Tools** contains production-output moves and folder/report shortcuts.
+completion, reopening, technical details, and **Move Completed Outputs**.
+**View > Job Details** contains production paths, assistant workspace paths,
+warnings, and recent files. **Tools** contains folder/report shortcuts.
 
 Background-process text is hidden while nothing is running and appears beside
 the job heading only while AutoCAD, SolidWorks, or the comparison tool is
@@ -130,9 +130,22 @@ Graphical AutoCAD no longer opens for bevel review.
 
 For one reviewed material/thickness folder, the assistant asks for the
 thickness, configures source/filtered/output paths and extrusion depth, and
-opens exact **Tools > Macro > Run** instructions. The operator still runs and
-reviews `Main.RunBatch.swp`; loose `.bas` source does not update a compiled
-`.swp`.
+invokes the compiled `Main.RunBatch.swp` through the SolidWorks API in a
+separate background process. The dashboard remains responsive while the batch
+runs.
+
+The runner first attaches to the already-running SolidWorks COM session. It
+starts SolidWorks only when no active session exists, hides the application and
+part windows during automation, then restores the same window for review. A new
+thickness only changes the run-time registry/environment value read when the
+macro begins; it does not require another SolidWorks instance. SolidWorks work
+remains serial because competing controllers in one session can activate or
+close the wrong document.
+
+The compiled `.swp` remains the production macro. Loose `.bas` changes, such as
+the added pin-stamp sketch display suppression, require importing the updated
+modules and rebuilding the `.swp` on a SolidWorks workstation before those VBA
+source improvements take effect.
 
 Plate parts are staged below `Staging/SolidWorks Parts/<group>`. AutoBOM is a
 high-impact step because it updates properties and saves models. Work from a
@@ -140,8 +153,9 @@ recoverable model copy and account for every skipped or failed file.
 
 ## Move completed outputs
 
-After positively completing the cut-file or plate-model step, choose **Move
-Completed Outputs**. One review table shows every automatic destination:
+After positively completing the cut-file or plate-model step, choose **More >
+Move Completed Outputs** beside **Start Step**. One review table shows every
+automatic destination:
 
 - sorted cut DWGs are merged into `Cut Files/<material-thickness>/`;
 - staged plate `.SLDPRT` files move into the selected `3D Model` folder.
@@ -184,6 +198,7 @@ py -m unittest discover -s job-assistant\tests -v
 py -m unittest discover -s data-tools\bom-converter\tests -v
 py -m unittest discover -s data-tools\production-comparison\tests -v
 py autocad\dxf-orchestrator\test_master_orchestrator.py
+py -m unittest discover -s solidworks\cad-batch-converter\tests -v
 ```
 
 Run [`WINDOWS_TEST_CHECKLIST.md`](WINDOWS_TEST_CHECKLIST.md) on a licensed
