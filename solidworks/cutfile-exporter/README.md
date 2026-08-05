@@ -59,6 +59,12 @@ Add `--recursive` for subfolders or `--overwrite` to replace same-name outputs.
 Use `--sketch-name "ANOTHER NAME"` only when the job uses a controlled alternate
 marking-sketch name.
 
+The batch connects to SolidWorks once and reuses that session for every part.
+SolidWorks COM work remains serial intentionally: parallel COM sessions can
+race document activation, multiply license/resource use, and make failures less
+recoverable. The AutoCAD orchestrator is the safer place for bounded parallel
+CAD work because each clean drawing runs in its own Core Console process.
+
 ## Review
 
 Open `cutfile_export_report.csv` and every failed part. Visually inspect the DXF
