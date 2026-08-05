@@ -42,6 +42,25 @@ class JobAssistantSourceTests(unittest.TestCase):
         self.assertNotIn("process.communicate", calls)
         self.assertIn("self._poll_comparison_process", calls)
 
+    def test_dxf_launch_is_nonblocking(self) -> None:
+        launch = _function(self.tree, "run_dxf")
+        launch_calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(launch)
+            if isinstance(node, ast.Call)
+        }
+        poll = _function(self.tree, "_poll_dxf_process")
+        poll_calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(poll)
+            if isinstance(node, ast.Call)
+        }
+        self.assertIn("subprocess.Popen", launch_calls)
+        self.assertNotIn("subprocess.run", launch_calls)
+        self.assertNotIn("process.wait", launch_calls)
+        self.assertIn("process.poll", poll_calls)
+        self.assertIn("self.after", poll_calls)
+
     def test_comparison_completion_is_polled_by_tk_event_loop(self) -> None:
         poll = _function(self.tree, "_poll_comparison_process")
         calls = {
