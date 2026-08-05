@@ -14,6 +14,9 @@ from solidworks_adapter import (  # noqa: E402
     PlaneFrame,
     SolidWorksExportError,
     SolidWorksSession,
+    _invert_transform_matrix,
+    _sketch_to_model_matrix,
+    _sketch_text_edges,
     _transform_point,
     project_marking_paths,
 )
@@ -50,18 +53,25 @@ class _SketchText:
         return [_Edge()]
 
 
+class _LegacySketchText:
+    def GetEdges(self):
+        return [_Edge()]
+
+
 class _MathTransform:
     ArrayData = (
         1.0, 0.0, 0.0,
         0.0, 1.0, 0.0,
         0.0, 0.0, 1.0,
-        0.0, 0.0, 0.01,
+        0.0, 0.0, -0.01,
         1.0, 0.0, 0.0, 0.0,
     )
 
+
+class _UnreadableMathTransform:
     @property
-    def Inverse(self):
-        return self
+    def ArrayData(self):
+        raise RuntimeError("simulated unreadable returned COM interface")
 
 
 class _Sketch:
@@ -71,6 +81,14 @@ class _Sketch:
 
     def GetSketchSegments(self):
         return [_SketchText()]
+
+
+class _LegacyTransformSketch(_Sketch):
+    @property
+    def ModelToSketchTransform(self):
+        return _UnreadableMathTransform()
+
+    ModelToSketchXform = _MathTransform.ArrayData
 
 
 class _Feature:
@@ -230,6 +248,30 @@ class SolidWorksAdapterTests(unittest.TestCase):
         result = _transform_point((1.0, 0.0, 3.0), matrix)
 
         self.assertEqual(result, (10.0, 22.0, 36.0))
+
+    def test_inverts_transform_matrix_without_com_math_objects(self):
+        matrix = (
+            0.0, 1.0, 0.0,
+            -1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0,
+            10.0, 20.0, 30.0,
+            2.0, 0.0, 0.0, 0.0,
+        )
+        point = (1.0, 2.0, 3.0)
+
+        transformed = _transform_point(point, matrix)
+        restored = _transform_point(transformed, _invert_transform_matrix(matrix))
+
+        for actual, expected in zip(restored, point):
+            self.assertAlmostEqual(actual, expected)
+
+    def test_uses_legacy_raw_sketch_transform_array_as_fallback(self):
+        matrix = _sketch_to_model_matrix(_LegacyTransformSketch())
+
+        self.assertEqual(_transform_point((0.0, 0.0, 0.0), matrix), (0.0, 0.0, 0.01))
+
+    def test_reads_legacy_sketch_text_edges(self):
+        self.assertEqual(len(_sketch_text_edges(_LegacySketchText())), 1)
 
     def test_projects_marking_on_face_plane(self):
         frame = PlaneFrame(
