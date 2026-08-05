@@ -264,6 +264,7 @@ class SolidWorksSession:
         target.parent.mkdir(parents=True, exist_ok=True)
         model = opened.model
         try:
+            _activate_document(self.app, model)
             model.ClearSelection2(True)
             _select_face(face_info.face)
             alignment = _double_array_variant(face_info.frame.alignment())
@@ -373,17 +374,25 @@ def project_marking_paths(
     *,
     plane_tolerance_m: float = 1e-4,
 ) -> list[list[tuple[float, float]]]:
+    source_paths = [tuple(path) for path in paths_model_m]
+    signed_offsets = [
+        _dot(_sub(_vec3(point), frame.origin), frame.normal)
+        for path in source_paths
+        for point in path
+    ]
+    if signed_offsets:
+        offset_span = max(signed_offsets) - min(signed_offsets)
+        if offset_span > plane_tolerance_m:
+            raise SolidWorksExportError(
+                "The CUTFILE MARKING sketch is not parallel to the exported face plane "
+                f"(point offsets vary by {offset_span * 1000.0:.3f} mm)."
+            )
+
     projected: list[list[tuple[float, float]]] = []
-    for path in paths_model_m:
+    for path in source_paths:
         output_path: list[tuple[float, float]] = []
         for point_value in path:
             point = _vec3(point_value)
-            distance = abs(_dot(_sub(point, frame.origin), frame.normal))
-            if distance > plane_tolerance_m:
-                raise SolidWorksExportError(
-                    "The CUTFILE MARKING sketch is not on the exported face plane "
-                    f"(offset {distance * 1000.0:.3f} mm)."
-                )
             x, y = frame.project_m(point)
             output_path.append((x * scale, y * scale))
         if len(output_path) >= 2:
@@ -492,6 +501,84 @@ def _find_feature(model, requested_name: str):
     return None
 
 
+def _activate_document(app, model) -> None:
+    """Make the model active before selecting its face for native DXF export."""
+
+    try:
+        active = _com_value(app, "ActiveDoc")
+    except Exception:
+        active = None
+    if _same_document(active, model):
+        return
+
+    try:
+        title = str(_com_value(model, "GetTitle"))
+    except Exception as exc:
+        raise SolidWorksExportError(
+            f"Could not identify the SolidWorks document before export: {exc}"
+        ) from exc
+
+    failures: list[str] = []
+    for candidate in (app, _dynamic_dispatch(app)):
+        try:
+            errors = _int32_byref()
+            activated = candidate.ActivateDoc3(title, False, 0, errors)
+            if activated is not None:
+                return
+            failures.append(
+                f"ActivateDoc3 returned no document (error {_variant_value(errors)})"
+            )
+        except Exception as exc:
+            failures.append(f"ActivateDoc3: {type(exc).__name__}: {exc}")
+
+    for candidate in (app, _dynamic_dispatch(app)):
+        try:
+            errors = _int32_byref()
+            activated = candidate.ActivateDoc2(title, False, errors)
+            if activated is not None:
+                return
+            failures.append(
+                f"ActivateDoc2 returned no document (error {_variant_value(errors)})"
+            )
+        except Exception as exc:
+            failures.append(f"ActivateDoc2: {type(exc).__name__}: {exc}")
+
+    detail = "; ".join(failures[-3:])
+    raise SolidWorksExportError(
+        f"Could not activate SolidWorks document '{title}' before export. Details: {detail}"
+    )
+
+
+def _same_document(first, second) -> bool:
+    if first is None or second is None:
+        return False
+    if first is second:
+        return True
+    for member in ("GetPathName", "GetTitle"):
+        try:
+            first_value = str(_com_value(first, member)).strip().casefold()
+            second_value = str(_com_value(second, member)).strip().casefold()
+            if first_value and first_value == second_value:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _int32_byref():
+    try:
+        import pythoncom
+        from win32com.client import VARIANT
+
+        return VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+    except ImportError:
+        return 0
+
+
+def _variant_value(value):
+    return getattr(value, "value", value)
+
+
 def _walk_features(model) -> Iterator[object]:
     feature = _com_value(model, "FirstFeature")
     while feature is not None:
@@ -518,17 +605,33 @@ def _walk_subfeatures(parent) -> Iterator[object]:
 
 
 def _select_face(face) -> None:
+    candidates = [face, _dynamic_dispatch(face)]
+    failures: list[str] = []
     try:
-        if bool(face.Select4(False, None)):
-            return
-    except Exception:
-        pass
-    try:
-        if bool(face.Select2(False, 0)):
-            return
+        import win32com.client
+
+        candidates.append(win32com.client.CastTo(face, "IEntity"))
     except Exception as exc:
-        raise SolidWorksExportError(f"Could not select the export face: {exc}") from exc
-    raise SolidWorksExportError("Could not select the export face.")
+        failures.append(f"IEntity cast: {type(exc).__name__}: {exc}")
+
+    for candidate in candidates:
+        try:
+            if bool(candidate.Select4(False, None)):
+                return
+            failures.append("Select4 returned False")
+        except Exception as exc:
+            failures.append(f"Select4: {type(exc).__name__}: {exc}")
+        try:
+            if bool(candidate.Select2(False, 0)):
+                return
+            failures.append("Select2 returned False")
+        except Exception as exc:
+            failures.append(f"Select2: {type(exc).__name__}: {exc}")
+
+    detail = "; ".join(failures[-4:])
+    raise SolidWorksExportError(
+        f"Could not select the export face. SolidWorks details: {detail}"
+    )
 
 
 def _export_to_dwg2(model, *args):
