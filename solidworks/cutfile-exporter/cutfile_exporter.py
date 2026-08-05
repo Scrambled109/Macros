@@ -4,6 +4,7 @@ import argparse
 import csv
 from dataclasses import asdict, dataclass
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -115,22 +116,32 @@ def export_many(
     overwrite: bool = False,
     progress: Callable[[ExportRecord], None] | None = None,
 ) -> list[ExportRecord]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    session = SolidWorksSession.connect(visible=True)
-    records: list[ExportRecord] = []
-    for source in sources:
-        record = export_part(
-            session,
-            source,
-            output_dir / f"{source.stem}.dxf",
-            sketch_name=sketch_name,
-            overwrite=overwrite,
-        )
-        records.append(record)
-        if progress:
-            progress(record)
-    write_report(output_dir / "cutfile_export_report.csv", records)
-    return records
+    source_list = [Path(source) for source in sources]
+    _reject_duplicate_output_names(source_list)
+
+    com_runtime = _initialize_com_thread()
+    session = None
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        session = SolidWorksSession.connect(visible=True)
+        records: list[ExportRecord] = []
+        for source in source_list:
+            record = export_part(
+                session,
+                source,
+                output_dir / f"{source.stem}.dxf",
+                sketch_name=sketch_name,
+                overwrite=overwrite,
+            )
+            records.append(record)
+            if progress:
+                progress(record)
+        write_report(output_dir / "cutfile_export_report.csv", records)
+        return records
+    finally:
+        session = None
+        if com_runtime is not None:
+            com_runtime.CoUninitialize()
 
 
 def write_report(path: Path, records: Iterable[ExportRecord]) -> None:
@@ -161,6 +172,37 @@ def discover_parts(input_path: Path, recursive: bool) -> list[Path]:
         ),
         key=lambda path: str(path).casefold(),
     )
+
+
+def _reject_duplicate_output_names(sources: Iterable[Path]) -> None:
+    grouped: dict[str, list[Path]] = {}
+    for source in sources:
+        grouped.setdefault(f"{source.stem}.dxf".casefold(), []).append(source)
+    duplicates = [paths for paths in grouped.values() if len(paths) > 1]
+    if not duplicates:
+        return
+    examples = "; ".join(
+        ", ".join(str(path) for path in paths[:3]) for paths in duplicates[:3]
+    )
+    raise SolidWorksExportError(
+        "Multiple input parts would create the same DXF filename. Rename the parts "
+        f"or export their folders separately. Conflicts: {examples}"
+    )
+
+
+def _initialize_com_thread():
+    """Initialize COM on whichever thread is performing SolidWorks automation."""
+
+    if os.name != "nt":
+        return None
+    try:
+        import pythoncom
+    except ImportError as exc:
+        raise SolidWorksExportError(
+            "pywin32 is not installed. Run: py -m pip install -r requirements.txt"
+        ) from exc
+    pythoncom.CoInitialize()
+    return pythoncom
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -197,6 +239,7 @@ def run_cli(args: argparse.Namespace) -> int:
 
 
 def run_gui() -> None:
+    import queue
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
@@ -238,11 +281,15 @@ def run_gui() -> None:
 
     ttk.Label(frame, text="Marking sketch name").grid(row=3, column=0, sticky="w", pady=4)
     ttk.Entry(frame, textvariable=sketch_var).grid(row=3, column=1, sticky="ew", padx=8)
-    ttk.Label(frame, text="All its geometry/text → PIN STAMP TEXT").grid(row=3, column=2, sticky="w")
+    ttk.Label(frame, text="All its geometry/text → PIN STAMP TEXT").grid(
+        row=3, column=2, sticky="w"
+    )
 
     options = ttk.Frame(frame)
     options.grid(row=4, column=0, columnspan=3, sticky="w", pady=8)
-    ttk.Checkbutton(options, text="Include subfolders", variable=recursive_var).pack(side="left")
+    ttk.Checkbutton(options, text="Include subfolders", variable=recursive_var).pack(
+        side="left"
+    )
     ttk.Checkbutton(options, text="Overwrite existing DXFs", variable=overwrite_var).pack(
         side="left", padx=18
     )
@@ -261,54 +308,80 @@ def run_gui() -> None:
         run_button.configure(state="disabled" if running else "normal")
 
     def start_export() -> None:
-        input_path = Path(input_var.get().strip())
-        output_path = Path(output_var.get().strip())
+        input_text = input_var.get().strip()
+        output_text = output_var.get().strip()
+        sketch_name = sketch_var.get().strip()
+        recursive = recursive_var.get()
+        overwrite = overwrite_var.get()
+        if not input_text:
+            messagebox.showerror("Missing input", "Select an existing SLDPRT folder.")
+            return
+        input_path = Path(input_text)
+        output_path = Path(output_text)
         if not input_path.exists():
             messagebox.showerror("Missing input", "Select an existing SLDPRT folder.")
             return
-        if not output_var.get().strip():
+        if not output_text:
             messagebox.showerror("Missing output", "Select an output folder.")
             return
-        parts = discover_parts(input_path, recursive_var.get())
+        parts = discover_parts(input_path, recursive)
         if not parts:
             messagebox.showerror("No parts", "No .SLDPRT files were found.")
             return
-        if not sketch_var.get().strip():
+        if not sketch_name:
             messagebox.showerror("Sketch name", "Enter the SolidWorks marking-sketch name.")
             return
 
         set_running(True)
         status_var.set(f"Running {len(parts)} part(s)...")
         append(f"Starting {len(parts)} part(s). SolidWorks may open or become visible.")
+        events: queue.Queue[tuple[str, object]] = queue.Queue()
 
         def worker() -> None:
             try:
                 records = export_many(
                     parts,
                     output_path,
-                    sketch_name=sketch_var.get().strip(),
-                    overwrite=overwrite_var.get(),
-                    progress=lambda record: root.after(
-                        0,
-                        append,
-                        f"[{record.status}] {Path(record.source).name}: {record.message}",
-                    ),
+                    sketch_name=sketch_name,
+                    overwrite=overwrite,
+                    progress=lambda record: events.put(("record", record)),
                 )
                 failures = sum(record.status == "FAILED" for record in records)
                 skipped = sum(record.status == "SKIPPED" for record in records)
                 successes = sum(record.status == "OK" for record in records)
-                root.after(
-                    0,
-                    finish,
-                    successes,
-                    failures,
-                    skipped,
-                    output_path,
+                events.put(
+                    (
+                        "finish",
+                        (successes, failures, skipped, output_path),
+                    )
                 )
             except Exception as exc:
-                root.after(0, fail, str(exc))
+                events.put(("fail", str(exc)))
+
+        def poll_worker() -> None:
+            done = False
+            try:
+                while True:
+                    kind, payload = events.get_nowait()
+                    if kind == "record":
+                        record = payload
+                        append(
+                            f"[{record.status}] {Path(record.source).name}: "
+                            f"{record.message}"
+                        )
+                    elif kind == "finish":
+                        finish(*payload)
+                        done = True
+                    elif kind == "fail":
+                        fail(str(payload))
+                        done = True
+            except queue.Empty:
+                pass
+            if not done:
+                root.after(50, poll_worker)
 
         threading.Thread(target=worker, daemon=True).start()
+        root.after(50, poll_worker)
 
     def finish(successes: int, failures: int, skipped: int, output_path: Path) -> None:
         set_running(False)
