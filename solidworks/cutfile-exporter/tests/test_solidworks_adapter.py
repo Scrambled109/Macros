@@ -104,6 +104,28 @@ class _PlanarFace:
         return 0.006
 
 
+class _SplitPlanarFace(_PlanarFace):
+    def __init__(self, x_min, x_max):
+        self.x_min = float(x_min)
+        self.x_max = float(x_max)
+
+    def GetLoops(self):
+        return [_Loop(True)]
+
+    def GetTessTriangles(self, no_conversion):
+        return (
+            self.x_min, 0.0, 0.01,
+            self.x_max, 0.0, 0.01,
+            self.x_max, 0.06, 0.01,
+            self.x_min, 0.0, 0.01,
+            self.x_max, 0.06, 0.01,
+            self.x_min, 0.06, 0.01,
+        )
+
+    def GetArea(self):
+        return (self.x_max - self.x_min) * 0.06
+
+
 class _Body:
     def GetFaces(self):
         return [_PlanarFace()]
@@ -112,6 +134,16 @@ class _Body:
 class _PartModel:
     def GetBodies2(self, body_type, visible_only):
         return [_Body()]
+
+
+class _SplitBody:
+    def GetFaces(self):
+        return [_SplitPlanarFace(0.0, 0.06), _SplitPlanarFace(0.06, 0.10)]
+
+
+class _SplitPartModel:
+    def GetBodies2(self, body_type, visible_only):
+        return [_SplitBody()]
 
 
 class _ActivePartWithPropertyMembers:
@@ -148,6 +180,12 @@ class SolidWorksAdapterTests(unittest.TestCase):
         self.assertEqual(result.inner_loops, 1)
         self.assertEqual(min(point[0] for point in result.projected_points_m), 0.0)
         self.assertEqual(min(point[1] for point in result.projected_points_m), 0.0)
+
+    def test_rejects_split_coplanar_export_side(self):
+        session = SolidWorksSession(object(), started_by_tool=False)
+
+        with self.assertRaisesRegex(SolidWorksExportError, "split into multiple"):
+            session.find_export_face(_SplitPartModel())
 
     def test_reads_text_from_normal_sketch_segment_enumeration(self):
         session = SolidWorksSession(object(), started_by_tool=False)
