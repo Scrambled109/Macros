@@ -39,7 +39,7 @@ for normal use.
 
 ## Set up or attach a job
 
-Choose **Set Up / Attach Job**, then select three existing folders:
+Choose **Job > Set Up / Attach Job**, then select three existing folders:
 
 1. Engineering Process/root folder (often `SA ENGINEERING PROCESS`)
 2. 3D Model folder
@@ -52,10 +52,16 @@ assistant opens it rather than replacing its audit history.
 
 ## Dashboard design
 
-The default view is intentionally concise: current status, what is needed,
-what to do, the review requirement, and readiness checks. **Technical Details**
-opens tool paths, changes, logs, warnings, and corrective guidance for an
-experienced operator. The toolbar tracks background processes by job number.
+The default view intentionally shows only the job, recommended next action,
+overall progress, five workflow statuses, and one selected-step action. Use the
+selected step's **More** menu for readiness, folders, file recording,
+completion, reopening, and technical details. **View > Job Details** contains
+production paths, assistant workspace paths, warnings, and recent files.
+**Tools** contains production-output moves and folder/report shortcuts.
+
+Background-process text is hidden while nothing is running and appears beside
+the job heading only while AutoCAD, SolidWorks, or the comparison tool is
+active.
 
 Background AutoCAD/comparison completion is posted in the green or amber
 dashboard banner with an **Open Result** button. It does not use a modal
