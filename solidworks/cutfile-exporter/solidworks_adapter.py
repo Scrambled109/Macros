@@ -371,23 +371,10 @@ def project_marking_paths(
     paths_model_m: Iterable[Sequence[Sequence[float]]],
     frame: PlaneFrame,
     scale: float,
-    *,
-    plane_tolerance_m: float = 1e-4,
 ) -> list[list[tuple[float, float]]]:
-    source_paths = [tuple(path) for path in paths_model_m]
-    signed_offsets = [
-        _dot(_sub(_vec3(point), frame.origin), frame.normal)
-        for path in source_paths
-        for point in path
-    ]
-    if signed_offsets:
-        offset_span = max(signed_offsets) - min(signed_offsets)
-        if offset_span > plane_tolerance_m:
-            raise SolidWorksExportError(
-                "The CUTFILE MARKING sketch is not parallel to the exported face plane "
-                f"(point offsets vary by {offset_span * 1000.0:.3f} mm)."
-            )
+    """Orthographically flatten marking geometry onto the selected cut face."""
 
+    source_paths = [tuple(path) for path in paths_model_m]
     projected: list[list[tuple[float, float]]] = []
     for path in source_paths:
         output_path: list[tuple[float, float]] = []
