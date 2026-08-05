@@ -15,6 +15,11 @@ Current workflow macros:
 - `drawing_auto.swp` and `flip_dwg.swp` — additional runnable uploads retained
   at their existing paths
 
+Python/SolidWorks workflow tools:
+
+- `cutfile-exporter/Launch Cut File Exporter.bat` — exports flat SolidWorks parts
+  to validated layered DXFs with separate cut, line-marking, and text layers
+
 The two macros under `legacy/bounding-box-test` are retained because this branch
 contains all `.swp` files, but they are experimental and should not be used for
 production work without validation.
