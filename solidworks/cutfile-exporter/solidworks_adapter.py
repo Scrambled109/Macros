@@ -10,6 +10,7 @@ SW_DOC_PART = 1
 SW_OPEN_SILENT = 1
 SW_BODY_SOLID = 0
 SW_EXPORT_SELECTED_FACES_OR_LOOPS = 2
+SW_SKETCH_ARC = 1
 SW_SKETCH_TEXT = 4
 
 
@@ -441,6 +442,14 @@ def _sample_edge(edge, samples: int) -> list[Vector3]:
 
 def _sample_sketch_segment(segment, samples: int) -> list[Vector3]:
     try:
+        if int(_com_value(segment, "GetType")) == SW_SKETCH_ARC:
+            return _sample_sketch_arc(segment, samples)
+    except SolidWorksExportError:
+        raise
+    except Exception:
+        pass
+
+    try:
         curve = _com_value(segment, "GetCurve")
         values = _com_value(curve, "GetEndParams")
         if isinstance(values, (tuple, list)):
@@ -463,6 +472,77 @@ def _sample_sketch_segment(segment, samples: int) -> list[Vector3]:
         ]
     except Exception:
         return []
+
+
+def _sample_sketch_arc(segment, samples: int) -> list[Vector3]:
+    failures: list[str] = []
+    candidates: list[tuple[str, object]] = [("direct", segment)]
+    dynamic = _dynamic_dispatch(segment)
+    if dynamic is not segment:
+        candidates.append(("dynamic", dynamic))
+    try:
+        import win32com.client
+
+        candidates.append(
+            ("ISketchArc cast", win32com.client.CastTo(segment, "ISketchArc"))
+        )
+    except Exception as exc:
+        failures.append(f"ISketchArc cast: {type(exc).__name__}: {exc}")
+
+    for label, candidate in candidates:
+        try:
+            center = _sketch_point(_com_value(candidate, "GetCenterPoint2"))
+            start = _sketch_point(_com_value(candidate, "GetStartPoint2"))
+            end = _sketch_point(_com_value(candidate, "GetEndPoint2"))
+            direction = int(_com_value(candidate, "GetRotationDir"))
+            try:
+                is_circle = bool(_com_value(candidate, "IsCircle"))
+            except Exception:
+                is_circle = _distance_3d(start, end) <= 1e-12
+
+            start_angle = math.atan2(start[1] - center[1], start[0] - center[0])
+            end_angle = math.atan2(end[1] - center[1], end[0] - center[0])
+            if is_circle:
+                sweep = 2.0 * math.pi if direction >= 0 else -2.0 * math.pi
+            elif direction >= 0:
+                sweep = (end_angle - start_angle) % (2.0 * math.pi)
+            else:
+                sweep = -((start_angle - end_angle) % (2.0 * math.pi))
+
+            radius = math.hypot(start[0] - center[0], start[1] - center[1])
+            if radius <= 1e-15 or abs(sweep) <= 1e-15:
+                raise ValueError("arc has zero radius or sweep")
+            full_circle_samples = max(8, int(samples))
+            count = max(
+                2,
+                int(math.ceil(full_circle_samples * abs(sweep) / (2.0 * math.pi))),
+            )
+            return [
+                (
+                    center[0] + radius * math.cos(start_angle + sweep * index / count),
+                    center[1] + radius * math.sin(start_angle + sweep * index / count),
+                    start[2] + (end[2] - start[2]) * index / count,
+                )
+                for index in range(count + 1)
+            ]
+        except Exception as exc:
+            failures.append(f"{label}: {type(exc).__name__}: {exc}")
+
+    raise SolidWorksExportError(
+        "Could not read a SolidWorks sketch arc. " + "; ".join(failures[-4:])
+    )
+
+
+def _sketch_point(point) -> Vector3:
+    return (
+        float(_com_value(point, "X")),
+        float(_com_value(point, "Y")),
+        float(_com_value(point, "Z")),
+    )
+
+
+def _distance_3d(first: Vector3, second: Vector3) -> float:
+    return math.sqrt(sum((first[index] - second[index]) ** 2 for index in range(3)))
 
 
 def _evaluate_curve(curve, u_min: float, u_max: float, samples: int) -> list[Vector3]:
