@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 
@@ -113,7 +114,31 @@ class _PartModel:
         return [_Body()]
 
 
+class _ActivePartWithPropertyMembers:
+    def __init__(self, path):
+        self.GetPathName = str(path)
+        self.GetType = 1
+
+
+class _AppWithActivePart:
+    def __init__(self, path):
+        self.ActiveDoc = _ActivePartWithPropertyMembers(path)
+
+
 class SolidWorksAdapterTests(unittest.TestCase):
+    def test_reuses_active_part_when_getters_are_com_properties(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "test.SLDPRT"
+            path.touch()
+            session = SolidWorksSession(
+                _AppWithActivePart(path), started_by_tool=False
+            )
+
+            result = session.open_part(path)
+
+            self.assertFalse(result.opened_by_tool)
+            self.assertEqual(result.path, path.resolve())
+
     def test_finds_planar_face_without_surface_interface_cast(self):
         session = SolidWorksSession(object(), started_by_tool=False)
 
