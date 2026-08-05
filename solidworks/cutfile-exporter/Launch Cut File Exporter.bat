@@ -9,7 +9,7 @@ where py >nul 2>nul || (
   exit /b 1
 )
 
-py -c "import ezdxf, win32com.client" >nul 2>nul || (
+py -c "import importlib.metadata as m, ezdxf, win32com.client; assert m.version('ezdxf') == '1.4.2'; assert int(m.version('pywin32')) >= 312" >nul 2>nul || (
   echo Installing the required cut-file exporter libraries...
   py -m pip install -r requirements.txt || (
     echo ERROR: Library installation failed.
@@ -19,6 +19,6 @@ py -c "import ezdxf, win32com.client" >nul 2>nul || (
 )
 
 py cutfile_exporter.py
-if errorlevel 1 pause
-exit /b %errorlevel%
-
+set "export_status=%errorlevel%"
+if not "%export_status%"=="0" pause
+exit /b %export_status%
