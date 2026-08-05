@@ -86,11 +86,6 @@ class SolidWorksSession:
                     "Could not start or connect to SolidWorks. Open SolidWorks and try again."
                 ) from exc
         try:
-            app = win32com.client.gencache.EnsureDispatch(app)
-        except Exception:
-            # Dynamic dispatch still works for the automation-safe API calls below.
-            pass
-        try:
             app.Visible = bool(visible)
         except Exception:
             pass
@@ -104,8 +99,8 @@ class SolidWorksSession:
         active = self.app.ActiveDoc
         if active is not None:
             try:
-                if Path(active.GetPathName()).resolve() == source:
-                    if int(active.GetType()) != SW_DOC_PART:
+                if Path(_com_value(active, "GetPathName")).resolve() == source:
+                    if int(_com_value(active, "GetType")) != SW_DOC_PART:
                         raise SolidWorksExportError(f"Not a SolidWorks part: {source}")
                     return OpenedPart(active, source, False)
             except (OSError, ValueError):
@@ -133,7 +128,7 @@ class SolidWorksSession:
         if not opened.opened_by_tool:
             return
         try:
-            self.app.CloseDoc(opened.model.GetTitle())
+            self.app.CloseDoc(_com_value(opened.model, "GetTitle"))
         except Exception:
             pass
 
@@ -156,7 +151,7 @@ class SolidWorksSession:
             ]
         ] = []
         face_errors: list[str] = []
-        for face in _as_sequence(bodies[0].GetFaces()):
+        for face in _as_sequence(_com_value(bodies[0], "GetFaces")):
             if face is None:
                 continue
             try:
@@ -168,7 +163,7 @@ class SolidWorksSession:
                     continue
                 raw_normal = _normalize(_vec3(normal_values[0:3]))
                 normal = _canonical_normal(raw_normal)
-                loops = tuple(_as_sequence(face.GetLoops()))
+                loops = tuple(_as_sequence(_com_value(face, "GetLoops")))
                 if not loops:
                     raise ValueError("face has no edge loops")
                 model_points = tuple(_face_sample_points(face, loops))
@@ -176,7 +171,7 @@ class SolidWorksSession:
                     raise ValueError("face returned no tessellation or edge points")
                 origin = model_points[0]
                 frame = _make_frame(origin, normal)
-                area = float(face.GetArea())
+                area = float(_com_value(face, "GetArea"))
                 plane_offset = _dot(origin, normal)
                 candidates.append(
                     (area, plane_offset, face, frame, loops, model_points)
@@ -201,7 +196,7 @@ class SolidWorksSession:
         outer = 0
         for loop in loops:
             try:
-                outer += 1 if bool(loop.IsOuter()) else 0
+                outer += 1 if bool(_com_value(loop, "IsOuter")) else 0
             except Exception as exc:
                 raise SolidWorksExportError(f"Could not classify a SolidWorks face loop: {exc}") from exc
         if outer != 1:
@@ -269,7 +264,7 @@ class SolidWorksSession:
         if feature is None:
             return []
         try:
-            sketch = feature.GetSpecificFeature2()
+            sketch = _com_value(feature, "GetSpecificFeature2")
         except Exception as exc:
             raise SolidWorksExportError(
                 f"Could not read marking sketch '{sketch_name}': {exc}"
@@ -281,12 +276,12 @@ class SolidWorksSession:
 
         transform = None
         try:
-            transform = sketch.ModelToSketchTransform.Inverse()
+            transform = _com_value(sketch.ModelToSketchTransform, "Inverse")
         except Exception:
             pass
 
         paths: list[list[Vector3]] = []
-        for segment in _as_sequence(sketch.GetSketchSegments()):
+        for segment in _as_sequence(_com_value(sketch, "GetSketchSegments")):
             if segment is None:
                 continue
             try:
@@ -295,7 +290,7 @@ class SolidWorksSession:
             except Exception:
                 pass
             try:
-                segment_type = int(segment.GetType())
+                segment_type = int(_com_value(segment, "GetType"))
             except Exception:
                 segment_type = -1
             if segment_type != SW_SKETCH_TEXT:
@@ -306,10 +301,10 @@ class SolidWorksSession:
                 continue
 
             try:
-                edges = _as_sequence(segment.GetEdges2())
+                edges = _as_sequence(_com_value(segment, "GetEdges2"))
             except Exception:
                 try:
-                    edges = _as_sequence(segment.GetEdges())
+                    edges = _as_sequence(_com_value(segment, "GetEdges"))
                 except Exception as exc:
                     raise SolidWorksExportError(
                         f"Could not render text from marking sketch '{sketch_name}': {exc}"
@@ -329,7 +324,7 @@ class SolidWorksSession:
         if transform is None:
             return [_vec3(point) for point in points]
         try:
-            math_utility = self.app.GetMathUtility()
+            math_utility = _com_value(self.app, "GetMathUtility")
             converted: list[Vector3] = []
             for point in points:
                 math_point = math_utility.CreatePoint(_double_array_variant(_vec3(point)))
@@ -370,7 +365,7 @@ def project_marking_paths(
 def _sample_face_edges(loops: Sequence[object]) -> Iterator[Vector3]:
     seen: set[int] = set()
     for loop in loops:
-        for edge in _as_sequence(loop.GetEdges()):
+        for edge in _as_sequence(_com_value(loop, "GetEdges")):
             if edge is None or id(edge) in seen:
                 continue
             seen.add(id(edge))
@@ -391,26 +386,26 @@ def _face_sample_points(face, loops: Sequence[object]) -> Iterator[Vector3]:
 
 def _sample_edge(edge, samples: int) -> list[Vector3]:
     try:
-        values = tuple(float(value) for value in edge.GetCurveParams2())
+        values = tuple(float(value) for value in _com_value(edge, "GetCurveParams2"))
         if len(values) >= 8:
             start = _vec3(values[0:3])
             end = _vec3(values[3:6])
             try:
-                curve = edge.GetCurve()
+                curve = _com_value(edge, "GetCurve")
                 return _evaluate_curve(curve, values[6], values[7], samples)
             except Exception:
                 return [start, end]
     except Exception:
         pass
     try:
-        curve = edge.GetCurve()
-        data = edge.GetCurveParams3()
+        curve = _com_value(edge, "GetCurve")
+        data = _com_value(edge, "GetCurveParams3")
         u_min = float(data.UMinValue)
         u_max = float(data.UMaxValue)
         return _evaluate_curve(curve, u_min, u_max, samples)
     except Exception:
         try:
-            data = edge.GetCurveParams3()
+            data = _com_value(edge, "GetCurveParams3")
             return [_vec3(data.StartPoint), _vec3(data.EndPoint)]
         except Exception:
             return []
@@ -418,8 +413,8 @@ def _sample_edge(edge, samples: int) -> list[Vector3]:
 
 def _sample_sketch_segment(segment, samples: int) -> list[Vector3]:
     try:
-        curve = segment.GetCurve()
-        values = curve.GetEndParams()
+        curve = _com_value(segment, "GetCurve")
+        values = _com_value(curve, "GetEndParams")
         if isinstance(values, (tuple, list)):
             offset = 1 if len(values) >= 5 and isinstance(values[0], bool) else 0
             if len(values) >= offset + 2:
@@ -432,8 +427,8 @@ def _sample_sketch_segment(segment, samples: int) -> list[Vector3]:
     except Exception:
         pass
     try:
-        start = segment.GetStartPoint2()
-        end = segment.GetEndPoint2()
+        start = _com_value(segment, "GetStartPoint2")
+        end = _com_value(segment, "GetEndPoint2")
         return [
             (float(start.X), float(start.Y), float(start.Z)),
             (float(end.X), float(end.Y), float(end.Z)),
@@ -445,7 +440,7 @@ def _sample_sketch_segment(segment, samples: int) -> list[Vector3]:
 def _evaluate_curve(curve, u_min: float, u_max: float, samples: int) -> list[Vector3]:
     count = max(1, int(samples))
     try:
-        if bool(curve.IsLine()):
+        if bool(_com_value(curve, "IsLine")):
             count = 1
     except Exception:
         pass
@@ -469,26 +464,26 @@ def _find_feature(model, requested_name: str):
 
 
 def _walk_features(model) -> Iterator[object]:
-    feature = model.FirstFeature()
+    feature = _com_value(model, "FirstFeature")
     while feature is not None:
         yield feature
         yield from _walk_subfeatures(feature)
         try:
-            feature = feature.GetNextFeature()
+            feature = _com_value(feature, "GetNextFeature")
         except Exception:
             break
 
 
 def _walk_subfeatures(parent) -> Iterator[object]:
     try:
-        feature = parent.GetFirstSubFeature()
+        feature = _com_value(parent, "GetFirstSubFeature")
     except Exception:
         return
     while feature is not None:
         yield feature
         yield from _walk_subfeatures(feature)
         try:
-            feature = feature.GetNextSubFeature()
+            feature = _com_value(feature, "GetNextSubFeature")
         except Exception:
             break
 
@@ -540,6 +535,19 @@ def _as_sequence(value) -> list:
     if isinstance(value, (list, tuple)):
         return list(value)
     return [value]
+
+
+def _com_value(obj, name: str):
+    """Read a zero-argument SolidWorks member exposed as a method or property.
+
+    SolidWorks' generated pywin32 wrappers classify several legacy `Get...`
+    members as properties, while dynamic dispatch exposes the same members as
+    callable methods. Supporting both keeps the tool stable with or without a
+    local makepy cache.
+    """
+
+    value = getattr(obj, name)
+    return value() if callable(value) else value
 
 
 def _is_windows() -> bool:
