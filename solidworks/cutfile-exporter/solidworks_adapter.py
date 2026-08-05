@@ -86,6 +86,11 @@ class SolidWorksSession:
                     "Could not start or connect to SolidWorks. Open SolidWorks and try again."
                 ) from exc
         try:
+            app = win32com.client.gencache.EnsureDispatch(app)
+        except Exception:
+            # Dynamic dispatch still works for the automation-safe API calls below.
+            pass
+        try:
             app.Visible = bool(visible)
         except Exception:
             pass
@@ -140,37 +145,59 @@ class SolidWorksSession:
                 f"this part has {len(bodies)}."
             )
 
-        candidates: list[tuple[float, float, object, PlaneFrame]] = []
+        candidates: list[
+            tuple[
+                float,
+                float,
+                object,
+                PlaneFrame,
+                tuple[object, ...],
+                tuple[Vector3, ...],
+            ]
+        ] = []
+        face_errors: list[str] = []
         for face in _as_sequence(bodies[0].GetFaces()):
             if face is None:
                 continue
             try:
-                surface = face.GetSurface()
-                if surface is None or not bool(surface.IsPlane()):
+                normal_values = tuple(float(value) for value in face.Normal)
+                if len(normal_values) < 3:
+                    raise ValueError("Normal returned fewer than three values")
+                normal_length = math.sqrt(sum(value * value for value in normal_values[:3]))
+                if normal_length <= 1e-12:
                     continue
-                params = tuple(float(value) for value in surface.PlaneParams)
-                if len(params) < 6:
-                    continue
-                raw_normal = _normalize(_vec3(params[0:3]))
+                raw_normal = _normalize(_vec3(normal_values[0:3]))
                 normal = _canonical_normal(raw_normal)
-                origin = _vec3(params[3:6])
+                loops = tuple(_as_sequence(face.GetLoops()))
+                if not loops:
+                    raise ValueError("face has no edge loops")
+                model_points = tuple(_face_sample_points(face, loops))
+                if not model_points:
+                    raise ValueError("face returned no tessellation or edge points")
+                origin = model_points[0]
                 frame = _make_frame(origin, normal)
                 area = float(face.GetArea())
                 plane_offset = _dot(origin, normal)
-                candidates.append((area, plane_offset, face, frame))
-            except Exception:
-                continue
+                candidates.append(
+                    (area, plane_offset, face, frame, loops, model_points)
+                )
+            except Exception as exc:
+                face_errors.append(f"{type(exc).__name__}: {exc}")
         if not candidates:
-            raise SolidWorksExportError("No planar face was found in the SolidWorks part.")
+            detail = "; ".join(face_errors[:3])
+            if len(face_errors) > 3:
+                detail += f"; plus {len(face_errors) - 3} more face error(s)"
+            suffix = f" SolidWorks details: {detail}" if detail else ""
+            raise SolidWorksExportError(
+                "No planar face was found in the SolidWorks part." + suffix
+            )
 
         max_area = max(item[0] for item in candidates)
         area_tolerance = max(max_area * 1e-7, 1e-12)
         largest = [item for item in candidates if max_area - item[0] <= area_tolerance]
-        _, _, face, frame = max(largest, key=lambda item: item[1])
-
-        loops = _as_sequence(face.GetLoops())
-        if not loops:
-            raise SolidWorksExportError("The selected planar face has no edge loops.")
+        _, _, face, frame, loops, model_points = max(
+            largest, key=lambda item: item[1]
+        )
         outer = 0
         for loop in loops:
             try:
@@ -182,9 +209,6 @@ class SolidWorksSession:
                 f"The selected face has {outer} outside loops; exactly one is required."
             )
 
-        model_points = tuple(_sample_face_edges(loops))
-        if not model_points:
-            raise SolidWorksExportError("Could not sample the selected face geometry.")
         projected = tuple(frame.project_m(point) for point in model_points)
         min_x = min(point[0] for point in projected)
         min_y = min(point[1] for point in projected)
@@ -353,7 +377,31 @@ def _sample_face_edges(loops: Sequence[object]) -> Iterator[Vector3]:
             yield from _sample_edge(edge, 24)
 
 
+def _face_sample_points(face, loops: Sequence[object]) -> Iterator[Vector3]:
+    try:
+        values = tuple(float(value) for value in face.GetTessTriangles(True))
+        if len(values) >= 9 and len(values) % 3 == 0:
+            for index in range(0, len(values), 3):
+                yield values[index], values[index + 1], values[index + 2]
+            return
+    except Exception:
+        pass
+    yield from _sample_face_edges(loops)
+
+
 def _sample_edge(edge, samples: int) -> list[Vector3]:
+    try:
+        values = tuple(float(value) for value in edge.GetCurveParams2())
+        if len(values) >= 8:
+            start = _vec3(values[0:3])
+            end = _vec3(values[3:6])
+            try:
+                curve = edge.GetCurve()
+                return _evaluate_curve(curve, values[6], values[7], samples)
+            except Exception:
+                return [start, end]
+    except Exception:
+        pass
     try:
         curve = edge.GetCurve()
         data = edge.GetCurveParams3()
