@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from job_core import (  # noqa: E402
     MANIFEST_VERSION,
     JobError,
-    PromotionItem,
+    OutputMoveItem,
     acknowledge_override,
     command_bom,
     command_comparison,
@@ -25,13 +25,13 @@ from job_core import (  # noqa: E402
     load_manifest,
     load_settings,
     migrate_manifest,
+    move_completed_outputs,
     inferred_plate_thickness,
     parse_comparison_summary,
     plate_macro_instructions,
     plate_run_folders,
-    plan_promotions,
+    plan_completed_outputs,
     prepare_dxf_workspace,
-    promote_files,
     save_manifest,
     save_settings,
     setup_job,
@@ -65,7 +65,7 @@ class CoreTests(unittest.TestCase):
         self.assertIn("starts automatically", instructions)
         self.assertIn("no procedure name to choose", instructions)
         self.assertIn("folders detected beside this folder: 4", instructions)
-        self.assertIn("supplied the extrusion depth", instructions)
+        self.assertIn("supplied extrusion depth", instructions)
 
     def test_plate_run_discovery_and_thickness_inference(self):
         for name in ("250-A36", "250-HSLA-65", "375-A36", "notes"):
@@ -122,6 +122,31 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(migrated["paths"]["model_3d"], str(self.model))
         self.assertEqual(migrated["events"][-1]["type"], "manifest_migrated")
 
+    def test_removed_manual_stages_are_preserved_as_legacy_history(self):
+        old = {
+            "manifest_version": 3,
+            "root": str(self.root),
+            "job": {"number": "1", "name": "x", "revision": "A"},
+            "paths": {"model_3d": str(self.model), "cut_files": str(self.cut)},
+            "stages": {
+                "manual_model": {
+                    "status": "complete",
+                    "notes": "Reviewed specialized model",
+                },
+                "final": {"status": "complete", "notes": "Final review"},
+            },
+        }
+
+        migrated = migrate_manifest(old)
+
+        self.assertNotIn("manual_model", migrated["stages"])
+        self.assertNotIn("final", migrated["stages"])
+        self.assertEqual(
+            migrated["legacy_stages"]["manual_model"]["notes"],
+            "Reviewed specialized model",
+        )
+        self.assertEqual(len(migrated["stages"]), 5)
+
     def test_future_manifest_has_useful_error(self):
         with self.assertRaisesRegex(JobError, "supports up to"):
             migrate_manifest({"manifest_version": 999})
@@ -146,6 +171,12 @@ class CoreTests(unittest.TestCase):
             loaded["parts_list_template"], r"\\server\share\Parts List.xlsx"
         )
         self.assertIn("solidworks_executable", loaded)
+        self.assertEqual(loaded["autocad_workers"], 2)
+
+    def test_autocad_worker_setting_is_bounded(self):
+        target = Path(self.temp.name) / "local" / "settings.json"
+        save_settings({"autocad_workers": 99}, target)
+        self.assertEqual(load_settings(target)["autocad_workers"], 4)
 
     def test_drawing_discovery_defaults_and_safe_numbered_copy(self):
         dxf = self.cut / "Plate A.dxf"
@@ -180,41 +211,90 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(event["type"], "warning_overridden")
         self.assertTrue(event["user"])
 
-    def test_promotion_defaults_conflict_to_skip_then_backs_up_replace(self):
+    def test_completed_cut_files_and_plate_models_move_to_production(self):
         manifest, _ = self.manifest()
-        staged = Path(manifest["workspace"]["staging"]) / "part.dwg"
-        staged.write_text("new")
-        production = self.root / "production"
-        production.mkdir()
-        existing = production / staged.name
-        existing.write_text("old")
-        planned = plan_promotions([staged], production)
-        self.assertTrue(planned[0].conflict)
-        self.assertEqual(planned[0].action, "skip")
-        result = promote_files(
-            manifest, [PromotionItem(staged, existing, True, "backup_replace")]
-        )[0]
-        self.assertEqual(result["status"], "replaced")
-        self.assertEqual(existing.read_text(), "new")
-        self.assertEqual(Path(result["backup"]).read_text(), "old")
-        report = Path(result["report"])
-        self.assertTrue(report.is_file())
-        report_data = json.loads(report.read_text())
-        self.assertEqual(report_data["counts"]["replaced"], 1)
-        self.assertEqual(report_data["revision"], "A")
+        manifest["stages"]["dxf"]["status"] = "complete"
+        manifest["stages"]["plate_model"]["status"] = "complete"
+        cut_source = (
+            Path(manifest["workspace"]["working"])
+            / "DXF Orchestrator"
+            / "20260805-120000"
+            / "250-A36"
+            / "PLATE-1.dwg"
+        )
+        plate_source = (
+            Path(manifest["workspace"]["staging"])
+            / "SolidWorks Parts"
+            / "250-A36"
+            / "PLATE-1.SLDPRT"
+        )
+        cut_source.parent.mkdir(parents=True)
+        plate_source.parent.mkdir(parents=True)
+        cut_source.write_text("new drawing")
+        plate_source.write_text("new model")
+        existing_cut = self.cut / "250-A36" / "PLATE-1.dwg"
+        existing_cut.parent.mkdir()
+        existing_cut.write_text("old drawing")
 
-    def test_promotion_rejects_file_outside_staging(self):
+        plan = plan_completed_outputs(manifest)
+
+        self.assertEqual(len(plan), 2)
+        cut_item = next(item for item in plan if item.category == "cut_file")
+        plate_item = next(item for item in plan if item.category == "plate_model")
+        self.assertEqual(cut_item.destination, existing_cut.resolve())
+        self.assertTrue(cut_item.conflict)
+        self.assertEqual(plate_item.destination, (self.model / "PLATE-1.SLDPRT").resolve())
+
+        results = move_completed_outputs(manifest, plan)
+
+        by_category = {result["category"]: result for result in results}
+        self.assertEqual(by_category["cut_file"]["status"], "replaced")
+        self.assertEqual(by_category["plate_model"]["status"], "moved")
+        self.assertEqual(existing_cut.read_text(), "new drawing")
+        self.assertEqual((self.model / "PLATE-1.SLDPRT").read_text(), "new model")
+        self.assertEqual(
+            Path(by_category["cut_file"]["backup"]).read_text(), "old drawing"
+        )
+        self.assertFalse(cut_source.exists())
+        self.assertFalse(plate_source.exists())
+        self.assertTrue(Path(results[0]["report"]).is_file())
+        self.assertEqual(len(manifest["output_moves"]), 2)
+
+    def test_completed_output_with_identical_destination_removes_staged_copy(self):
         manifest, _ = self.manifest()
-        outside = self.root / "not-staged.dwg"
-        outside.write_text("do not promote")
-        production = self.root / "production"
-        result = promote_files(
+        source = (
+            Path(manifest["workspace"]["staging"])
+            / "SolidWorks Parts"
+            / "250-A36"
+            / "P1.SLDPRT"
+        )
+        source.parent.mkdir(parents=True)
+        source.write_text("same")
+        destination = self.model / source.name
+        destination.write_text("same")
+        manifest["stages"]["plate_model"]["status"] = "complete"
+
+        result = move_completed_outputs(
             manifest,
-            [PromotionItem(outside, production / outside.name, False, "copy")],
+            [OutputMoveItem(source, destination, "plate_model", "250-A36", True)],
         )[0]
-        self.assertEqual(result["status"], "failed")
-        self.assertIn("inside the assistant Staging folder", result["error"])
-        self.assertFalse((production / outside.name).exists())
+
+        self.assertEqual(result["status"], "already_current")
+        self.assertFalse(source.exists())
+        self.assertFalse(result["backup"])
+
+    def test_incomplete_stages_are_not_planned_for_output_moves(self):
+        manifest, _ = self.manifest()
+        source = (
+            Path(manifest["workspace"]["working"])
+            / "DXF Orchestrator"
+            / "run"
+            / "250-A36"
+            / "P1.dwg"
+        )
+        source.parent.mkdir(parents=True)
+        source.write_text("drawing")
+        self.assertEqual(plan_completed_outputs(manifest), [])
 
     def test_comparison_summary(self):
         reports = Path(self.temp.name) / "reports"
@@ -324,7 +404,9 @@ class CoreTests(unittest.TestCase):
             ],
         )
         self.assertEqual(dxf[0], "python.exe")
-        self.assertIn("Master_Orchestrator.py", dxf[1])
+        self.assertIn("-u", dxf)
+        self.assertIn("Master_Orchestrator.py", " ".join(dxf))
+        self.assertIn("--workers", dxf)
 
         packaged = command_bom(
             "ignored-python.exe",
@@ -543,7 +625,10 @@ class CoreTests(unittest.TestCase):
                 return 0
 
         handle = io.StringIO()
-        with patch("job_assistant.messagebox.showinfo") as notification:
+        assistant.post_background_notice = lambda title, message, **kwargs: setattr(
+            assistant, "completion_notice", (title, message, kwargs)
+        )
+        with patch("job_assistant.messagebox.showinfo") as modal_notification:
             assistant._poll_dxf_process(
                 FinishedProcess(),
                 handle,
@@ -557,7 +642,75 @@ class CoreTests(unittest.TestCase):
         saved_other = load_manifest(other_path)
         self.assertEqual(saved_first["stages"]["dxf"]["status"], "needs_review")
         self.assertEqual(saved_other["stages"]["dxf"]["status"], "not_started")
-        self.assertIn("01234", notification.call_args.args[1])
+        self.assertIn("01234", assistant.completion_notice[1])
+        modal_notification.assert_not_called()
+
+    def test_finished_comparison_posts_nonmodal_dashboard_notice(self):
+        manifest, manifest_path = self.manifest()
+        output = Path(manifest["workspace"]["reports"]) / "comparison-A"
+        run = output / "Part_Comparison_2026-08-05_120000"
+        run.mkdir(parents=True)
+        (run / "comparison_summary.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "outcome": "review_recommended",
+                    "counts": {
+                        "errors": 0,
+                        "missing_core": 0,
+                        "not_checked": 1,
+                        "source_issues": 0,
+                    },
+                    "reports": {
+                        "excel": str(run / "report.xlsx"),
+                        "html": str(run / "report.html"),
+                        "folder": str(run),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        log = Path(manifest["workspace"]["logs"]) / "comparison-test.log"
+        log.write_text("started\n", encoding="utf-8")
+
+        class FinishedProcess:
+            pid = 43
+
+            @staticmethod
+            def poll():
+                return 0
+
+        assistant = object.__new__(JobAssistant)
+        assistant.manifest = manifest
+        assistant.manifest_path = manifest_path
+        assistant.running_processes = {43: {"stage": "comparison"}}
+        assistant.update_running_summary = lambda: None
+        assistant.refresh = lambda: None
+        assistant.show_stage = lambda: None
+        assistant.post_background_notice = (
+            lambda title, message, **kwargs: setattr(
+                assistant, "completion_notice", (title, message, kwargs)
+            )
+        )
+
+        with (
+            patch("job_assistant.messagebox.showinfo") as show_info,
+            patch("job_assistant.messagebox.showerror") as show_error,
+        ):
+            assistant._poll_comparison_process(
+                FinishedProcess(),
+                io.StringIO(),
+                log,
+                output,
+                manifest,
+                manifest_path,
+            )
+
+        saved = load_manifest(manifest_path)
+        self.assertEqual(saved["stages"]["comparison"]["status"], "needs_review")
+        self.assertIn("Production comparison finished", assistant.completion_notice[0])
+        show_info.assert_not_called()
+        show_error.assert_not_called()
 
 
 if __name__ == "__main__":
