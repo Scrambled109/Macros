@@ -28,8 +28,6 @@ from job_core import (  # noqa: E402
     move_completed_outputs,
     inferred_plate_thickness,
     parse_comparison_summary,
-    plate_macro_instructions,
-    plate_run_folders,
     plan_completed_outputs,
     prepare_dxf_workspace,
     save_manifest,
@@ -53,31 +51,9 @@ class CoreTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_plate_macro_guidance_is_one_thickness_run(self):
-        source = Path("C:/Job/250-HSLA-65")
-        macro = Path("C:/Macros/Main.RunBatch.swp")
-
-        instructions = plate_macro_instructions(source, macro, 0.25, 4)
-
-        self.assertIn("one thickness-group run", instructions)
-        self.assertIn("0.25 in (0.00635 m)", instructions)
-        self.assertIn("Tools > Macro > Run", instructions)
-        self.assertIn("starts automatically", instructions)
-        self.assertIn("no procedure name to choose", instructions)
-        self.assertIn("folders detected beside this folder: 4", instructions)
-        self.assertIn("supplied extrusion depth", instructions)
-
-    def test_plate_run_discovery_and_thickness_inference(self):
-        for name in ("250-A36", "250-HSLA-65", "375-A36", "notes"):
-            folder = Path(self.temp.name) / name
-            folder.mkdir()
-            if name != "notes":
-                (folder / "part.dwg").write_text("drawing", encoding="ascii")
-
-        runs = plate_run_folders(Path(self.temp.name))
-
-        self.assertEqual([run.name for run in runs], ["250-A36", "250-HSLA-65", "375-A36"])
-        self.assertEqual(inferred_plate_thickness(runs[0]), 0.25)
+    def test_plate_thickness_inference(self):
+        self.assertEqual(inferred_plate_thickness(Path("250-A36")), 0.25)
+        self.assertEqual(inferred_plate_thickness(Path("375-HSLA-65")), 0.375)
         self.assertIsNone(inferred_plate_thickness(Path(self.temp.name) / "notes"))
 
     def manifest(self):
@@ -354,16 +330,16 @@ class CoreTests(unittest.TestCase):
         )
         self.assertNotIn("U:\\Engineering\\CAD Services\\Current Jobs", config)
 
-    def test_bevel_finish_closes_the_drawing_not_autocad(self):
+    def test_powershell_bevel_path_is_marked_and_headless(self):
         orchestrator = (
             Path(__file__).resolve().parents[2]
             / "autocad/dxf-orchestrator/Master_Orchestrator.ps1"
         ).read_text(encoding="utf-8-sig")
-        finish_definition = next(
-            line for line in orchestrator.splitlines() if "$finishLisp =" in line
-        )
-        self.assertIn('command `"_.CLOSE`"', finish_definition)
-        self.assertNotIn("_.QUIT", finish_definition)
+        self.assertIn('$workingName = "${workingName}(B)"', orchestrator)
+        self.assertIn("Start-Process $AcadConsolePath", orchestrator)
+        self.assertNotIn("$AcadGuiPath", orchestrator)
+        self.assertNotIn("$finishLisp", orchestrator)
+        self.assertNotIn("SPCFINISH", orchestrator)
 
     def test_external_commands_are_argument_lists_with_spaces(self):
         repo = Path(r"Z:\Shared Macros")
@@ -391,18 +367,16 @@ class CoreTests(unittest.TestCase):
             repo,
             Path(r"C:\Job Workspace"),
             Path(r"C:\Job Workspace\Parts List.csv"),
-            Path(r"C:\CAD Suite\accoreconsole.exe"),
-            Path(r"C:\CAD Suite\acad.exe"),
+            autocad_console=Path(r"C:\CAD Suite\accoreconsole.exe"),
         )
         self.assertEqual(
-            dxf[-4:],
+            dxf[-2:],
             [
                 "--acad-console-path",
                 r"C:\CAD Suite\accoreconsole.exe",
-                "--acad-gui-path",
-                r"C:\CAD Suite\acad.exe",
             ],
         )
+        self.assertNotIn("--acad-gui-path", dxf)
         self.assertEqual(dxf[0], "python.exe")
         self.assertIn("-u", dxf)
         self.assertIn("Master_Orchestrator.py", " ".join(dxf))

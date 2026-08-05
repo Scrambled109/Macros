@@ -20,7 +20,7 @@ import openpyxl
 
 MANIFEST_NAME = "job_manifest.json"
 MANIFEST_VERSION = 4
-SETTINGS_VERSION = 2
+SETTINGS_VERSION = 3
 ASSISTANT_DIR = "_JOB_ASSISTANT"
 
 STAGES = [
@@ -63,13 +63,13 @@ STAGE_GUIDANCE = {
         "action": "Review every proposed file. DXFs start selected; DWGs start excluded.",
         "changes": "Selected files are copied into numbered working folder 001. Originals are untouched.",
         "tool": "Python DXF orchestrator, run against working copies.",
-        "review": "Review every generated DWG and the orchestrator logs; bevel drawings require SPCFINISH in AutoCAD.",
+        "review": "Review every generated DWG and the orchestrator logs; detected bevel drawings are identified by the (B) filename suffix.",
     },
     "plate_model": {
         "need": "Reviewed, prepared DWGs.",
-        "action": "Select one material/thickness DWG folder, then follow the guided SolidWorks macro steps.",
-        "changes": "The macro writes filtered drawings and SLDPRT files only in assistant staging.",
-        "tool": "Guided CAD batch converter macro; the assistant does not claim to run the SWP.",
+        "action": "Select one material/thickness DWG folder and confirm its extrusion thickness.",
+        "changes": "The assistant runs the compiled macro in a reusable background SolidWorks session and writes filtered drawings and SLDPRT files only in assistant staging.",
+        "tool": "Background SolidWorks API runner plus the compiled CAD batch converter macro.",
         "review": "Inspect geometry, thickness, markings, and BatchLog.txt.",
     },
     "autobom": {
@@ -89,50 +89,10 @@ STAGE_GUIDANCE = {
 }
 
 
-def plate_run_folders(root: Path) -> list[Path]:
-    """Return immediate orchestrator output folders that contain plate DWGs."""
-    if not root.is_dir():
-        return []
-    return sorted(
-        (
-            folder
-            for folder in root.iterdir()
-            if folder.is_dir()
-            and re.match(r"^\d+-", folder.name)
-            and (any(folder.glob("*.dwg")) or any(folder.glob("*.DWG")))
-        ),
-        key=lambda folder: folder.name.lower(),
-    )
-
-
 def inferred_plate_thickness(source: Path) -> float | None:
     """Infer inches from the orchestrator's leading-mils folder convention."""
     match = re.match(r"^(\d+)-", source.name)
     return int(match.group(1)) / 1000 if match else None
-
-
-def plate_macro_instructions(
-    source: Path, macro: Path, thickness_inches: float, run_count: int
-) -> str:
-    """Describe the honest, operator-controlled CAD batch workflow."""
-    thickness = f"{thickness_inches:g} in ({thickness_inches * 0.0254:g} m)"
-    return (
-        "This is one thickness-group run. The assistant configured the input "
-        "and staging folders, but it cannot prove that opening an SWP executes "
-        "its entry point.\n\n"
-        f"Source folder:\n{source}\n\n"
-        f"Expected extrusion depth: {thickness}\n\n"
-        f"Material/thickness folders detected beside this folder: {run_count}. "
-        "Run the assistant once for each folder.\n\n"
-        "In SolidWorks:\n"
-        "1. Choose Tools > Macro > Run.\n"
-        f"2. Select {macro}. The macro starts automatically; there is no "
-        "procedure name to choose.\n"
-        "3. Wait while it converts the DWGs and then stamps the marking text.\n"
-        "4. Confirm the supplied extrusion depth appears in BatchLog.txt.\n"
-        "5. Inspect BatchLog.txt and representative parts before selecting "
-        "the next thickness folder."
-    )
 
 class JobError(RuntimeError):
     """A problem that can be explained and corrected by the operator."""
@@ -201,7 +161,6 @@ def default_settings(repo_root: Path | None = None) -> dict[str, Any]:
         "macros_repo": str(repo_root.resolve()) if repo_root else "",
         "parts_list_template": "",
         "default_jobs_parent": "",
-        "autocad_executable": "",
         "autocad_console": "",
         "autocad_workers": 2,
         "solidworks_executable": "",
@@ -625,7 +584,6 @@ def command_dxf(
     workspace: Path,
     parts_list_csv: Path,
     autocad_console: Path | str | None = None,
-    autocad_gui: Path | str | None = None,
     tool_executable: Path | None = None,
     workers: int = 2,
 ) -> list[str]:
@@ -642,8 +600,6 @@ def command_dxf(
     command.extend(["--workers", str(max(1, min(4, int(workers))))])
     if autocad_console:
         command.extend(["--acad-console-path", str(autocad_console)])
-    if autocad_gui:
-        command.extend(["--acad-gui-path", str(autocad_gui)])
     return command
 
 

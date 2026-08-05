@@ -28,6 +28,7 @@ stage has structured error handling, and every file is logged.
 | `TextMarking.bas`       | Harvest the words from the text layer (AutoCAD) and recreate them as native sketch text on the part's top face (SolidWorks). |
 | `TextStamp.bas`         | `RunTextStamp()` stage — the separate, re-runnable pass that stamps the words onto finished parts. |
 | `Main.bas`              | SolidWorks `main()` entry point plus conversion orchestration, progress, summary, and cleanup. |
+| `run_macro.py`          | External background runner used by the Job Assistant; reuses the active SolidWorks COM session and invokes `CADBatch.main`. |
 
 ---
 
@@ -59,6 +60,28 @@ batch never touches text, and the text pass can be re-run at any time against
 the `staging` folder without rebuilding parts. Successful text passes name
 their owned sketch `CAD_BATCH_MARKING`; later passes replace that sketch instead
 of stacking duplicate marking geometry.
+
+---
+
+## Job Assistant background run
+
+The normal Job Assistant path does not require **Tools ▸ Macro ▸ Run**. It
+starts `run_macro.py` as a separate Python process, which keeps Tkinter
+responsive while SolidWorks is controlled synchronously through COM. The
+runner checks the Windows Running Object Table first and attaches to the active
+SolidWorks session; it starts SolidWorks only when no session exists.
+
+During `RunMacro2`, the runner hides the SolidWorks application and suppresses
+new part windows with `ISldWorks.DocumentVisible(False, swDocPART)`. It restores
+part visibility and the same SolidWorks window when the batch returns. The VBA
+also creates native outline and marking sketch entities with `AddToDB` and
+`DisplayWhenAdded = False`, avoiding a graphics refresh for each segment.
+
+Runs remain serial. Do not start multiple SolidWorks runners against one
+instance: document activation, selection, save, and close calls share global
+application state and can target the wrong part when interleaved. Selecting the
+next thickness folder updates the registry/environment snapshot read at the
+next macro entry point; it does not require another SolidWorks process.
 
 ---
 

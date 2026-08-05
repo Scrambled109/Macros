@@ -56,7 +56,7 @@ the root requirements once and use `job-assistant\Launch Job Assistant.bat`.
 |---|---|---|
 | Compare SolidWorks, Parts List, and nest exports | `data-tools/production-comparison/compare_production_parts.py` | Python 3 only |
 | Copy DS rows from an A-BOM into a parts-list workbook | `data-tools/bom-converter/bom_converter.py` | Python 3 + packages |
-| Convert and sort numbered folders of DXFs, including bevel review | `autocad/dxf-orchestrator` | AutoCAD 2026 + PowerShell |
+| Convert and sort numbered DXF folders, marking bevel outputs with `(B)` | `autocad/dxf-orchestrator` | AutoCAD 2026 + Python |
 | Convert every DXF in one folder to DWG | `autocad/batch-convert` | AutoCAD 2026 |
 | Zoom Extents and save every DWG in one folder | `autocad/commands/process_dwgs.bat` | AutoCAD 2026 |
 | Move AutoCAD objects to layers according to color | `autocad/commands/ColortoLayer.lsp` | AutoCAD |
@@ -135,22 +135,21 @@ and archives successfully processed source DXFs. Read
 4. `ColorToLayer.lsp` and `SPC_Seed.dwg` are already beside the script. The
    script now finds these files relative to itself, so another person's user
    name or mapped `U:` drive is no longer required.
-5. Confirm AutoCAD is installed at
-   `C:\Program Files\Autodesk\AutoCAD 2026`. If not, edit the two AutoCAD paths
-   at the top of `Master_Orchestrator.ps1` in Notepad.
+5. Confirm AutoCAD Core Console is installed at
+   `C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe`. Use
+   `--acad-console-path` when it is installed elsewhere.
 6. Open PowerShell in the folder containing the numbered folders and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\autocad/dxf-orchestrator\Master_Orchestrator.ps1"
+py .\autocad\dxf-orchestrator\Master_Orchestrator.py --workspace "." --parts-list ".\Parts List.csv" --workers 2
 ```
 
-For a bevel drawing, AutoCAD opens. Review it, type `SPCFINISH`, and press Enter.
-Do not use Save As. Originals move to `_PROCESSED_DXF_ARCHIVE` **only after** a
-valid, stable output exists. Failures remain in place; inspect
-`_ORCHESTRATOR_LOGS`. `SPCFINISH` closes the reviewed drawing but leaves AutoCAD
-running, avoiding a full application restart before the next beveled part. If
-`SPCFINISH` is forgotten, the review times out after one hour by default and keeps
-the original DXF for retry.
+All files run headlessly through AutoCAD Core Console. Detected bevel drawings
+do not open graphical AutoCAD; their output filename ends in `(B).dwg` so they
+remain obvious downstream. Bevel callout text and leader arrows are moved to
+`PLOT`, not the pin-stamp layers. Originals move to
+`_PROCESSED_DXF_ARCHIVE` **only after** a valid, stable output exists. Failures
+remain in place; inspect `_ORCHESTRATOR_LOGS`.
 
 ## 4. Simple DXF-to-DWG folder conversion
 
@@ -199,13 +198,16 @@ behavior, output, and log instructions are in
 This is an advanced, job-specific tool. The Job Assistant supplies source,
 filtered, output, and extrusion-depth values at run time to a production macro
 rebuilt with the current `Config.bas`. Also verify target/text layer names and
-drawing units. In SolidWorks use **Tools > Macro > Run**, choose
-`solidworks/cad-batch-converter/Main.RunBatch.swp`, and run `Main_RunBatch1.RunBatch`. Run the separate
-`TextStamp1.RunTextStamp` pass only after validating the generated parts.
+drawing units. The Assistant invokes `Main.RunBatch.swp` through the SolidWorks
+API in a background process, reusing an active SolidWorks instance and hiding
+part windows during the run. A new thickness updates run-time configuration;
+it does not require restarting SolidWorks. Standalone users can still choose
+**Tools > Macro > Run** and select `Main.RunBatch.swp`; its public `main()`
+entry point performs conversion and then text marking automatically.
 
-Developers rebuilding the `.swp` must import all eight `.bas` modules and add
-the AutoCAD 2026, SolidWorks 2025, and SolidWorks constants type-library
-references described by the component README.
+Developers rebuilding the `.swp` must import all eight `.bas` modules and clear
+any **MISSING:** VBA references. The current source is late-bound and does not
+require AutoCAD or SolidWorks type-library references.
 
 ## 8. SolidWorks macros, reference source, and legacy material
 
