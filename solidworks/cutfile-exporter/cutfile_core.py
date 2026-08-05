@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+from uuid import uuid4
 
 import ezdxf
 from ezdxf import bbox, edgeminer, edgesmith, path as ezdxf_path
@@ -134,11 +136,18 @@ def assign_cut_layers(
                 "DXF loop detection timed out; the exported geometry is branching or ambiguous."
             ) from exc
 
-    used_edge_ids = {edge.id for loop in open_loops for edge in loop}
+    edge_use_counts = Counter(edge.id for loop in open_loops for edge in loop)
+    used_edge_ids = set(edge_use_counts)
     if len(used_edge_ids) != len(edges):
         unused = len(edges) - len(used_edge_ids)
         raise CutfileValidationError(
             f"The face export contains {unused} open, disconnected, or ambiguous edge(s)."
+        )
+    multiply_used = sum(count != 1 for count in edge_use_counts.values())
+    if multiply_used:
+        raise CutfileValidationError(
+            "DXF loop detection reused "
+            f"{multiply_used} edge(s); the exported geometry is branching or ambiguous."
         )
 
     loops: list[_DetectedLoop] = []
@@ -155,7 +164,9 @@ def assign_cut_layers(
         try:
             area = abs(float(edgesmith.loop_area(loop, gap_tol=gap_tolerance)))
         except (ValueError, TypeError) as exc:
-            raise CutfileValidationError(f"Could not calculate a profile-loop area: {exc}") from exc
+            raise CutfileValidationError(
+                f"Could not calculate a profile-loop area: {exc}"
+            ) from exc
         payloads: list[object] = []
         for edge in loop:
             if edge.payload is None:
@@ -298,10 +309,17 @@ def infer_model_to_dxf_scale(
 def save_dxf(doc, path: str | Path) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.stem}.{uuid4().hex}.tmp.dxf")
     try:
-        doc.saveas(str(target))
-    except OSError as exc:
+        doc.saveas(str(temporary))
+        temporary.replace(target)
+    except (OSError, ezdxf.DXFError) as exc:
         raise CutfileValidationError(f"Could not save final DXF: {exc}") from exc
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _distance_sq(a: Sequence[float], b: Sequence[float]) -> float:
