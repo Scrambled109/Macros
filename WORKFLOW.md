@@ -129,23 +129,26 @@ Full operating instructions are in
 
 Process one material/thickness folder at a time. The Engineering Job Assistant
 infers the thickness from the folder name, asks the operator to confirm it, and
-supplies `EXTRUDE_DEPTH_METERS` to the macro at run time. It also reports the
-number of sibling folders containing DWGs so the operator can account for every
-required run. The production `.swp` must first be rebuilt once with the updated
-runtime-aware `Config.bas`; loose `.bas` files cannot alter a compiled `.swp`.
-The assistant opens guided instructions and does not treat opening an `.swp`
-file as proof that its entry point executed.
+supplies `EXTRUDE_DEPTH_METERS` to the macro at run time. The Assistant starts a
+separate runner process, attaches to an active SolidWorks session before
+starting one, hides application/part graphics during the batch, and restores
+the same session when the macro returns. Its dashboard remains responsive and
+records the runner's real exit status. Changing thickness does not require a
+new SolidWorks process.
 
-In SolidWorks, choose **Tools > Macro > Run**, select:
+The production `.swp` must first be rebuilt once with the updated run-time-aware
+VBA modules; loose `.bas` files cannot alter a compiled `.swp`. For standalone
+use, choose **Tools > Macro > Run** and select:
 
 ```text
 solidworks/cad-batch-converter/Main.RunBatch.swp
 ```
 
-Use the `Main_RunBatch1.RunBatch` entry point. This stage filters the drawing
-geometry, imports or reconstructs the outline, extrudes the plate, and saves a
-SolidWorks part. Run the separate text-stamp pass only when required and only
-after the base plate output has been checked.
+The macro's `CADBatch.main` entry point filters the drawing geometry, imports or
+reconstructs the outline, extrudes the plate, saves a SolidWorks part, and then
+runs the text-marking pass. Do not run multiple SolidWorks workers against the
+same session; document activation and close operations are intentionally
+serial.
 
 ### Checkpoint before manual modeling
 
