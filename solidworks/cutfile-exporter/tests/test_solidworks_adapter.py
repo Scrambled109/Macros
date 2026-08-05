@@ -16,6 +16,7 @@ from solidworks_adapter import (  # noqa: E402
     SolidWorksSession,
     _activate_document,
     _invert_transform_matrix,
+    _sample_sketch_segment,
     _select_face,
     _sketch_to_model_matrix,
     _sketch_text_edges,
@@ -74,6 +75,34 @@ class _SketchLine:
 
     def GetEndPoint2(self):
         return _Point(5.0, 6.0)
+
+
+class _SketchArc:
+    ConstructionGeometry = False
+
+    def __init__(self, direction=1, is_circle=False):
+        self.direction = int(direction)
+        self.is_circle = bool(is_circle)
+
+    def GetType(self):
+        return 1
+
+    def GetCenterPoint2(self):
+        return _Point(0.0, 0.0)
+
+    def GetStartPoint2(self):
+        return _Point(1.0, 0.0)
+
+    def GetEndPoint2(self):
+        if self.is_circle:
+            return _Point(1.0, 0.0)
+        return _Point(0.0, 1.0 if self.direction > 0 else -1.0)
+
+    def GetRotationDir(self):
+        return self.direction
+
+    def IsCircle(self):
+        return self.is_circle
 
 
 class _LegacySketchText:
@@ -336,6 +365,37 @@ class SolidWorksAdapterTests(unittest.TestCase):
         self.assertEqual(paths.line_paths[0][0], (13.0, 24.0, 0.01))
         self.assertEqual(paths.text_paths[0][0], (0.0, 0.0, 0.01))
         self.assertEqual(paths.text_paths[0][-1], (1.0, 2.0, 0.01))
+
+    def test_samples_counterclockwise_sketch_arc_instead_of_chord(self):
+        points = _sample_sketch_segment(_SketchArc(direction=1), 48)
+
+        self.assertGreater(len(points), 2)
+        self.assertAlmostEqual(points[0][0], 1.0)
+        self.assertAlmostEqual(points[0][1], 0.0)
+        self.assertGreater(points[len(points) // 2][0], 0.0)
+        self.assertGreater(points[len(points) // 2][1], 0.0)
+        self.assertAlmostEqual(points[-1][0], 0.0, places=12)
+        self.assertAlmostEqual(points[-1][1], 1.0)
+
+    def test_samples_clockwise_sketch_arc_instead_of_long_way_around(self):
+        points = _sample_sketch_segment(_SketchArc(direction=-1), 48)
+
+        self.assertGreater(len(points), 2)
+        self.assertGreater(points[len(points) // 2][0], 0.0)
+        self.assertLess(points[len(points) // 2][1], 0.0)
+        self.assertAlmostEqual(points[-1][0], 0.0, places=12)
+        self.assertAlmostEqual(points[-1][1], -1.0)
+
+    def test_samples_complete_sketch_circle_as_closed_path(self):
+        points = _sample_sketch_segment(
+            _SketchArc(direction=1, is_circle=True), 48
+        )
+
+        self.assertEqual(len(points), 49)
+        self.assertAlmostEqual(points[0][0], points[-1][0])
+        self.assertAlmostEqual(points[0][1], points[-1][1])
+        self.assertAlmostEqual(min(point[0] for point in points), -1.0)
+        self.assertAlmostEqual(max(point[1] for point in points), 1.0)
 
     def test_applies_solidworks_rotation_scale_and_translation_matrix(self):
         matrix = (
