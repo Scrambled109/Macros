@@ -1,16 +1,24 @@
-# SolidWorks macros
+# SolidWorks Macros
 
-## Folder policy
+The `.swp` files on this branch are the runnable SolidWorks macros. Run one from
+SolidWorks using **Tools > Macro > Run**. Test on disposable or recoverable
+documents before using production data.
 
-- `drawing-automation/`, `auto-bom/`, `cad-batch-converter/`, and `utilities/`
-  contain the current runnable `.swp` artifacts.
-- A `reference/` directory contains readable `.bas` source for review. These
-  files are not executed by SolidWorks and do not patch the `.swp` binaries.
-- `reference-extracted-source/` is a reproducible snapshot recovered from the
-  compiled projects.
-- `legacy/` contains files that are explicitly experimental, unsafe, or
-  superseded/version-named. Nothing was deleted during the reorganization.
+Current workflow macros:
 
-Always test compiled macros on disposable documents. To carry a source fix into
-production, open the matching `.swp` in the SolidWorks VBA editor, apply the
-change, compile the project, and save a newly validated binary.
+- `cad-batch-converter/Main.RunBatch.swp` — converts prepared DWGs into plate
+  parts; normally launched as part of the Job Assistant workflow
+- `auto-bom/AutoBOMProperties.swp` and `auto-bom/AUTOBOMACTUAL.swp` — update BOM
+  properties and save models; validate which one is approved for the job
+- `drawing-automation/drawing_auto.swp` — drawing automation
+- `utilities/hide sketches.swp` — focused utility macro
+- `drawing_auto.swp` and `flip_dwg.swp` — additional runnable uploads retained
+  at their existing paths
+
+The two macros under `legacy/bounding-box-test` are retained because this branch
+contains all `.swp` files, but they are experimental and should not be used for
+production work without validation.
+
+Editable `.bas` source is intentionally hidden from this user branch. Developer
+changes, tests, and rebuild work belong on `main`.
+

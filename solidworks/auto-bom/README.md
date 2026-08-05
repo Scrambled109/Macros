@@ -1,21 +1,11 @@
-# AutoBOM bounding-box macros
+# AutoBOM Macros
 
-`AutoBOMProperties.swp` and `AUTOBOMACTUAL.swp` are retained as runnable
-artifacts because both were already in use and the repository does not yet
-record which name is canonical. Their corresponding `.bas` exports are under
-`reference/`.
+`AutoBOMProperties.swp` and `AUTOBOMACTUAL.swp` are both retained because the
+repository does not yet identify one universal canonical file. Confirm the
+approved macro for the current job before running it.
 
-## Static debugging applied to the reference source
+These are high-impact macros: they update properties and save part files. Work
+from a recoverable model copy, run the macro from **Tools > Macro > Run**, and
+review every skipped file, save result, length, and shape value before using the
+data in a Parts List.
 
-The reviewed reference modules now:
-
-- exit cleanly when `GetComponents` returns no array, rather than calling
-  `LBound`/`UBound` on `Empty`;
-- mark a bounding box as newly inserted only if the API actually returned a
-  feature; and
-- count and report a failed `Save3` as skipped instead of reporting it as a
-  successful processed part.
-
-These fixes affect reference source only. They must be applied and compiled in
-the VBA projects before the `.swp` behavior changes. Both macros remain
-high-impact: they overwrite properties and silently save part files.
