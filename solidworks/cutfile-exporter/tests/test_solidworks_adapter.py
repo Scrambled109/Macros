@@ -366,7 +366,7 @@ class SolidWorksAdapterTests(unittest.TestCase):
 
         self.assertEqual(projected, [[(10.0, 20.0), (30.0, 40.0)]])
 
-    def test_rejects_marking_on_nonparallel_plane(self):
+    def test_flattens_marking_from_nonparallel_plane(self):
         frame = PlaneFrame(
             origin=(0.0, 0.0, 0.0),
             x_axis=(1.0, 0.0, 0.0),
@@ -374,10 +374,11 @@ class SolidWorksAdapterTests(unittest.TestCase):
             normal=(0.0, 0.0, 1.0),
         )
 
-        with self.assertRaisesRegex(SolidWorksExportError, "not parallel"):
-            project_marking_paths(
-                [[(0.0, 0.0, 0.0), (1.0, 0.0, 0.001)]], frame, 1.0
-            )
+        projected = project_marking_paths(
+            [[(0.0, 0.0, 0.0), (1.0, 2.0, 0.003338)]], frame, 1.0
+        )
+
+        self.assertEqual(projected, [[(0.0, 0.0), (1.0, 2.0)]])
 
 
 if __name__ == "__main__":
