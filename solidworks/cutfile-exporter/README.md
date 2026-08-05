@@ -34,6 +34,8 @@ py -m pip install -r requirements.txt
 3. Create an ordinary 2D sketch on that face named exactly `CUTFILE MARKING`.
 4. Put every pin-stamp line and SolidWorks sketch-text object in that sketch. The
    exporter automatically separates ordinary sketch geometry from sketch text.
+   Sketch arcs and circles are converted to smooth marking polylines instead of
+   straight start-to-end chords.
 5. Use a single-line/stick font when the downstream marking process requires
    single-stroke geometry. Ordinary fonts export as their rendered outlines.
 6. Construction geometry is intentionally ignored.
