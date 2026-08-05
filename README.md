@@ -28,7 +28,7 @@ For a guided Windows command center that remembers job-specific folders, prepare
 - **AutoLISP** (`.lsp`) and AutoCAD scripts (`.scr`) run inside AutoCAD.
 - A **SolidWorks macro** (`.swp`) runs inside SolidWorks.
 - **PowerShell** (`.ps1`) and batch files (`.bat`) run in Windows.
-- **Python** (`.py`) is a separate free program used by the two data tools.
+- **Python** (`.py`) is a separate free program used by the data tools and layered cut-file exporter.
 - **CSV** is a plain-text spreadsheet export. Do not rename an Excel workbook
   from `.xlsx` to `.csv`; use **File > Save As > CSV** in Excel.
 - A **terminal** is a text window where commands are typed. On Windows, open
@@ -60,6 +60,7 @@ For a guided Windows command center that remembers job-specific folders, prepare
 | Toggle temporary labels showing each object's layer | `autocad/commands/LayerX.lsp` | AutoCAD |
 | Turn every `#` in an open drawing into `-` | `autocad/commands/H2D.scr` | AutoCAD |
 | Filter DWGs and create extruded SolidWorks parts | `solidworks/cad-batch-converter/Main.RunBatch.swp` / `solidworks/cad-batch-converter` | AutoCAD 2026 + SolidWorks 2025 |
+| Export flat SolidWorks parts to reviewed three-layer DXFs | `solidworks/cutfile-exporter/Launch Cut File Exporter.bat` | Windows + SolidWorks 2025 + Python 3 |
 | Run one of the older SolidWorks utilities | `solidworks/**/*.swp` | SolidWorks; test copy required |
 
 ## 1. Production Part Reconciliation (recommended data-checking tool)
@@ -203,7 +204,13 @@ Developers rebuilding the `.swp` must import all eight `.bas` modules and add
 the AutoCAD 2026, SolidWorks 2025, and SolidWorks constants type-library
 references described by the component README.
 
-## 8. SolidWorks macros, reference source, and legacy material
+## 8. Layered cut files from SolidWorks
+
+`solidworks/cutfile-exporter` drives the installed SolidWorks application to export the largest planar face of each `.SLDPRT`, verifies the resulting DXF topology, and assigns the outside perimeter, inside loops, and an optional `CUTFILE MARKING` sketch to three controlled layers. Double-click `Launch Cut File Exporter.bat`; it installs this tool's `ezdxf` and `pywin32` dependencies when needed.
+
+The exporter deliberately fails parts with ambiguous/open geometry, mismatched loop counts, unverifiable units, multiple visible solid bodies, or marking geometry off the export face. Read [`solidworks/cutfile-exporter/README.md`](solidworks/cutfile-exporter/README.md) before the first job and visually approve representative DXFs before production release.
+
+## 9. SolidWorks macros, reference source, and legacy material
 
 The `.swp` files are the runnable artifacts used in SolidWorks. The `.bas`
 files are retained for review, debugging, and future rebuilds; editing a `.bas`
@@ -212,6 +219,7 @@ file does **not** update its corresponding `.swp` binary.
 - Current drawing automation: `solidworks/drawing-automation/`
 - Current AutoBOM binaries and reviewed reference source: `solidworks/auto-bom/`
 - Current CAD batch converter: `solidworks/cad-batch-converter/`
+- Current layered cut-file exporter: `solidworks/cutfile-exporter/`
 - Focused utility macros: `solidworks/utilities/`
 - Clearly experimental, superseded, or version-named material:
   `solidworks/legacy/` (retained, not deleted)
