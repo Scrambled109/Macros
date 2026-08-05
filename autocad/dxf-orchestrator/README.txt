@@ -78,11 +78,25 @@ folder containing the numbered input directories. Run `py ... --help` for the
 timeout options. The Python file does not require third-party packages. The Job
 Assistant launches this implementation instead of the PowerShell script.
 
+Clean drawings use two AutoCAD Core Console workers by default:
+
+Command Prompt
+py C:\Path\To\Macros\autocad\dxf-orchestrator\Master_Orchestrator.py --workers 2
+
+Choose 1 through 4. Two is recommended because it improves throughput without
+starting an unbounded number of AutoCAD processes. Use `--workers 1` if the
+workstation or AutoCAD licensing is unstable. Each clean job uses a unique
+script and log; bevel reviews still share one interactive AutoCAD session.
+
 5. The Operator Workflow
 Once the script starts, it requires minimal input. Watch the PowerShell terminal for color-coded status updates.
 
 The Background Auto-Pilot (Green)
 If a part does not contain a bevel flag (K, V, BEVEL/BVL, SNIPE, CHAMFER, an angle callout such as V22.5, V-22.5, RV9, or K30, or an arrow/leader annotation), the terminal will display [+] Clean Part. The script will use accoreconsole.exe to invisibly open the part, inject the layers, swap hashtags to dashes, save the file as a DWG, and move it to a sorted folder (e.g., 250-DH-36). No action is required. Detection deliberately favors an extra manual review over missing a potentially beveled part.
+
+Before parallel work starts, duplicate inputs that resolve to the same output
+DWG are rejected with a readable message and both originals are retained. This
+prevents two AutoCAD workers from racing to overwrite one output.
 
 If a headless job fails or hangs, the script logs it (see _ORCHESTRATOR_LOGS), keeps the original DXF, and moves on to the next part instead of stalling the whole batch. A per-job timeout (default 180s, set via $ConsoleTimeoutSec) guards against a wedged accoreconsole.
 
