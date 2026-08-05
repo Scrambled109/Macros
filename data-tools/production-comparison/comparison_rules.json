@@ -15,6 +15,7 @@
     "THREADED ROD"
   ],
   "solidworks_configuration_suffixes": [
+    "DEFAULT<AS MACHINED>",
     "DEFAULT OF DEFAULT MACHINED",
     "DEFAULT OF DEFAULT",
     "DEFAULT MACHINED",
