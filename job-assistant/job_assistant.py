@@ -63,8 +63,8 @@ class JobAssistant(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Engineering Job Assistant")
-        self.geometry("1320x840")
-        self.minsize(1080, 680)
+        self.geometry("980x650")
+        self.minsize(820, 540)
         self.settings = load_settings(repo_root=DEFAULT_REPO)
         self.manifest: dict | None = None
         self.manifest_path: Path | None = None
@@ -73,6 +73,7 @@ class JobAssistant(tk.Tk):
         self.running_processes: dict[int, dict] = {}
         self.notice_path: Path | None = None
         self.stage_detail_text = ""
+        self.recent_tree: ttk.Treeview | None = None
         self._configure_style()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.close_application)
@@ -94,137 +95,260 @@ class JobAssistant(tk.Tk):
         return path
 
     def _configure_style(self) -> None:
-        self.configure(background="#f3f5f7")
+        self.configure(background="#f6f7f9")
         style = ttk.Style(self)
-        if sys.platform == "win32":
-            try:
-                style.theme_use("vista")
-            except tk.TclError:
-                pass
-        style.configure("TFrame", background="#f3f5f7")
+        try:
+            # Clam is intentionally used on Windows too.  It gives the assistant
+            # a consistent, flat ttk surface and avoids the tall, beveled Vista
+            # controls that made the dashboard look crowded.
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("TFrame", background="#f6f7f9")
+        style.configure("Card.TFrame", background="#ffffff")
         style.configure(
             "TLabel",
-            background="#f3f5f7",
+            background="#f6f7f9",
             foreground="#25313a",
             font=("Segoe UI", 10),
         )
-        style.configure("TLabelframe", background="#f3f5f7")
         style.configure(
-            "TLabelframe.Label",
-            background="#f3f5f7",
+            "Card.TLabel",
+            background="#ffffff",
             foreground="#25313a",
-            font=("Segoe UI Semibold", 10),
-        )
-        style.configure("Toolbar.TFrame", background="#243746")
-        style.configure(
-            "Toolbar.TLabel",
-            background="#243746",
-            foreground="#ffffff",
             font=("Segoe UI", 10),
         )
-        style.configure("TButton", font=("Segoe UI", 10), padding=(10, 6))
+        style.configure(
+            "Muted.TLabel",
+            background="#f6f7f9",
+            foreground="#66727d",
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "CardMuted.TLabel",
+            background="#ffffff",
+            foreground="#66727d",
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "TButton",
+            background="#ffffff",
+            foreground="#25313a",
+            bordercolor="#ccd3d9",
+            lightcolor="#ffffff",
+            darkcolor="#ffffff",
+            font=("Segoe UI", 10),
+            padding=(11, 7),
+            relief="flat",
+        )
+        style.map(
+            "TButton",
+            background=[("active", "#eef2f5"), ("pressed", "#e5eaee")],
+            bordercolor=[("focus", "#7aa7d8"), ("active", "#aeb9c2")],
+        )
+        style.configure(
+            "TMenubutton",
+            background="#ffffff",
+            foreground="#25313a",
+            bordercolor="#ccd3d9",
+            lightcolor="#ffffff",
+            darkcolor="#ffffff",
+            font=("Segoe UI", 10),
+            padding=(10, 7),
+            relief="flat",
+        )
+        style.map("TMenubutton", background=[("active", "#eef2f5")])
         style.configure(
             "Primary.TButton",
             font=("Segoe UI Semibold", 10),
-            padding=(13, 8),
+            foreground="#ffffff",
+            background="#1769aa",
+            bordercolor="#1769aa",
+            lightcolor="#1769aa",
+            darkcolor="#1769aa",
+            padding=(14, 8),
+            relief="flat",
+        )
+        style.map(
+            "Primary.TButton",
+            foreground=[("disabled", "#d8e6f1")],
+            background=[
+                ("disabled", "#7fa8c8"),
+                ("active", "#125c96"),
+                ("pressed", "#0e4f82"),
+            ],
         )
         style.configure(
             "Heading.TLabel",
-            background="#f3f5f7",
+            background="#f6f7f9",
             foreground="#17242e",
-            font=("Segoe UI Semibold", 17),
+            font=("Segoe UI Semibold", 18),
         )
         style.configure(
             "Next.TLabel",
-            background="#e7f0f7",
-            foreground="#173f5f",
-            font=("Segoe UI Semibold", 11),
-            padding=(12, 8),
+            background="#f6f7f9",
+            foreground="#3c4a55",
+            font=("Segoe UI", 10),
         )
         style.configure(
             "Notice.TLabel",
-            background="#e8f5ec",
+            background="#edf7f0",
             foreground="#176b32",
-            padding=(12, 7),
+            padding=(10, 7),
         )
         style.configure(
             "Warning.TLabel",
-            background="#fff4df",
+            background="#fff6e7",
             foreground="#7a4b00",
-            padding=(12, 7),
+            padding=(10, 7),
         )
-        style.configure("Treeview", rowheight=28, font=("Segoe UI", 10))
         style.configure(
-            "Treeview.Heading", font=("Segoe UI Semibold", 10), padding=(5, 6)
+            "StepTitle.TLabel",
+            background="#ffffff",
+            foreground="#17242e",
+            font=("Segoe UI Semibold", 12),
+        )
+        style.configure(
+            "Status.TLabel",
+            background="#ffffff",
+            foreground="#5e6a74",
+            font=("Segoe UI Semibold", 9),
+        )
+        style.configure(
+            "StatusComplete.TLabel",
+            background="#ffffff",
+            foreground="#176b32",
+            font=("Segoe UI Semibold", 9),
+        )
+        style.configure(
+            "StatusAttention.TLabel",
+            background="#ffffff",
+            foreground="#98530b",
+            font=("Segoe UI Semibold", 9),
+        )
+        style.configure(
+            "Horizontal.TProgressbar",
+            background="#1769aa",
+            troughcolor="#e3e8ec",
+            bordercolor="#e3e8ec",
+            lightcolor="#1769aa",
+            darkcolor="#1769aa",
+        )
+        style.configure(
+            "Treeview",
+            background="#ffffff",
+            fieldbackground="#ffffff",
+            foreground="#25313a",
+            borderwidth=0,
+            rowheight=38,
+            font=("Segoe UI", 10),
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", "#e5f0fa")],
+            foreground=[("selected", "#173f5f")],
+        )
+        style.configure(
+            "Treeview.Heading",
+            background="#f1f3f5",
+            foreground="#4c5963",
+            borderwidth=0,
+            font=("Segoe UI Semibold", 9),
+            padding=(8, 7),
         )
 
     def _build(self) -> None:
-        toolbar = ttk.Frame(self, padding=(10, 8), style="Toolbar.TFrame")
-        toolbar.pack(fill="x")
-        for text, command in (
-            ("Set Up / Attach Job", self.setup_job),
-            ("Open Job", self.open_job),
-            ("Settings", self.edit_settings),
-            ("Change Revision", self.change_job_revision),
-            ("Refresh", self.refresh),
-        ):
-            ttk.Button(toolbar, text=text, command=command).pack(side="left", padx=3)
+        self._build_menus()
+
+        content = ttk.Frame(self, padding=(22, 18, 22, 16))
+        content.pack(fill="both", expand=True)
+
+        header = ttk.Frame(content)
+        header.pack(fill="x")
         self.running_summary = ttk.Label(
-            toolbar,
-            text="No external processes running",
-            style="Toolbar.TLabel",
+            header,
+            text="",
+            style="Muted.TLabel",
         )
-        self.running_summary.pack(side="right", padx=8)
+        self.running_summary.pack(side="right", padx=(12, 0))
+        self.running_summary.pack_forget()
         self.heading = ttk.Label(
-            self,
-            text="Set up a new job or attach to an existing Engineering Process folder.",
+            header,
+            text="Engineering Job Assistant",
             style="Heading.TLabel",
-            padding=(14, 10, 14, 4),
         )
-        self.heading.pack(fill="x")
+        self.heading.pack(side="left")
+
+        progress_row = ttk.Frame(content)
+        progress_row.pack(fill="x", pady=(8, 14))
         self.next_action = ttk.Label(
-            self,
-            text="The assistant works on controlled copies and keeps generated files in staging.",
+            progress_row,
+            text="Set up a new job or open an existing job.",
             style="Next.TLabel",
+            wraplength=680,
         )
-        self.next_action.pack(fill="x", padx=12, pady=(2, 5))
-        notice_row = ttk.Frame(self, padding=(12, 0))
-        notice_row.pack(fill="x")
+        self.next_action.pack(side="left", fill="x", expand=True)
+        self.progress_text = ttk.Label(
+            progress_row,
+            text="No job open",
+            style="Muted.TLabel",
+        )
+        self.progress_text.pack(side="right", padx=(12, 0))
+        self.progress = ttk.Progressbar(progress_row, length=130)
+        self.progress.pack(side="right", padx=(12, 0))
+
+        self.message_area = ttk.Frame(content)
+        self.message_area.pack(fill="x")
+        self.notice_row = ttk.Frame(self.message_area)
         self.notice_label = ttk.Label(
-            notice_row,
-            text="Ready. Select a step to see exactly what to do.",
+            self.notice_row,
+            text="",
             style="Notice.TLabel",
-            wraplength=1080,
+            wraplength=760,
         )
         self.notice_label.pack(side="left", fill="x", expand=True)
         self.notice_open_button = ttk.Button(
-            notice_row,
+            self.notice_row,
             text="Open Result",
             command=self.open_notice_path,
         )
         self.warning_summary = ttk.Label(
-            self,
-            text="No outstanding warnings.",
+            self.message_area,
+            text="",
             style="Warning.TLabel",
-            wraplength=1220,
+            wraplength=900,
         )
-        self.warning_summary.pack(fill="x", padx=12, pady=(5, 0))
-        self.paths_label = ttk.Label(self, text="", padding=(12, 3), wraplength=1140)
-        self.paths_label.pack(fill="x")
 
-        pane = ttk.Panedwindow(self, orient="horizontal")
-        pane.pack(fill="both", expand=True, padx=12, pady=8)
-        left = ttk.Frame(pane)
-        right = ttk.Frame(pane, padding=(12, 0))
-        pane.add(left, weight=3)
-        pane.add(right, weight=4)
-        self.tree = ttk.Treeview(
-            left, columns=("stage", "status", "files"), show="headings", height=18
+        self.workflow_card = ttk.Frame(content, style="Card.TFrame", padding=1)
+        self.workflow_card.pack(fill="both", expand=True)
+        card_header = ttk.Frame(
+            self.workflow_card,
+            style="Card.TFrame",
+            padding=(14, 11, 14, 8),
         )
-        for name, width in (("stage", 285), ("status", 120), ("files", 55)):
-            self.tree.heading(name, text=name.title())
-            self.tree.column(name, width=width, anchor="w")
-        self.tree.pack(fill="both", expand=True)
+        card_header.pack(fill="x")
+        ttk.Label(
+            card_header,
+            text="Workflow",
+            style="StepTitle.TLabel",
+        ).pack(side="left")
+        ttk.Label(
+            card_header,
+            text="Select a step to work on it",
+            style="CardMuted.TLabel",
+        ).pack(side="right")
+
+        self.tree = ttk.Treeview(
+            self.workflow_card,
+            columns=("stage", "status"),
+            show="headings",
+            height=7,
+        )
+        self.tree.heading("stage", text="Step")
+        self.tree.heading("status", text="Status")
+        self.tree.column("stage", width=650, minwidth=300, anchor="w")
+        self.tree.column("status", width=170, minwidth=120, anchor="w")
+        self.tree.pack(fill="both", expand=True, padx=1)
         self.tree.bind("<<TreeviewSelect>>", self._stage_selected)
         self.tree.tag_configure("not_started", foreground="#666666")
         self.tree.tag_configure("ready", foreground="#1f5f99")
@@ -233,88 +357,121 @@ class JobAssistant(tk.Tk):
         self.tree.tag_configure("complete", foreground="#176b32")
         self.tree.tag_configure("warning", foreground="#a31621")
 
-        recent_frame = ttk.LabelFrame(left, text="Recently recorded files", padding=5)
-        recent_frame.pack(fill="x", pady=(8, 0))
-        self.recent_tree = ttk.Treeview(
-            recent_frame,
-            columns=("name", "revision"),
-            show="headings",
-            height=5,
+        ttk.Separator(self.workflow_card).pack(fill="x")
+        selected = ttk.Frame(
+            self.workflow_card,
+            style="Card.TFrame",
+            padding=(15, 12, 15, 14),
         )
-        self.recent_tree.heading("name", text="File")
-        self.recent_tree.heading("revision", text="Rev")
-        self.recent_tree.column("name", width=330, anchor="w")
-        self.recent_tree.column("revision", width=50, anchor="center")
-        self.recent_tree.pack(fill="x")
-        self.recent_tree.bind("<Double-1>", lambda _event: self.open_recent_file())
+        selected.pack(fill="x")
+        selected_text = ttk.Frame(selected, style="Card.TFrame")
+        selected_text.pack(side="left", fill="both", expand=True)
+        selected_heading = ttk.Frame(selected_text, style="Card.TFrame")
+        selected_heading.pack(fill="x")
+        self.step_title = ttk.Label(
+            selected_heading,
+            text="No job open",
+            style="StepTitle.TLabel",
+        )
+        self.step_title.pack(side="left")
+        self.step_status = ttk.Label(
+            selected_heading,
+            text="",
+            style="Status.TLabel",
+        )
+        self.step_status.pack(side="left", padx=(10, 0))
+        self.step_summary = ttk.Label(
+            selected_text,
+            text="Choose Set Up Job or Open Existing to begin.",
+            style="CardMuted.TLabel",
+            wraplength=650,
+        )
+        self.step_summary.pack(anchor="w", fill="x", pady=(4, 0))
 
-        ttk.Label(right, text="Selected step", font=("Segoe UI", 12, "bold")).pack(
-            anchor="w"
+        self.action_buttons = ttk.Frame(selected, style="Card.TFrame")
+        self.action_buttons.pack(side="right", padx=(14, 0))
+        self.setup_action = ttk.Button(
+            self.action_buttons,
+            text="Set Up Job",
+            command=self.setup_job,
+            style="Primary.TButton",
         )
-        self.guide = tk.Text(
-            right,
-            wrap="word",
-            height=22,
-            state="disabled",
-            padx=10,
-            pady=10,
-            relief="flat",
-            background="#ffffff",
-            foreground="#25313a",
-            font=("Segoe UI", 10),
+        self.setup_action.pack(side="left", padx=(0, 6))
+        self.open_action = ttk.Button(
+            self.action_buttons,
+            text="Open Existing",
+            command=self.open_job,
         )
-        self.guide.pack(fill="both", expand=True, pady=(5, 8))
-        actions = ttk.Frame(right)
-        actions.pack(fill="x")
-        ttk.Button(
-            actions,
-            text="Start Selected Step",
+        self.open_action.pack(side="left")
+        self.primary_step_button = ttk.Button(
+            self.action_buttons,
+            text="Start Step",
             command=self.run_stage,
             style="Primary.TButton",
-        ).pack(side="left", padx=2, pady=2)
-        for text, command in (
-            ("Check Readiness", self.run_checks),
-            ("Open Step Folder", self.open_stage_folder),
-            ("Mark Complete", self.finish_stage),
-        ):
-            ttk.Button(actions, text=text, command=command).pack(side="left", padx=2)
-        advanced_actions = ttk.Frame(right)
-        advanced_actions.pack(fill="x", pady=(5, 0))
-        for text, command in (
-            ("Technical Details", self.show_technical_details),
-            ("Record File", self.record_file),
-            ("Reopen Step", self.reopen),
-        ):
-            ttk.Button(advanced_actions, text=text, command=command).pack(
-                side="left", padx=2
-            )
+        )
+        self.more_button = ttk.Menubutton(self.action_buttons, text="More")
+        self.more_menu = tk.Menu(self.more_button, tearoff=False)
+        self._populate_step_menu(self.more_menu)
+        self.more_button.configure(menu=self.more_menu)
 
-        bottom = ttk.Frame(self, padding=(12, 0, 12, 10))
-        bottom.pack(fill="x")
-        ttk.Button(
-            bottom,
-            text="Move Completed Outputs",
-            command=self.move_outputs,
-            style="Primary.TButton",
-        ).pack(side="left", padx=3)
-        ttk.Button(bottom, text="Job Folders…", command=self.set_optional_folder).pack(
-            side="left", padx=3
+    def _build_menus(self) -> None:
+        menu_bar = tk.Menu(self, tearoff=False)
+
+        job_menu = tk.Menu(menu_bar, tearoff=False)
+        job_menu.add_command(label="Set Up / Attach Job…", command=self.setup_job)
+        job_menu.add_command(label="Open Job…", command=self.open_job)
+        job_menu.add_command(label="Change Revision…", command=self.change_job_revision)
+        job_menu.add_separator()
+        job_menu.add_command(label="Settings…", command=self.edit_settings)
+        job_menu.add_separator()
+        job_menu.add_command(label="Exit", command=self.close_application)
+        menu_bar.add_cascade(label="Job", menu=job_menu)
+
+        step_menu = tk.Menu(menu_bar, tearoff=False)
+        self._populate_step_menu(step_menu)
+        menu_bar.add_cascade(label="Step", menu=step_menu)
+
+        tools_menu = tk.Menu(menu_bar, tearoff=False)
+        tools_menu.add_command(
+            label="Move Completed Outputs…", command=self.move_outputs
         )
-        open_menu_button = ttk.Menubutton(bottom, text="Open…")
-        open_menu = tk.Menu(open_menu_button, tearoff=False)
-        open_menu.add_command(label="Assistant Workspace", command=self.open_workspace)
-        open_menu.add_command(label="Staging", command=self.open_staging)
-        open_menu.add_command(label="Logs", command=self.open_logs)
-        open_menu.add_separator()
-        open_menu.add_command(
-            label="Comparison Report", command=self.open_comparison_report
+        tools_menu.add_command(label="Job Folders…", command=self.set_optional_folder)
+        tools_menu.add_separator()
+        tools_menu.add_command(
+            label="Open Assistant Workspace", command=self.open_workspace
         )
-        open_menu_button.configure(menu=open_menu)
-        open_menu_button.pack(side="left", padx=3)
-        self.progress = ttk.Progressbar(bottom, length=220)
-        self.progress.pack(side="right", padx=5)
-        self.progress_text = ttk.Label(bottom, text="0 of 0 complete")
-        self.progress_text.pack(side="right", padx=5)
+        tools_menu.add_command(label="Open Staging", command=self.open_staging)
+        tools_menu.add_command(label="Open Logs", command=self.open_logs)
+        tools_menu.add_command(
+            label="Open Comparison Report", command=self.open_comparison_report
+        )
+        menu_bar.add_cascade(label="Tools", menu=tools_menu)
+
+        view_menu = tk.Menu(menu_bar, tearoff=False)
+        view_menu.add_command(label="Job Details…", command=self.show_job_details)
+        view_menu.add_command(
+            label="Selected Step Technical Details…",
+            command=self.show_technical_details,
+        )
+        view_menu.add_separator()
+        view_menu.add_command(label="Refresh", command=self.refresh, accelerator="F5")
+        menu_bar.add_cascade(label="View", menu=view_menu)
+
+        self.configure(menu=menu_bar)
+        self.bind("<F5>", lambda _event: self.refresh())
+
+    def _populate_step_menu(self, menu: tk.Menu) -> None:
+        menu.add_command(label="Start Selected Step", command=self.run_stage)
+        menu.add_command(label="Check Readiness…", command=self.run_checks)
+        menu.add_separator()
+        menu.add_command(label="Open Step Folder", command=self.open_stage_folder)
+        menu.add_command(label="Record File…", command=self.record_file)
+        menu.add_command(label="Mark Complete…", command=self.finish_stage)
+        menu.add_command(label="Reopen Step…", command=self.reopen)
+        menu.add_separator()
+        menu.add_command(
+            label="Technical Details…", command=self.show_technical_details
+        )
 
     def handle(self, operation) -> None:
         try:
@@ -336,13 +493,15 @@ class JobAssistant(tk.Tk):
     def update_running_summary(self) -> None:
         count = len(self.running_processes)
         if not count:
-            text = "No external processes running"
-        else:
-            jobs = sorted(
-                {item["job_number"] for item in self.running_processes.values()}
-            )
-            text = f"Running: {count} process(es) for job(s) {', '.join(jobs)}"
+            self.running_summary.pack_forget()
+            return
+        jobs = sorted(
+            {item["job_number"] for item in self.running_processes.values()}
+        )
+        text = f"Running {count} for {', '.join(jobs)}"
         self.running_summary.configure(text=text)
+        if not self.running_summary.winfo_manager():
+            self.running_summary.pack(side="right", padx=(12, 0))
 
     def post_background_notice(
         self,
@@ -365,6 +524,8 @@ class JobAssistant(tk.Tk):
             text=f"{title}: {message}",
             style="Warning.TLabel" if level == "warning" else "Notice.TLabel",
         )
+        if not self.notice_row.winfo_manager():
+            self.notice_row.pack(fill="x", pady=(0, 8))
         if self.notice_path:
             if not self.notice_open_button.winfo_manager():
                 self.notice_open_button.pack(side="right", padx=(8, 0))
@@ -491,22 +652,23 @@ class JobAssistant(tk.Tk):
             return
         self.manifest = load_manifest(self.manifest_path)
         job = self.manifest["job"]
+        title = job["number"]
+        if job.get("name") and job["name"] != job["number"]:
+            title += f" — {job['name']}"
         self.heading.configure(
-            text=f"{job['number']} — {job['name']}  |  Revision {job['revision']}"
+            text=f"{title}  ·  Rev {job['revision']}"
         )
         self.next_action.configure(text=recommended_next_action(self.manifest))
         warnings = dashboard_warnings(self.manifest)
-        self.warning_summary.configure(
-            text=(
-                "ACTION / WARNING: " + "  •  ".join(warnings)
-                if warnings
-                else "No outstanding dashboard warnings."
+        if warnings:
+            extra = f"  (+{len(warnings) - 1} more in Job Details)" if len(warnings) > 1 else ""
+            self.warning_summary.configure(
+                text=f"Needs attention: {warnings[0]}{extra}"
             )
-        )
-        p = self.manifest["paths"]
-        self.paths_label.configure(
-            text=f"Engineering Process: {p['engineering_root']}\n3D Model: {p['model_3d']}    |    Cut Files: {p['cut_files']}\nOptional — Part Checking: {p['part_checking'] or 'not selected'}    |    Nesting: {p['nesting'] or 'not selected'}"
-        )
+            if not self.warning_summary.winfo_manager():
+                self.warning_summary.pack(fill="x", pady=(0, 8))
+        else:
+            self.warning_summary.pack_forget()
         self.tree.delete(*self.tree.get_children())
         complete = 0
         for key, label in STAGES:
@@ -519,7 +681,6 @@ class JobAssistant(tk.Tk):
                 values=(
                     label,
                     item["status"].replace("_", " ").title(),
-                    len(item["artifacts"]),
                 ),
                 tags=(item["status"],),
             )
@@ -538,14 +699,12 @@ class JobAssistant(tk.Tk):
         self.tree.see(self.active_stage)
         self.progress.configure(maximum=len(STAGES), value=complete)
         self.progress_text.configure(text=f"{complete} of {len(STAGES)} complete")
-        self.recent_tree.delete(*self.recent_tree.get_children())
-        for index, artifact in enumerate(self.manifest.get("recent_files", [])[:5]):
-            self.recent_tree.insert(
-                "",
-                "end",
-                iid=f"recent-{index}",
-                values=(artifact.get("name", ""), artifact.get("revision", "")),
-            )
+        self.setup_action.pack_forget()
+        self.open_action.pack_forget()
+        if not self.primary_step_button.winfo_manager():
+            self.primary_step_button.pack(side="left", padx=(0, 6))
+        if not self.more_button.winfo_manager():
+            self.more_button.pack(side="left")
         self.show_stage()
 
     def show_stage(self) -> None:
@@ -556,13 +715,20 @@ class JobAssistant(tk.Tk):
         item = self.manifest["stages"][stage]
         checks = stage_checks(self.manifest, stage)
         status = item["status"].replace("_", " ").title()
-        text = (
-            f"Status: {status}\n\n"
-            f"What you need\n{guide['need']}\n\n"
-            f"What to do\n{guide['action']}\n\n"
-            f"Review before completion\n{guide['review']}\n\n"
-            "Readiness\n"
-            + "\n".join(f"• {c.level.title()}: {c.message}" for c in checks)
+        self.step_title.configure(text=item["label"])
+        self.step_status.configure(
+            text=status,
+            style=(
+                "StatusComplete.TLabel"
+                if item["status"] == "complete"
+                else "StatusAttention.TLabel"
+                if item["status"] in {"needs_review", "warning"}
+                else "Status.TLabel"
+            ),
+        )
+        self.step_summary.configure(text=guide["action"])
+        self.primary_step_button.configure(
+            text="Run Again" if item["status"] == "complete" else "Start Step"
         )
         self.stage_detail_text = (
             f"{item['label']}\n\n"
@@ -583,10 +749,99 @@ class JobAssistant(tk.Tk):
                 for c in checks
             )
         )
-        self.guide.configure(state="normal")
-        self.guide.delete("1.0", "end")
-        self.guide.insert("end", text)
-        self.guide.configure(state="disabled")
+
+    def show_job_details(self) -> None:
+        if not self.manifest:
+            self.handle(lambda: self.require_job())
+            return
+
+        job = self.manifest["job"]
+        paths = self.manifest["paths"]
+        warnings = dashboard_warnings(self.manifest)
+        complete = sum(
+            self.manifest["stages"][key]["status"] == "complete"
+            for key, _label in STAGES
+        )
+        details = (
+            f"Job: {job['number']} — {job.get('name') or job['number']}\n"
+            f"Revision: {job['revision']}\n"
+            f"Progress: {complete} of {len(STAGES)} assistant steps complete\n\n"
+            "Production folders\n"
+            f"Engineering Process: {paths['engineering_root']}\n"
+            f"3D Model: {paths['model_3d']}\n"
+            f"Cut Files: {paths['cut_files']}\n"
+            f"Part Checking: {paths.get('part_checking') or 'Not selected'}\n"
+            f"Nesting: {paths.get('nesting') or 'Not selected'}\n\n"
+            "Assistant workspace\n"
+            f"Staging: {self.manifest['workspace']['staging']}\n"
+            f"Logs: {self.manifest['workspace']['logs']}\n\n"
+            "Items needing attention\n"
+            + ("\n".join(f"• {warning}" for warning in warnings) if warnings else "None")
+        )
+
+        window = tk.Toplevel(self)
+        window.title("Job Details")
+        window.geometry("900x640")
+        window.minsize(700, 500)
+        window.transient(self)
+
+        body = ttk.Frame(window, padding=14)
+        body.pack(fill="both", expand=True)
+        info = tk.Text(
+            body,
+            wrap="word",
+            height=18,
+            padx=10,
+            pady=10,
+            relief="flat",
+            background="#ffffff",
+            foreground="#25313a",
+            font=("Segoe UI", 10),
+        )
+        info.insert("1.0", details)
+        info.configure(state="disabled")
+        info.pack(fill="both", expand=True)
+
+        ttk.Label(
+            body,
+            text="Recently recorded files",
+            font=("Segoe UI Semibold", 10),
+        ).pack(anchor="w", pady=(12, 5))
+        recent_tree = ttk.Treeview(
+            body,
+            columns=("name", "revision", "location"),
+            show="headings",
+            height=5,
+        )
+        recent_tree.heading("name", text="File")
+        recent_tree.heading("revision", text="Rev")
+        recent_tree.heading("location", text="Location")
+        recent_tree.column("name", width=260, anchor="w")
+        recent_tree.column("revision", width=55, anchor="center")
+        recent_tree.column("location", width=480, anchor="w")
+        for index, artifact in enumerate(self.manifest.get("recent_files", [])[:10]):
+            recent_tree.insert(
+                "",
+                "end",
+                iid=f"recent-{index}",
+                values=(
+                    artifact.get("name", ""),
+                    artifact.get("revision", ""),
+                    artifact.get("path", ""),
+                ),
+            )
+        recent_tree.pack(fill="x")
+        recent_tree.bind("<Double-1>", lambda _event: self.open_recent_file())
+        self.recent_tree = recent_tree
+
+        controls = ttk.Frame(body)
+        controls.pack(fill="x", pady=(10, 0))
+        ttk.Button(
+            controls,
+            text="Open Selected File",
+            command=self.open_recent_file,
+        ).pack(side="right", padx=(6, 0))
+        ttk.Button(controls, text="Close", command=window.destroy).pack(side="right")
 
     def show_technical_details(self) -> None:
         if not self.manifest or not self.active_stage:
@@ -1624,6 +1879,8 @@ class JobAssistant(tk.Tk):
     def open_recent_file(self) -> None:
         def operation():
             self.require_job()
+            if self.recent_tree is None or not self.recent_tree.winfo_exists():
+                raise JobError("Open Job Details to select a recently recorded file.")
             selected = self.recent_tree.selection()
             if not selected:
                 return
