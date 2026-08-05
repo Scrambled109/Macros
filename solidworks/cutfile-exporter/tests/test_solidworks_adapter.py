@@ -14,7 +14,9 @@ from solidworks_adapter import (  # noqa: E402
     PlaneFrame,
     SolidWorksExportError,
     SolidWorksSession,
+    _activate_document,
     _invert_transform_matrix,
+    _select_face,
     _sketch_to_model_matrix,
     _sketch_text_edges,
     _transform_point,
@@ -215,6 +217,32 @@ class _AppWithActivePart:
         self.ActiveDoc = _ActivePartWithPropertyMembers(path)
 
 
+class _Document:
+    def __init__(self, title, path):
+        self.GetTitle = title
+        self.GetPathName = path
+
+
+class _AppWithInactivePart:
+    def __init__(self, active, target):
+        self.ActiveDoc = active
+        self.target = target
+        self.activated_title = None
+
+    def ActivateDoc3(self, title, use_preferences, rebuild, errors):
+        self.activated_title = title
+        self.ActiveDoc = self.target
+        return self.target
+
+
+class _FaceSelect2Fallback:
+    def Select4(self, append, selection_data):
+        return False
+
+    def Select2(self, append, mark):
+        return True
+
+
 class SolidWorksAdapterTests(unittest.TestCase):
     def test_reuses_active_part_when_getters_are_com_properties(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -238,6 +266,18 @@ class SolidWorksAdapterTests(unittest.TestCase):
         self.assertEqual(result.inner_loops, 1)
         self.assertEqual(min(point[0] for point in result.projected_points_m), 0.0)
         self.assertEqual(min(point[1] for point in result.projected_points_m), 0.0)
+
+    def test_activates_inactive_part_before_export(self):
+        active = _Document("OTHER.SLDPRT", r"C:\Parts\OTHER.SLDPRT")
+        target = _Document("TARGET.SLDPRT", r"C:\Parts\TARGET.SLDPRT")
+        app = _AppWithInactivePart(active, target)
+
+        _activate_document(app, target)
+
+        self.assertEqual(app.activated_title, "TARGET.SLDPRT")
+
+    def test_retries_face_selection_with_select2(self):
+        _select_face(_FaceSelect2Fallback())
 
     def test_rejects_split_coplanar_export_side(self):
         session = SolidWorksSession(object(), started_by_tool=False)
@@ -310,7 +350,7 @@ class SolidWorksAdapterTests(unittest.TestCase):
 
         self.assertEqual(projected, [[(10.0, 20.0), (30.0, 40.0)]])
 
-    def test_rejects_marking_off_face_plane(self):
+    def test_projects_marking_from_parallel_offset_plane(self):
         frame = PlaneFrame(
             origin=(0.0, 0.0, 0.0),
             x_axis=(1.0, 0.0, 0.0),
@@ -318,9 +358,25 @@ class SolidWorksAdapterTests(unittest.TestCase):
             normal=(0.0, 0.0, 1.0),
         )
 
-        with self.assertRaisesRegex(SolidWorksExportError, "not on the exported face"):
+        projected = project_marking_paths(
+            [[(0.01, 0.02, 0.057568), (0.03, 0.04, 0.057568)]],
+            frame,
+            1000.0,
+        )
+
+        self.assertEqual(projected, [[(10.0, 20.0), (30.0, 40.0)]])
+
+    def test_rejects_marking_on_nonparallel_plane(self):
+        frame = PlaneFrame(
+            origin=(0.0, 0.0, 0.0),
+            x_axis=(1.0, 0.0, 0.0),
+            y_axis=(0.0, 1.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+        )
+
+        with self.assertRaisesRegex(SolidWorksExportError, "not parallel"):
             project_marking_paths(
-                [[(0.0, 0.0, 0.001), (1.0, 0.0, 0.001)]], frame, 1.0
+                [[(0.0, 0.0, 0.0), (1.0, 0.0, 0.001)]], frame, 1.0
             )
 
 
