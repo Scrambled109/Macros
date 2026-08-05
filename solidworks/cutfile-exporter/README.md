@@ -2,7 +2,7 @@
 
 Creates production-review DXFs from flat `.SLDPRT` files by driving the installed
 SolidWorks application. It exports the largest planar face using SolidWorks'
-native face exporter, verifies every cut entity belongs to a closed loop, and
+native face exporter, verifies every cut entity belongs to exactly one closed loop, and
 assigns:
 
 - outer perimeter → `CUT - OUTSIDE STRAIGHT`
@@ -12,7 +12,8 @@ assigns:
 
 The tool fails a part rather than releasing a DXF when SolidWorks and the DXF
 disagree about loop counts, the cut geometry is open/branching, units cannot be
-verified, the part is multibody, or the marking sketch is off the exported face.
+verified, the part is multibody, the intended side is split across coplanar faces,
+or the marking sketch is off the exported face.
 
 ## One-time setup
 
@@ -60,5 +61,5 @@ releasing files to nesting or cutting. Existing DXFs are skipped unless
 overwrite is explicitly enabled.
 
 The first Windows/SolidWorks run is an integration acceptance test because the
-SolidWorks COM application is not available in Linux CI.
-
+SolidWorks COM application is not available in Linux CI. The launcher requires
+`ezdxf 1.4.2` and `pywin32 312` or newer and installs/upgrades them when needed.
