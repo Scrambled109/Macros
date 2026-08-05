@@ -144,10 +144,21 @@ def write_report(path: Path, records: Iterable[ExportRecord]) -> None:
 
 def discover_parts(input_path: Path, recursive: bool) -> list[Path]:
     if input_path.is_file():
-        return [input_path] if input_path.suffix.casefold() == ".sldprt" else []
-    pattern = "**/*.sldprt" if recursive else "*.sldprt"
+        return (
+            [input_path]
+            if input_path.suffix.casefold() == ".sldprt"
+            and not input_path.name.startswith("~$")
+            else []
+        )
+    candidates = input_path.rglob("*") if recursive else input_path.iterdir()
     return sorted(
-        (path for path in input_path.glob(pattern) if path.is_file()),
+        (
+            path
+            for path in candidates
+            if path.is_file()
+            and path.suffix.casefold() == ".sldprt"
+            and not path.name.startswith("~$")
+        ),
         key=lambda path: str(path).casefold(),
     )
 
