@@ -9,6 +9,11 @@ troubleshooting remain in the linked component documentation.
 > number consistent at every handoff, and do not advance past a checkpoint with
 > unexplained missing or duplicate parts.
 
+The Engineering Job Assistant shows only steps it performs or directly
+launches: Parts List, cut files, automatic plate models, AutoBOM, and production
+comparison. Manual modeling, assembly, Parts List reconciliation, nesting, and
+final approval remain documented here as external engineering work.
+
 ## Workflow at a glance
 
 1. Create the initial Parts List from the A-BOM.
@@ -27,7 +32,7 @@ troubleshooting remain in the linked component documentation.
 | Stage | Primary tool | Result |
 |---|---|---|
 | A-BOM conversion | `data-tools/bom-converter/bom_converter.py` | Initial production Parts List workbook |
-| DXF preparation and sorting | `autocad/dxf-orchestrator/Master_Orchestrator.ps1` with AutoCAD | Organized and converted cut files |
+| DXF preparation and sorting | `autocad/dxf-orchestrator/Master_Orchestrator.py` with AutoCAD | Organized and converted cut files |
 | Automatic plate modeling | `solidworks/cad-batch-converter/Main.RunBatch.swp` | Extruded SolidWorks plate parts |
 | Shape and bevel modeling | Manual SolidWorks workflow | Modeled linear shapes and beveled parts |
 | 3D model | Manual SolidWorks assembly | Completed production assembly |
@@ -81,7 +86,7 @@ for the current converter and the root README for its required headings.
 ### Inputs
 
 - Raw DXF cut files in numbered job folders.
-- A CSV named `parts.csv` exported from the Parts List when Parts List sorting
+- A CSV named `Parts List.csv` exported from the Parts List when Parts List sorting
   is required. Its headings are `PartNumber`, `Quantity`, `Thickness`, and
   `Material`; the legacy spelling `Quanity` is also accepted.
 
@@ -90,12 +95,12 @@ for the current converter and the root README for its required headings.
 Run the master orchestrator from the folder containing the numbered folders:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\autocad\dxf-orchestrator\Master_Orchestrator.ps1"
+py .\autocad\dxf-orchestrator\Master_Orchestrator.py --workspace "C:\Job\DXF Workspace" --parts-list "C:\Job\DXF Workspace\Parts List.csv" --workers 2
 ```
 
 The AutoCAD workflow converts and organizes the cut files and uses the Parts
 List data for material, thickness, and quantity-based sorting. Beveled drawings
-require an operator review; type `FINISH` only after that drawing has been
+require an operator review; type `SPCFINISH` only after that drawing has been
 checked.
 
 ### Checkpoint before plate modeling
@@ -115,9 +120,8 @@ Full operating instructions are in
 ### Inputs
 
 - The prepared DWG/DXF-derived cut geometry from the AutoCAD stage.
-- Correct source, filtered, and output paths in
-  `solidworks/cad-batch-converter/Config.bas` and in the compiled production
-  macro configuration.
+- The assistant-configured source, filtered, output, and extrusion-depth
+  runtime values used by the rebuilt production macro.
 
 ### Use
 
