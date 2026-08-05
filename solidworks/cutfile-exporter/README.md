@@ -63,7 +63,13 @@ The batch connects to SolidWorks once and reuses that session for every part.
 SolidWorks COM work remains serial intentionally: parallel COM sessions can
 race document activation, multiply license/resource use, and make failures less
 recoverable. The AutoCAD orchestrator is the safer place for bounded parallel
-CAD work because each clean drawing runs in its own Core Console process.
+CAD work because every drawing runs in its own isolated Core Console process.
+
+The export loop runs on a background Python thread and reports results back
+through Tk's event loop, so the exporter window continues repainting and
+responding while SolidWorks is busy. SolidWorks itself may temporarily display
+Busy while it opens or exports a part; it is controlled as one serial session,
+not frozen by multiple competing workers.
 
 ## Review
 
