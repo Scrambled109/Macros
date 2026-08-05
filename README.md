@@ -17,7 +17,10 @@ you do need the matching engineering software and you should always work on
 For the normal end-to-end job sequence—from A-BOM through modeling, nesting,
 and final reconciliation—use the **[Typical Production Workflow](WORKFLOW.md)**.
 
-For a guided Windows command center that remembers job-specific folders, prepares safe working copies, launches these tools, and records engineering review, use the **[Engineering Job Assistant beta](job-assistant/README.md)**. End users should use its packaged Windows EXE rather than installing Python.
+For a guided Windows command center that remembers job-specific folders,
+prepares safe working copies, launches these tools, and records engineering
+review, use the **[Engineering Job Assistant](job-assistant/README.md)**. Install
+the root requirements once and use `job-assistant\Launch Job Assistant.bat`.
 
 ## What the computer terms mean
 
@@ -28,7 +31,7 @@ For a guided Windows command center that remembers job-specific folders, prepare
 - **AutoLISP** (`.lsp`) and AutoCAD scripts (`.scr`) run inside AutoCAD.
 - A **SolidWorks macro** (`.swp`) runs inside SolidWorks.
 - **PowerShell** (`.ps1`) and batch files (`.bat`) run in Windows.
-- **Python** (`.py`) is a separate free program used by the data tools and layered cut-file exporter.
+- **Python** (`.py`) runs the assistant, data tools, and DXF orchestrator.
 - **CSV** is a plain-text spreadsheet export. Do not rename an Excel workbook
   from `.xlsx` to `.csv`; use **File > Save As > CSV** in Excel.
 - A **terminal** is a text window where commands are typed. On Windows, open
@@ -60,7 +63,7 @@ For a guided Windows command center that remembers job-specific folders, prepare
 | Toggle temporary labels showing each object's layer | `autocad/commands/LayerX.lsp` | AutoCAD |
 | Turn every `#` in an open drawing into `-` | `autocad/commands/H2D.scr` | AutoCAD |
 | Filter DWGs and create extruded SolidWorks parts | `solidworks/cad-batch-converter/Main.RunBatch.swp` / `solidworks/cad-batch-converter` | AutoCAD 2026 + SolidWorks 2025 |
-| Export flat SolidWorks parts to reviewed three-layer DXFs | `solidworks/cutfile-exporter/Launch Cut File Exporter.bat` | Windows + SolidWorks 2025 + Python 3 |
+| Export layered SolidWorks cut files | `solidworks/cutfile-exporter` | SolidWorks 2025 |
 | Run one of the older SolidWorks utilities | `solidworks/**/*.swp` | SolidWorks; test copy required |
 
 ## 1. Production Part Reconciliation (recommended data-checking tool)
@@ -94,11 +97,11 @@ keywords, checks, or tolerances. Keep a copy of the old rules.
 
 ## 2. A-BOM to Parts List converter
 
-`data-tools/bom-converter/bom_converter.py` reads the `Lofting` sheet, keeps part numbers beginning with
-`DS`, removes repeated `ENG MAT ID` routing rows (keeping the last), and appends
-the mapped data to an existing output workbook or a blank template. Existing
-output rows are not erased, so do not run it twice unless you want another copy
-of the rows.
+`data-tools/bom-converter/bom_converter.py` detects the source header row and
+lets the operator map source columns to template headings. Template destinations
+are located by heading name rather than fixed column letter, and the template's
+Excel table is extended through every written row so alternating banding does
+not stop at its original blank-row limit.
 
 ### One-time installation
 
@@ -141,12 +144,12 @@ and archives successfully processed source DXFs. Read
 powershell -ExecutionPolicy Bypass -File ".\autocad/dxf-orchestrator\Master_Orchestrator.ps1"
 ```
 
-For a bevel drawing, AutoCAD opens. Review it, type `FINISH`, and press Enter.
+For a bevel drawing, AutoCAD opens. Review it, type `SPCFINISH`, and press Enter.
 Do not use Save As. Originals move to `_PROCESSED_DXF_ARCHIVE` **only after** a
 valid, stable output exists. Failures remain in place; inspect
-`_ORCHESTRATOR_LOGS`. `FINISH` closes the reviewed drawing but leaves AutoCAD
+`_ORCHESTRATOR_LOGS`. `SPCFINISH` closes the reviewed drawing but leaves AutoCAD
 running, avoiding a full application restart before the next beveled part. If
-`FINISH` is forgotten, the review times out after one hour by default and keeps
+`SPCFINISH` is forgotten, the review times out after one hour by default and keeps
 the original DXF for retry.
 
 ## 4. Simple DXF-to-DWG folder conversion
@@ -193,10 +196,10 @@ button instructions are in `autocad/reference/setting up macros or scripts in AU
 behavior, output, and log instructions are in
 [`solidworks/cad-batch-converter/README.md`](solidworks/cad-batch-converter/README.md).
 
-This is an advanced, job-specific tool. Before running, edit the three folder
-constants at the top of `solidworks/cad-batch-converter/Config.bas`; they currently point
-to a specific company job. Also verify target/text layer names, drawing units,
-and extrusion depth. In SolidWorks use **Tools > Macro > Run**, choose
+This is an advanced, job-specific tool. The Job Assistant supplies source,
+filtered, output, and extrusion-depth values at run time to a production macro
+rebuilt with the current `Config.bas`. Also verify target/text layer names and
+drawing units. In SolidWorks use **Tools > Macro > Run**, choose
 `solidworks/cad-batch-converter/Main.RunBatch.swp`, and run `Main_RunBatch1.RunBatch`. Run the separate
 `TextStamp1.RunTextStamp` pass only after validating the generated parts.
 
@@ -204,13 +207,7 @@ Developers rebuilding the `.swp` must import all eight `.bas` modules and add
 the AutoCAD 2026, SolidWorks 2025, and SolidWorks constants type-library
 references described by the component README.
 
-## 8. Layered cut files from SolidWorks
-
-`solidworks/cutfile-exporter` drives the installed SolidWorks application to export the largest planar face of each `.SLDPRT`, verifies the resulting DXF topology, and assigns the outside perimeter, inside loops, and an optional `CUTFILE MARKING` sketch to three controlled layers. Double-click `Launch Cut File Exporter.bat`; it installs this tool's `ezdxf` and `pywin32` dependencies when needed.
-
-The exporter deliberately fails parts with ambiguous/open geometry, mismatched loop counts, unverifiable units, multiple visible solid bodies, or marking geometry off the export face. Read [`solidworks/cutfile-exporter/README.md`](solidworks/cutfile-exporter/README.md) before the first job and visually approve representative DXFs before production release.
-
-## 9. SolidWorks macros, reference source, and legacy material
+## 8. SolidWorks macros, reference source, and legacy material
 
 The `.swp` files are the runnable artifacts used in SolidWorks. The `.bas`
 files are retained for review, debugging, and future rebuilds; editing a `.bas`
@@ -219,7 +216,6 @@ file does **not** update its corresponding `.swp` binary.
 - Current drawing automation: `solidworks/drawing-automation/`
 - Current AutoBOM binaries and reviewed reference source: `solidworks/auto-bom/`
 - Current CAD batch converter: `solidworks/cad-batch-converter/`
-- Current layered cut-file exporter: `solidworks/cutfile-exporter/`
 - Focused utility macros: `solidworks/utilities/`
 - Clearly experimental, superseded, or version-named material:
   `solidworks/legacy/` (retained, not deleted)
