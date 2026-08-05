@@ -14,9 +14,9 @@ assigns:
 
 The tool fails a part rather than releasing a DXF when SolidWorks and the DXF
 disagree about loop counts, the cut geometry is open/branching, units cannot be
-verified, the part is multibody, the intended side is split across coplanar faces,
-or the marking sketch is not parallel to the exported face. Markings on the
-opposite face or another parallel offset plane are flattened onto the cut face.
+verified, the part is multibody, or the intended side is split across coplanar
+faces. Marking geometry is orthographically flattened onto the cut face, so its
+sketch can be on the face, the opposite side, or another plane.
 
 ## One-time setup
 
