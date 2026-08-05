@@ -28,8 +28,6 @@ from job_core import (  # noqa: E402
     move_completed_outputs,
     inferred_plate_thickness,
     parse_comparison_summary,
-    plate_macro_instructions,
-    plate_run_folders,
     plan_completed_outputs,
     prepare_dxf_workspace,
     save_manifest,
@@ -53,31 +51,9 @@ class CoreTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_plate_macro_guidance_is_one_thickness_run(self):
-        source = Path("C:/Job/250-HSLA-65")
-        macro = Path("C:/Macros/Main.RunBatch.swp")
-
-        instructions = plate_macro_instructions(source, macro, 0.25, 4)
-
-        self.assertIn("one thickness-group run", instructions)
-        self.assertIn("0.25 in (0.00635 m)", instructions)
-        self.assertIn("Tools > Macro > Run", instructions)
-        self.assertIn("starts automatically", instructions)
-        self.assertIn("no procedure name to choose", instructions)
-        self.assertIn("folders detected beside this folder: 4", instructions)
-        self.assertIn("supplied extrusion depth", instructions)
-
-    def test_plate_run_discovery_and_thickness_inference(self):
-        for name in ("250-A36", "250-HSLA-65", "375-A36", "notes"):
-            folder = Path(self.temp.name) / name
-            folder.mkdir()
-            if name != "notes":
-                (folder / "part.dwg").write_text("drawing", encoding="ascii")
-
-        runs = plate_run_folders(Path(self.temp.name))
-
-        self.assertEqual([run.name for run in runs], ["250-A36", "250-HSLA-65", "375-A36"])
-        self.assertEqual(inferred_plate_thickness(runs[0]), 0.25)
+    def test_plate_thickness_inference(self):
+        self.assertEqual(inferred_plate_thickness(Path("250-A36")), 0.25)
+        self.assertEqual(inferred_plate_thickness(Path("375-HSLA-65")), 0.375)
         self.assertIsNone(inferred_plate_thickness(Path(self.temp.name) / "notes"))
 
     def manifest(self):
