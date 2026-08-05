@@ -70,6 +70,42 @@ class JobAssistantSourceTests(unittest.TestCase):
             ["bom", "dxf", "plate_model", "autobom", "comparison"],
         )
 
+    def test_default_dashboard_defers_advanced_information(self) -> None:
+        build = _function(self.tree, "_build")
+        calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(build)
+            if isinstance(node, ast.Call)
+        }
+        constants = {
+            node.value
+            for node in ast.walk(build)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertNotIn("tk.Text", calls)
+        self.assertNotIn("ttk.Panedwindow", calls)
+        self.assertNotIn("Recently recorded files", constants)
+        self.assertIn("More", constants)
+        _function(self.tree, "show_job_details")
+
+    def test_default_dashboard_buttons_have_visible_labels(self) -> None:
+        build = _function(self.tree, "_build")
+        buttons = [
+            node
+            for node in ast.walk(build)
+            if isinstance(node, ast.Call)
+            and _qualified_name(node.func) == "ttk.Button"
+        ]
+        self.assertGreater(len(buttons), 0)
+        for button in buttons:
+            text_keyword = next(
+                (keyword for keyword in button.keywords if keyword.arg == "text"),
+                None,
+            )
+            self.assertIsNotNone(text_keyword)
+            self.assertIsInstance(text_keyword.value, ast.Constant)
+            self.assertTrue(text_keyword.value.value.strip())
+
     def test_launcher_uses_shared_source_checkout(self) -> None:
         launcher = SOURCE.with_name("Launch Job Assistant.bat").read_text(
             encoding="utf-8"
