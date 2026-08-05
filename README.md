@@ -24,6 +24,8 @@ That installs every third-party Python package used anywhere in this branch:
 - `openpyxl` — reads and writes Excel workbooks
 - `pandas` — used by the BOP/BOM converter
 - `customtkinter` — provides the EPL converter desktop interface
+- `ezdxf` — validates and assigns layers in exported DXF files
+- `pywin32` — connects Python to the installed SolidWorks application
 
 Everything else used by the Python scripts is included with Python. On a normal
 Windows Python installation, `tkinter` is included too.
@@ -41,6 +43,7 @@ still require the matching desktop software: AutoCAD 2026 and/or SolidWorks
 | Convert a BOP/BOM to a Parts List | Double-click `data-tools/bom-converter/bom_converter.py` | Python packages above |
 | Convert EPLs using required BOP scope | Double-click `data-tools/epl_converter/main.py` | Python packages above |
 | Prepare and sort DXF files | Run `autocad/dxf-orchestrator/Master_Orchestrator.py` | AutoCAD 2026 |
+| Export flat SolidWorks parts to layered DXFs | Double-click `solidworks/cutfile-exporter/Launch Cut File Exporter.bat` | SolidWorks 2025 |
 | Run a SolidWorks macro | SolidWorks **Tools > Macro > Run**, then select a `.swp` | SolidWorks 2025 |
 
 If you are processing a complete job, use the Job Assistant. It supplies the
@@ -55,6 +58,8 @@ keeps working files, logs, reports, and backups together.
   and `material_translations.json` are required.
 - Do not move `SPC_Seed.dwg` or `ColortoLayer.lsp` away from the DXF
   Orchestrator.
+- Keep the complete `solidworks/cutfile-exporter` folder together; its Python
+  modules and launcher are all required.
 - The `.swp` files are the runnable SolidWorks macros. Loose `.bas` files are
   developer source and are intentionally not present on this branch.
 - Generated reports, job drawings, workbooks, logs, and processed files should
