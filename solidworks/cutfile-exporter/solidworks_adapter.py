@@ -52,6 +52,16 @@ class FaceExportInfo:
 
 
 @dataclass(frozen=True)
+class SolidWorksMarkingPaths:
+    line_paths: tuple[tuple[Vector3, ...], ...]
+    text_paths: tuple[tuple[Vector3, ...], ...]
+
+    @property
+    def total_paths(self) -> int:
+        return len(self.line_paths) + len(self.text_paths)
+
+
+@dataclass(frozen=True)
 class OpenedPart:
     model: object
     path: Path
@@ -287,10 +297,10 @@ class SolidWorksSession:
         sketch_name: str,
         *,
         curve_samples: int = 48,
-    ) -> list[list[Vector3]]:
+    ) -> SolidWorksMarkingPaths:
         feature = _find_feature(model, sketch_name)
         if feature is None:
-            return []
+            return SolidWorksMarkingPaths((), ())
         try:
             sketch = _com_value(feature, "GetSpecificFeature2")
         except Exception as exc:
@@ -309,7 +319,8 @@ class SolidWorksSession:
                 f"Could not read marking sketch '{sketch_name}' coordinates: {exc}"
             ) from exc
 
-        paths: list[list[Vector3]] = []
+        line_paths: list[tuple[Vector3, ...]] = []
+        text_paths: list[tuple[Vector3, ...]] = []
         for segment in _as_sequence(_com_value(sketch, "GetSketchSegments")):
             if segment is None:
                 continue
@@ -326,7 +337,7 @@ class SolidWorksSession:
                 points = _sample_sketch_segment(segment, curve_samples)
                 points = self._to_model_points(points, sketch_to_model)
                 if len(points) >= 2:
-                    paths.append(points)
+                    line_paths.append(tuple(points))
                 continue
 
             try:
@@ -343,8 +354,8 @@ class SolidWorksSession:
                 points = _sample_edge(edge, curve_samples)
                 points = self._to_model_points(points, sketch_to_model)
                 if len(points) >= 2:
-                    paths.append(points)
-        return paths
+                    text_paths.append(tuple(points))
+        return SolidWorksMarkingPaths(tuple(line_paths), tuple(text_paths))
 
     def _to_model_points(self, points, matrix) -> list[Vector3]:
         try:
