@@ -75,7 +75,55 @@ class _Model:
         return _Feature()
 
 
+class _Loop:
+    def __init__(self, outer):
+        self._outer = outer
+
+    def IsOuter(self):
+        return self._outer
+
+
+class _PlanarFace:
+    Normal = (0.0, 0.0, 1.0)
+
+    def GetLoops(self):
+        return [_Loop(True), _Loop(False)]
+
+    def GetTessTriangles(self, no_conversion):
+        return (
+            0.0, 0.0, 0.01,
+            0.1, 0.0, 0.01,
+            0.1, 0.06, 0.01,
+            0.0, 0.0, 0.01,
+            0.1, 0.06, 0.01,
+            0.0, 0.06, 0.01,
+        )
+
+    def GetArea(self):
+        return 0.006
+
+
+class _Body:
+    def GetFaces(self):
+        return [_PlanarFace()]
+
+
+class _PartModel:
+    def GetBodies2(self, body_type, visible_only):
+        return [_Body()]
+
+
 class SolidWorksAdapterTests(unittest.TestCase):
+    def test_finds_planar_face_without_surface_interface_cast(self):
+        session = SolidWorksSession(object(), started_by_tool=False)
+
+        result = session.find_export_face(_PartModel())
+
+        self.assertEqual(result.outer_loops, 1)
+        self.assertEqual(result.inner_loops, 1)
+        self.assertEqual(min(point[0] for point in result.projected_points_m), 0.0)
+        self.assertEqual(min(point[1] for point in result.projected_points_m), 0.0)
+
     def test_reads_text_from_normal_sketch_segment_enumeration(self):
         session = SolidWorksSession(object(), started_by_tool=False)
 
