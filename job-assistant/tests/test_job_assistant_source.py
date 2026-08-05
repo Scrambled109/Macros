@@ -125,6 +125,46 @@ class JobAssistantSourceTests(unittest.TestCase):
             self.assertIsInstance(text_keyword.value, ast.Constant)
             self.assertTrue(text_keyword.value.value.strip())
 
+    def test_more_menu_contains_completed_output_move(self) -> None:
+        menu = _function(self.tree, "_populate_step_menu")
+        constants = {
+            node.value
+            for node in ast.walk(menu)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertIn("Move Completed Outputs…", constants)
+
+    def test_plate_macro_runs_in_a_polled_background_process(self) -> None:
+        launch = _function(self.tree, "launch_solidworks_macro")
+        launch_calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(launch)
+            if isinstance(node, ast.Call)
+        }
+        constants = {
+            node.value
+            for node in ast.walk(launch)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertIn("subprocess.Popen", launch_calls)
+        self.assertNotIn("subprocess.run", launch_calls)
+        self.assertIn("self._poll_solidworks_process", launch_calls)
+        self.assertIn("solidworks/cad-batch-converter/run_macro.py", constants)
+        self.assertIn("--macro", constants)
+        self.assertNotIn("Run one SolidWorks thickness group", constants)
+
+        poll = _function(self.tree, "_poll_solidworks_process")
+        poll_calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(poll)
+            if isinstance(node, ast.Call)
+        }
+        self.assertIn("process.poll", poll_calls)
+        self.assertIn("self.after", poll_calls)
+        self.assertIn("self.post_background_notice", poll_calls)
+        self.assertNotIn("messagebox.showinfo", poll_calls)
+        self.assertNotIn("messagebox.showerror", poll_calls)
+
     def test_launcher_uses_shared_source_checkout(self) -> None:
         launcher = SOURCE.with_name("Launch Job Assistant.bat").read_text(
             encoding="utf-8"
