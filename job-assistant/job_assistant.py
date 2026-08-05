@@ -30,8 +30,6 @@ from job_core import (
     mark_needs_review,
     inferred_plate_thickness,
     parse_comparison_summary,
-    plate_macro_instructions,
-    plate_run_folders,
     plan_completed_outputs,
     prepare_dxf_workspace,
     move_completed_outputs,
@@ -432,9 +430,6 @@ class JobAssistant(tk.Tk):
         menu_bar.add_cascade(label="Step", menu=step_menu)
 
         tools_menu = tk.Menu(menu_bar, tearoff=False)
-        tools_menu.add_command(
-            label="Move Completed Outputs…", command=self.move_outputs
-        )
         tools_menu.add_command(label="Job Folders…", command=self.set_optional_folder)
         tools_menu.add_separator()
         tools_menu.add_command(
@@ -463,6 +458,9 @@ class JobAssistant(tk.Tk):
     def _populate_step_menu(self, menu: tk.Menu) -> None:
         menu.add_command(label="Start Selected Step", command=self.run_stage)
         menu.add_command(label="Check Readiness…", command=self.run_checks)
+        menu.add_command(
+            label="Move Completed Outputs…", command=self.move_outputs
+        )
         menu.add_separator()
         menu.add_command(label="Open Step Folder", command=self.open_stage_folder)
         menu.add_command(label="Record File…", command=self.record_file)
@@ -1397,108 +1395,243 @@ class JobAssistant(tk.Tk):
         )
         if not macro.is_file():
             raise JobError(f"Macro was not found: {macro}")
-        if stage == "plate_model":
-            prepared_root = self.manifest["stages"]["dxf"].get(
-                "workspace", self.manifest["workspace"]["working"]
-            )
-            source_value = filedialog.askdirectory(
-                title="Select the reviewed folder containing prepared DWGs",
-                initialdir=prepared_root,
-                parent=self,
-            )
-            if not source_value:
+        if stage != "plate_model":
+            if not self._accept_warnings(stage):
                 return
-            source = Path(source_value)
-            if not any(source.glob("*.dwg")) and not any(source.glob("*.DWG")):
-                raise JobError("The selected plate-input folder contains no DWG files.")
-            thickness = simpledialog.askfloat(
-                "Plate thickness",
-                "Enter the extrusion thickness in inches for every DWG in "
-                "this folder:",
-                initialvalue=inferred_plate_thickness(source),
-                minvalue=0.001,
-                maxvalue=20.0,
-                parent=self,
+            open_path(macro)
+            record_event(
+                self.manifest,
+                "cad_macro_launch_initiated",
+                stage=stage,
+                macro=str(macro),
             )
-            if thickness is None:
-                return
-            run_name = safe_name(source.name)
-            filtered = (
-                Path(self.manifest["workspace"]["working"])
-                / "Filtered DWGs"
-                / run_name
+            mark_needs_review(
+                self.manifest,
+                stage,
+                "Macro launch initiated. Review CAD output and logs; launch "
+                "does not mean the engineering task succeeded.",
             )
-            output = (
-                Path(self.manifest["workspace"]["staging"])
-                / "SolidWorks Parts"
-                / run_name
-            )
-            filtered.mkdir(parents=True, exist_ok=True)
-            output.mkdir(parents=True, exist_ok=True)
-            values = {
-                "MACROS_SOURCE_FOLDER": str(source),
-                "MACROS_FILTERED_FOLDER": str(filtered),
-                "MACROS_OUTPUT_FOLDER": str(output),
-                "MACROS_EXTRUDE_DEPTH_METERS": format(thickness * 0.0254, ".12g"),
-            }
-        if not self._accept_warnings(stage):
             return
-        if stage == "plate_model":
-            os.environ.update(values)
-            if sys.platform == "win32":
-                key = r"HKCU\Software\VB and VBA Program Settings\EngineeringMacros\CadBatch"
-                names = {
-                    "MACROS_SOURCE_FOLDER": "SourceFolder",
-                    "MACROS_FILTERED_FOLDER": "FilteredFolder",
-                    "MACROS_OUTPUT_FOLDER": "OutputFolder",
-                    "MACROS_EXTRUDE_DEPTH_METERS": "ExtrudeDepthMeters",
-                }
-                for env_name, value in values.items():
-                    subprocess.run(
-                        [
-                            "reg.exe",
-                            "add",
-                            key,
-                            "/v",
-                            names[env_name],
-                            "/t",
-                            "REG_SZ",
-                            "/d",
-                            value,
-                            "/f",
-                        ],
-                        check=True,
-                        capture_output=True,
-                    )
-        if stage == "plate_model":
-            solidworks = self.settings.get("solidworks_executable", "").strip()
-            if solidworks and Path(solidworks).is_file():
-                subprocess.Popen([solidworks])
-            open_path(macro.parent)
-            messagebox.showinfo(
-                "Run one SolidWorks thickness group",
-                plate_macro_instructions(
-                    source, macro, thickness, len(plate_run_folders(source.parent))
-                ),
-                parent=self,
+
+        if any(
+            item.get("stage") == "plate_model"
+            for item in self.running_processes.values()
+        ):
+            raise JobError(
+                "SolidWorks plate automation is already running. Wait for its "
+                "completion notification before starting another thickness group."
             )
-            event = "cad_macro_guidance_opened"
-            review_message = (
-                "SolidWorks macro instructions opened. Run one configured "
-                "thickness group, then review CAD output and BatchLog.txt."
+
+        prepared_root = self.manifest["stages"]["dxf"].get(
+            "workspace", self.manifest["workspace"]["working"]
+        )
+        source_value = filedialog.askdirectory(
+            title="Select the reviewed folder containing prepared DWGs",
+            initialdir=prepared_root,
+            parent=self,
+        )
+        if not source_value:
+            return
+        source = Path(source_value)
+        if not any(source.glob("*.dwg")) and not any(source.glob("*.DWG")):
+            raise JobError("The selected plate-input folder contains no DWG files.")
+        thickness = simpledialog.askfloat(
+            "Plate thickness",
+            "Enter the extrusion thickness in inches for every DWG in this folder:",
+            initialvalue=inferred_plate_thickness(source),
+            minvalue=0.001,
+            maxvalue=20.0,
+            parent=self,
+        )
+        if thickness is None or not self._accept_warnings(stage):
+            return
+
+        run_name = safe_name(source.name)
+        filtered = (
+            Path(self.manifest["workspace"]["working"])
+            / "Filtered DWGs"
+            / run_name
+        )
+        output = (
+            Path(self.manifest["workspace"]["staging"])
+            / "SolidWorks Parts"
+            / run_name
+        )
+        filtered.mkdir(parents=True, exist_ok=True)
+        output.mkdir(parents=True, exist_ok=True)
+        values = {
+            "MACROS_SOURCE_FOLDER": str(source),
+            "MACROS_FILTERED_FOLDER": str(filtered),
+            "MACROS_OUTPUT_FOLDER": str(output),
+            "MACROS_EXTRUDE_DEPTH_METERS": format(thickness * 0.0254, ".12g"),
+        }
+        os.environ.update(values)
+        if sys.platform == "win32":
+            import winreg
+
+            key_path = (
+                r"Software\VB and VBA Program Settings\EngineeringMacros\CadBatch"
+            )
+            names = {
+                "MACROS_SOURCE_FOLDER": "SourceFolder",
+                "MACROS_FILTERED_FOLDER": "FilteredFolder",
+                "MACROS_OUTPUT_FOLDER": "OutputFolder",
+                "MACROS_EXTRUDE_DEPTH_METERS": "ExtrudeDepthMeters",
+            }
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                for env_name, value in values.items():
+                    winreg.SetValueEx(
+                        key, names[env_name], 0, winreg.REG_SZ, value
+                    )
+
+        runner = self.repo / "solidworks/cad-batch-converter/run_macro.py"
+        if not runner.is_file():
+            raise JobError(f"SolidWorks background runner was not found: {runner}")
+        python_command = "py" if getattr(sys, "frozen", False) else sys.executable
+        command = [
+            python_command,
+            "-u",
+            str(runner),
+            "--macro",
+            str(macro),
+        ]
+        solidworks = self.settings.get("solidworks_executable", "").strip()
+        if solidworks and Path(solidworks).is_file():
+            command.extend(["--solidworks-executable", solidworks])
+
+        log = (
+            Path(self.manifest["workspace"]["logs"])
+            / f"solidworks-{run_name}.log"
+        )
+        record_event(
+            self.manifest,
+            "external_process_requested",
+            stage=stage,
+            command=command,
+            source=str(source),
+            output=str(output),
+            thickness_inches=thickness,
+            log=str(log),
+        )
+        save_manifest(self.manifest, self.manifest_path)
+        handle = log.open("a", encoding="utf-8")
+        handle.write(
+            f"\nWindows command: {subprocess.list2cmdline(command)}\n"
+            f"Source: {source}\nOutput: {output}\n"
+            f"Thickness: {thickness:g} in\nStage: plate_model\n\n"
+        )
+        handle.flush()
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=existing_working_directory(self.repo),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+            )
+        except Exception:
+            handle.close()
+            raise
+
+        record_event(
+            self.manifest,
+            "external_process_launched",
+            stage=stage,
+            pid=process.pid,
+            source=str(source),
+            output=str(output),
+            log=str(log),
+        )
+        self.running_processes[process.pid] = {
+            "stage": stage,
+            "job_number": self.manifest["job"]["number"],
+            "manifest_path": str(self.manifest_path),
+            "log": str(log),
+        }
+        self.update_running_summary()
+        save_manifest(self.manifest, self.manifest_path)
+        self._poll_solidworks_process(
+            process,
+            handle,
+            log,
+            source,
+            output,
+            thickness,
+            self.manifest,
+            self.manifest_path,
+        )
+
+    def _poll_solidworks_process(
+        self,
+        process,
+        handle,
+        log: Path,
+        source: Path,
+        output: Path,
+        thickness: float,
+        process_manifest: dict,
+        process_manifest_path: Path,
+    ) -> None:
+        exit_code = process.poll()
+        if exit_code is None:
+            self.after(
+                500,
+                self._poll_solidworks_process,
+                process,
+                handle,
+                log,
+                source,
+                output,
+                thickness,
+                process_manifest,
+                process_manifest_path,
+            )
+            return
+
+        handle.write(f"\nExit code: {exit_code}\n")
+        handle.close()
+        running = self.__dict__.get("running_processes")
+        if running is not None:
+            running.pop(process.pid, None)
+            self.update_running_summary()
+        record_event(
+            process_manifest,
+            "external_process_finished",
+            stage="plate_model",
+            pid=process.pid,
+            exit_code=exit_code,
+            source=str(source),
+            output=str(output),
+            thickness_inches=thickness,
+            log=str(log),
+        )
+        if exit_code == 0:
+            mark_needs_review(
+                process_manifest,
+                "plate_model",
+                "Background SolidWorks automation finished. Review representative "
+                "parts and BatchLog.txt before marking the step complete.",
+                [log],
             )
         else:
-            open_path(macro)
-            event = "cad_macro_launch_initiated"
-            review_message = (
-                "Macro launch initiated. Review CAD output and logs; launch "
-                "does not mean the engineering task succeeded."
+            item = process_manifest["stages"]["plate_model"]
+            item["status"] = "warning"
+            item["notes"] = (
+                f"SolidWorks automation failed with exit code {exit_code}. "
+                f"Review {log}."
             )
-        record_event(self.manifest, event, stage=stage, macro=str(macro))
-        mark_needs_review(
-            self.manifest,
-            stage,
-            review_message,
+            record_artifact(process_manifest, "plate_model", log)
+        save_manifest(process_manifest, process_manifest_path)
+        if self.manifest_path == process_manifest_path:
+            self.manifest = process_manifest
+            self.refresh()
+            self.show_stage()
+        outcome = "finished and needs review" if exit_code == 0 else "failed"
+        self.post_background_notice(
+            "SolidWorks plate automation finished",
+            f"Job {process_manifest['job']['number']} {outcome} for "
+            f"{source.name} at {thickness:g} in.",
+            level="warning" if exit_code else "info",
+            path=output if output.exists() else log,
         )
 
     def open_stage_folder(self) -> None:
