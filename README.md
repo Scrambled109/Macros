@@ -198,13 +198,16 @@ behavior, output, and log instructions are in
 This is an advanced, job-specific tool. The Job Assistant supplies source,
 filtered, output, and extrusion-depth values at run time to a production macro
 rebuilt with the current `Config.bas`. Also verify target/text layer names and
-drawing units. In SolidWorks use **Tools > Macro > Run**, choose
-`solidworks/cad-batch-converter/Main.RunBatch.swp`, and run `Main_RunBatch1.RunBatch`. Run the separate
-`TextStamp1.RunTextStamp` pass only after validating the generated parts.
+drawing units. The Assistant invokes `Main.RunBatch.swp` through the SolidWorks
+API in a background process, reusing an active SolidWorks instance and hiding
+part windows during the run. A new thickness updates run-time configuration;
+it does not require restarting SolidWorks. Standalone users can still choose
+**Tools > Macro > Run** and select `Main.RunBatch.swp`; its public `main()`
+entry point performs conversion and then text marking automatically.
 
-Developers rebuilding the `.swp` must import all eight `.bas` modules and add
-the AutoCAD 2026, SolidWorks 2025, and SolidWorks constants type-library
-references described by the component README.
+Developers rebuilding the `.swp` must import all eight `.bas` modules and clear
+any **MISSING:** VBA references. The current source is late-bound and does not
+require AutoCAD or SolidWorks type-library references.
 
 ## 8. SolidWorks macros, reference source, and legacy material
 
