@@ -147,9 +147,14 @@ class _SplitPartModel:
 
 
 class _ActivePartWithPropertyMembers:
+    _oleobj_ = object()
+
     def __init__(self, path):
         self.GetPathName = str(path)
         self.GetType = 1
+
+    def __call__(self):
+        raise AssertionError("A COM property object must not be called")
 
 
 class _AppWithActivePart:
