@@ -17,7 +17,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import openpyxl
 import pandas as pd
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, range_boundaries
 
 
 APP_TITLE = "BOM to Parts List Converter"
@@ -305,6 +305,16 @@ def read_template_layout(filepath):
 
         if not headers:
             raise ValueError("The detected template header row was empty.")
+        normalized_names = [normalize_header(header["name"]) for header in headers]
+        duplicates = sorted(
+            name for name in set(normalized_names) if normalized_names.count(name) > 1
+        )
+        if duplicates:
+            raise ValueError(
+                "The template header row contains duplicate column names after "
+                f"normalization: {', '.join(duplicates)}. Rename those columns "
+                "so mappings cannot write to the wrong destination."
+            )
 
         return {
             "sheet_name": detected["sheet_name"],
@@ -1080,6 +1090,43 @@ def copy_row_style(sheet, source_row, destination_row):
         destination_dimension.hidden = source_dimension.hidden
 
 
+def extend_table_formatting(sheet, header_row, last_data_row):
+    """Extend the template's Excel table through every generated record.
+
+    Table banding is driven by the table reference, not by a fixed set of cell
+    fills. Keeping the existing columns and extending only the final row lets
+    engineers insert additional template columns without the converter relying
+    on hard-coded positions or accidentally absorbing notes beside the table.
+    """
+
+    matching_tables = []
+    for table in sheet.tables.values():
+        min_column, min_row, max_column, max_row = range_boundaries(table.ref)
+        if min_row == header_row:
+            matching_tables.append(
+                (table, min_column, min_row, max_column, max_row)
+            )
+
+    if not matching_tables:
+        return None
+    if len(matching_tables) > 1:
+        names = ", ".join(item[0].name for item in matching_tables)
+        raise ValueError(
+            f"More than one Excel table starts on template header row "
+            f"{header_row}: {names}. Keep one Parts List table on that row."
+        )
+
+    table, min_column, min_row, max_column, max_row = matching_tables[0]
+    final_row = max(max_row, last_data_row)
+    table.ref = (
+        f"{get_column_letter(min_column)}{min_row}:"
+        f"{get_column_letter(max_column)}{final_row}"
+    )
+    if table.autoFilter is not None:
+        table.autoFilter.ref = table.ref
+    return table.ref
+
+
 def write_records_to_template(
     template_path,
     output_path,
@@ -1110,6 +1157,14 @@ def write_records_to_template(
         for cell in sheet[header_row]:
             normalized = normalize_header(cell.value)
             if normalized:
+                if normalized in output_columns:
+                    first = get_column_letter(output_columns[normalized])
+                    second = get_column_letter(cell.column)
+                    raise ValueError(
+                        f"The output workbook has duplicate '{cell.value}' "
+                        f"headers in columns {first} and {second}. Rename one "
+                        "column before converting."
+                    )
                 output_columns[normalized] = cell.column
 
         mapped_columns = {}
@@ -1155,6 +1210,7 @@ def write_records_to_template(
         style_source_row = data_start_row
         added = 0
         updated = 0
+        last_written_row = data_start_row - 1
 
         for record in records:
             part_number = (
@@ -1195,6 +1251,9 @@ def write_records_to_template(
                     continue
 
                 output_cell.value = value
+            last_written_row = max(last_written_row, row_number)
+
+        extend_table_formatting(sheet, header_row, last_written_row)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         temporary_output = output_path.with_name(

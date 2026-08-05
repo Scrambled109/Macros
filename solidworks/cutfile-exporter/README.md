@@ -1,0 +1,77 @@
+# SolidWorks Layered Cut-File Exporter
+
+Creates production-review DXFs from flat `.SLDPRT` files by driving the installed
+SolidWorks application. It exports the largest planar face using SolidWorks'
+native face exporter, verifies every cut entity belongs to exactly one closed loop, and
+assigns:
+
+- outer perimeter → `CUT - OUTSIDE STRAIGHT`
+- holes/internal loops → `CUT - INSIDE STRAIGHT`
+- non-construction sketch lines/arcs in `CUTFILE MARKING` →
+  `PIN STAMP LINE MARKING` (green)
+- rendered SolidWorks sketch-text edges in `CUTFILE MARKING` →
+  `PIN STAMP TEXT` (white)
+
+The tool fails a part rather than releasing a DXF when SolidWorks and the DXF
+disagree about loop counts, the cut geometry is open/branching, units cannot be
+verified, the part is multibody, or the intended side is split across coplanar
+faces. Marking geometry is orthographically flattened onto the cut face, so its
+sketch can be on the face, the opposite side, or another plane.
+
+## One-time setup
+
+Use Windows with SolidWorks installed. Double-click `Launch Cut File
+Exporter.bat`; it installs `ezdxf` and `pywin32` if needed. Or install manually:
+
+```powershell
+py -m pip install -r requirements.txt
+```
+
+## Prepare each SolidWorks part
+
+1. The part must contain exactly one visible solid body.
+2. The intended cut shape must be represented by its largest planar face.
+3. Create an ordinary 2D sketch on that face named exactly `CUTFILE MARKING`.
+4. Put every pin-stamp line and SolidWorks sketch-text object in that sketch. The
+   exporter automatically separates ordinary sketch geometry from sketch text.
+   Sketch arcs and circles are converted to smooth marking polylines instead of
+   straight start-to-end chords.
+5. Use a single-line/stick font when the downstream marking process requires
+   single-stroke geometry. Ordinary fonts export as their rendered outlines.
+6. Construction geometry is intentionally ignored.
+
+The marking sketch is optional. A part without it still receives correct inside
+and outside cut layers and reports zero marking paths.
+
+## Run
+
+Double-click `Launch Cut File Exporter.bat`, select the folder containing the
+parts, select an output folder, and choose **Create Layered DXFs**. SolidWorks
+opens or becomes visible while the batch runs.
+
+Command-line equivalent:
+
+```powershell
+py cutfile_exporter.py --input "C:\Job\Parts" --output "C:\Job\Cut Files"
+```
+
+Add `--recursive` for subfolders or `--overwrite` to replace same-name outputs.
+Use `--sketch-name "ANOTHER NAME"` only when the job uses a controlled alternate
+marking-sketch name.
+
+The batch connects to SolidWorks once and reuses that session for every part.
+SolidWorks COM work remains serial intentionally: parallel COM sessions can
+race document activation, multiply license/resource use, and make failures less
+recoverable. The AutoCAD orchestrator is the safer place for bounded parallel
+CAD work because each clean drawing runs in its own Core Console process.
+
+## Review
+
+Open `cutfile_export_report.csv` and every failed part. Visually inspect the DXF
+layers, scale, holes, outside profile, and representative marking text before
+releasing files to nesting or cutting. Existing DXFs are skipped unless
+overwrite is explicitly enabled.
+
+The first Windows/SolidWorks run is an integration acceptance test because the
+SolidWorks COM application is not available in Linux CI. The launcher requires
+`ezdxf 1.4.2` and `pywin32 312` or newer and installs/upgrades them when needed.

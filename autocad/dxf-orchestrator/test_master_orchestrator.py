@@ -225,6 +225,81 @@ class OrchestratorHelpersTest(unittest.TestCase):
     def test_parts_list_argument_defaults_to_workspace_file(self):
         args = orchestrator.parse_args(["--workspace", "job workspace"])
         self.assertIsNone(args.parts_list)
+        self.assertEqual(args.workers, 2)
+
+    def test_worker_count_is_bounded(self):
+        self.assertEqual(orchestrator.parse_args(["--workers", "4"]).workers, 4)
+        with self.assertRaises(SystemExit):
+            orchestrator.parse_args(["--workers", "0"])
+        with self.assertRaises(SystemExit):
+            orchestrator.parse_args(["--workers", "5"])
+
+    @mock.patch.object(orchestrator, "process_file", return_value="clean")
+    def test_parallel_clean_files_receive_unique_scripts(self, process_file):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            files = [root / "001" / "P1.dxf", root / "002" / "P2.dxf"]
+            for path in files:
+                path.parent.mkdir(exist_ok=True)
+                path.write_text("0\nEOF\n", encoding="ascii")
+            archive = root / "archive"
+            logs = root / "logs"
+            scripts = root / "scripts"
+            archive.mkdir()
+            logs.mkdir()
+            scripts.mkdir()
+
+            counts = orchestrator.process_clean_files(
+                files,
+                parts={},
+                workspace=root,
+                archive_dir=archive,
+                log_dir=logs,
+                acad_console=Path("accoreconsole.exe"),
+                acad_gui=Path("acad.exe"),
+                lsp_path=Path("ColorToLayer.lsp"),
+                seed_path=Path("seed.dwg"),
+                h2d_path=Path("HashToDash.lsp"),
+                temp_dir=scripts,
+                workers=2,
+                console_timeout=10,
+                review_timeout=10,
+            )
+
+            self.assertEqual(counts, {"clean": 2, "bevel": 0, "failed": 0})
+            script_paths = [call.args[10] for call in process_file.call_args_list]
+            self.assertEqual(len(set(script_paths)), 2)
+
+    @mock.patch.object(orchestrator, "process_file", return_value="clean")
+    def test_duplicate_output_paths_are_rejected_before_autocad(self, process_file):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            files = [root / "001" / "P1.dxf", root / "002" / "P1.dxf"]
+            for path in files:
+                path.parent.mkdir(exist_ok=True)
+                path.write_text("0\nEOF\n", encoding="ascii")
+            for name in ("archive", "logs", "scripts"):
+                (root / name).mkdir()
+
+            counts = orchestrator.process_clean_files(
+                files,
+                parts={},
+                workspace=root,
+                archive_dir=root / "archive",
+                log_dir=root / "logs",
+                acad_console=Path("accoreconsole.exe"),
+                acad_gui=Path("acad.exe"),
+                lsp_path=Path("ColorToLayer.lsp"),
+                seed_path=Path("seed.dwg"),
+                h2d_path=Path("HashToDash.lsp"),
+                temp_dir=root / "scripts",
+                workers=2,
+                console_timeout=10,
+                review_timeout=10,
+            )
+
+            self.assertEqual(counts["failed"], 2)
+            process_file.assert_not_called()
 
 
 if __name__ == "__main__":

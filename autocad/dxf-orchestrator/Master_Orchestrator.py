@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import NamedTuple
 
@@ -340,8 +341,10 @@ def output_details(
 
 def archive_original(source: Path, archive_dir: Path) -> None:
     destination = archive_dir / source.name
-    if destination.exists():
-        destination.unlink()
+    suffix = 2
+    while destination.exists():
+        destination = archive_dir / f"{source.stem}_{suffix}{source.suffix}"
+        suffix += 1
     shutil.move(str(source), str(destination))
 
 
@@ -497,6 +500,118 @@ def wait_for_reviews(
     return completed, failed
 
 
+def split_output_collisions(
+    files: list[Path],
+    parts: dict[str, dict[str, str]],
+    workspace: Path,
+) -> tuple[list[Path], list[Path]]:
+    """Keep inputs with unique output paths and reject ambiguous duplicates."""
+
+    by_destination: dict[str, list[Path]] = {}
+    for dxf in files:
+        _target, destination = output_details(dxf, parts, workspace)
+        key = os.path.normcase(str(destination.resolve()))
+        by_destination.setdefault(key, []).append(dxf)
+
+    collisions = {
+        dxf
+        for grouped_files in by_destination.values()
+        if len(grouped_files) > 1
+        for dxf in grouped_files
+    }
+    safe_files = [dxf for dxf in files if dxf not in collisions]
+    return safe_files, sorted(collisions, key=lambda path: str(path).casefold())
+
+
+def process_clean_files(
+    files: list[Path],
+    *,
+    parts: dict[str, dict[str, str]],
+    workspace: Path,
+    archive_dir: Path,
+    log_dir: Path,
+    acad_console: Path,
+    acad_gui: Path,
+    lsp_path: Path,
+    seed_path: Path,
+    h2d_path: Path,
+    temp_dir: Path,
+    workers: int,
+    console_timeout: int,
+    review_timeout: int,
+) -> dict[str, int]:
+    """Run independent clean DXFs through bounded core-console workers."""
+
+    counts = {"clean": 0, "bevel": 0, "failed": 0}
+    safe_files, collisions = split_output_collisions(files, parts, workspace)
+    for dxf in collisions:
+        print(
+            f"    [X] {dxf}: another input resolves to the same production DWG. "
+            "Neither duplicate was processed; rename or remove the stale input.",
+            flush=True,
+        )
+        counts["failed"] += 1
+
+    if not safe_files:
+        return counts
+
+    worker_count = max(1, min(4, workers))
+    print(
+        f"\n=== RUNNING {len(safe_files)} CLEAN FILE(S) WITH "
+        f"{worker_count} AUTOCAD CORE WORKER(S) ===",
+        flush=True,
+    )
+    with ThreadPoolExecutor(
+        max_workers=worker_count,
+        thread_name_prefix="autocad-core",
+    ) as executor:
+        futures = {}
+        for index, dxf in enumerate(safe_files, start=1):
+            script_path = temp_dir / f"clean_{index:04d}.scr"
+            future = executor.submit(
+                process_file,
+                dxf,
+                parts,
+                workspace,
+                archive_dir,
+                log_dir,
+                acad_console,
+                acad_gui,
+                lsp_path,
+                seed_path,
+                h2d_path,
+                script_path,
+                console_timeout,
+                review_timeout,
+            )
+            futures[future] = dxf
+
+        for future in as_completed(futures):
+            dxf = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                print(
+                    f"    [X] {dxf.name}: unexpected worker error: {exc}. "
+                    "Original DXF kept.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                result = "failed"
+            counts[result if result in counts else "failed"] += 1
+    return counts
+
+
+def worker_count(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("workers must be an integer from 1 to 4") from exc
+    if not 1 <= parsed <= 4:
+        raise argparse.ArgumentTypeError("workers must be from 1 to 4")
+    return parsed
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--acad-console-path", type=Path, default=DEFAULT_ACAD_CONSOLE)
@@ -510,6 +625,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--console-timeout", type=int, default=CONSOLE_TIMEOUT_SECONDS)
     parser.add_argument("--review-timeout", type=int, default=BEVEL_REVIEW_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--workers",
+        type=worker_count,
+        default=2,
+        help=(
+            "Concurrent AutoCAD Core Console jobs for clean drawings (1-4; "
+            "default 2). Bevel reviews remain in one interactive session."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -549,7 +673,7 @@ def main(argv: list[str] | None = None) -> int:
         temp_dir = Path(temp_dir_name)
         h2d_path = temp_dir / "HashToDash.lsp"
         h2d_path.write_text(HASH_TO_DASH_LISP, encoding="ascii")
-        script_path = temp_dir / "automation_job.scr"
+        clean_files: list[Path] = []
         review_files: list[Path] = []
         folders = sorted(
             (
@@ -571,13 +695,26 @@ def main(argv: list[str] | None = None) -> int:
                     print("    [!] BEVEL DETECTED. Queued for manual check...")
                     review_files.append(dxf)
                     continue
-                result = process_file(
-                    dxf, parts, workspace, archive_dir, log_dir,
-                    args.acad_console_path, args.acad_gui_path,
-                    required["ColorToLayer LISP"], required["Seed DWG"],
-                    h2d_path, script_path, args.console_timeout, args.review_timeout,
-                )
-                counts[result] += 1
+                clean_files.append(dxf)
+
+        clean_counts = process_clean_files(
+            clean_files,
+            parts=parts,
+            workspace=workspace,
+            archive_dir=archive_dir,
+            log_dir=log_dir,
+            acad_console=args.acad_console_path,
+            acad_gui=args.acad_gui_path,
+            lsp_path=required["ColorToLayer LISP"],
+            seed_path=required["Seed DWG"],
+            h2d_path=h2d_path,
+            temp_dir=temp_dir,
+            workers=args.workers,
+            console_timeout=args.console_timeout,
+            review_timeout=args.review_timeout,
+        )
+        for result, count in clean_counts.items():
+            counts[result] += count
 
         if review_files:
             print(

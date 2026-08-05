@@ -123,6 +123,7 @@ DEFAULT_RULES: dict[str, Any] = {
     ],
 
     "solidworks_configuration_suffixes": [
+        "DEFAULT<AS MACHINED>",
         "DEFAULT OF DEFAULT MACHINED",
         "DEFAULT OF DEFAULT",
         "DEFAULT MACHINED",
@@ -640,43 +641,47 @@ def normalize_part_number(
     )
 
     if source == "SolidWorks":
-        # Remove SolidWorks component instance markers such as <1>.
-        text = re.sub(r"<\d+>$", "", text.strip())
+        suffixes = [
+            str(value).strip()
+            for value in rules["solidworks_configuration_suffixes"]
+        ]
+        canonical_suffixes = {
+            re.sub(r"[^A-Z0-9]+", "", suffix.upper()) for suffix in suffixes
+        }
 
-        suffixes = sorted(
-            (
-                str(value).strip()
-                for value in rules["solidworks_configuration_suffixes"]
-            ),
-            key=len,
-            reverse=True,
-        )
+        # SolidWorks frequently exports configurations in parentheses using
+        # punctuation that varies by version, for example
+        # ``(Default<As Machined>)``. Compare punctuation-free keys rather than
+        # requiring one exact spelling from the rules file.
+        bracketed = re.search(r"\s*[\(\[]([^\(\)\[\]]+)[\)\]]\s*$", text)
+        if bracketed:
+            key = re.sub(r"[^A-Z0-9]+", "", bracketed.group(1).upper())
+            if key in canonical_suffixes:
+                text = text[: bracketed.start()].rstrip()
 
-        for suffix in suffixes:
+        for suffix in sorted(suffixes, key=len, reverse=True):
             escaped = re.escape(suffix)
-
-            patterns = [
-                rf"\s*[\(\[]\s*{escaped}\s*[\)\]]\s*$",
+            for pattern in (
                 rf"\s*@\s*{escaped}\s*$",
                 rf"\s*[-_]\s*{escaped}\s*$",
                 rf"\s+{escaped}\s*$",
-            ]
+            ):
+                text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
-            for pattern in patterns:
-                text = re.sub(
-                    pattern,
-                    "",
-                    text,
-                    flags=re.IGNORECASE,
-                )
+        # Remove SolidWorks component instance markers such as <1> after the
+        # optional configuration suffix has been removed.
+        text = re.sub(r"<\d+>$", "", text.strip())
 
     if re.fullmatch(r"[+-]?\d+\.0", text):
         text = text[:-2]
 
-    text = re.sub(r"\s+", "", text).upper()
+    # The Parts List template represents the drawing/part separator as ``#``;
+    # nesting and SolidWorks exports use ``-`` for the same identifier.
+    text = re.sub(r"\s+", "", text).upper().replace("#", "-")
 
     aliases = {
-        str(key).strip().upper(): str(value).strip().upper()
+        str(key).strip().upper().replace("#", "-"):
+        str(value).strip().upper().replace("#", "-")
         for key, value in rules["part_number_aliases"].items()
     }
 
@@ -3731,13 +3736,13 @@ def main() -> int:
 
     output_folder = create_output_folder(output_base, rules)
 
-    print("Reading linear nesting files...")
+    print("Reading linear nesting files...", flush=True)
     nest_rows, nest_issues, usable_nest_files = parse_nest_folder(
         nests_folder,
         rules,
     )
 
-    print("Reading Parts List...")
+    print("Reading Parts List...", flush=True)
     parts_source = parse_standard_source(
         parts_file,
         source_name="Parts List",
@@ -3745,7 +3750,7 @@ def main() -> int:
         rules=rules,
     )
 
-    print("Reading SolidWorks Assembly Visualization...")
+    print("Reading SolidWorks Assembly Visualization...", flush=True)
     sw_source = parse_standard_source(
         solidworks_file,
         source_name="SolidWorks",
@@ -3753,7 +3758,7 @@ def main() -> int:
         rules=rules,
     )
 
-    print("Aggregating part numbers...")
+    print("Aggregating part numbers...", flush=True)
 
     parts_quantity_header = parts_source.selected_headers.get(
         "quantity",
@@ -3813,7 +3818,7 @@ def main() -> int:
         "SolidWorks": sw_source.available_fields,
     }
 
-    print("Comparing against the SolidWorks baseline...")
+    print("Comparing against the SolidWorks baseline...", flush=True)
     comparison_rows = reconcile(
         nest_aggregates,
         parts_aggregates,
@@ -3999,9 +4004,15 @@ def main() -> int:
         f"{source_issue_count} source issues."
     )
 
-    print("\n" + summary)
-    print(f"Excel report: {output_folder / 'production_part_comparison.xlsx'}")
-    print(f"HTML report: {output_folder / 'comparison_report.html'}")
+    print("\n" + summary, flush=True)
+    print(
+        f"Excel report: {output_folder / 'production_part_comparison.xlsx'}",
+        flush=True,
+    )
+    print(
+        f"HTML report: {output_folder / 'comparison_report.html'}",
+        flush=True,
+    )
 
     should_open = (
         rules["output"].get(
@@ -4035,9 +4046,10 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
 
-        try:
-            input("\nPress Enter to close...")
-        except EOFError:
-            pass
+        if "--no-open" not in sys.argv:
+            try:
+                input("\nPress Enter to close...")
+            except EOFError:
+                pass
 
         raise SystemExit(1) from None
