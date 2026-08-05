@@ -352,13 +352,10 @@ class SolidWorksSession:
         if transform is None:
             return [_vec3(point) for point in points]
         try:
-            math_utility = _com_value(self.app, "GetMathUtility")
-            converted: list[Vector3] = []
-            for point in points:
-                math_point = math_utility.CreatePoint(_double_array_variant(_vec3(point)))
-                converted_point = math_point.MultiplyTransform(transform)
-                converted.append(_vec3(_com_value(converted_point, "ArrayData")))
-            return converted
+            matrix = tuple(
+                float(value) for value in _com_value(transform, "ArrayData")
+            )
+            return [_transform_point(_vec3(point), matrix) for point in points]
         except Exception as exc:
             raise SolidWorksExportError(
                 f"Could not transform marking sketch coordinates to model space: {exc}"
@@ -578,6 +575,34 @@ def _double_array_variant(values: Sequence[float]):
         )
     except ImportError:
         return tuple(float(value) for value in values)
+
+
+def _transform_point(point: Vector3, matrix: Sequence[float]) -> Vector3:
+    """Apply a SolidWorks IMathTransform ArrayData matrix to a point.
+
+    SolidWorks stores the 3x3 rotation in elements 0..8, translation in
+    9..11, and a uniform scale in element 12. Points are rotated, scaled,
+    then translated.
+    """
+
+    if len(matrix) < 13:
+        raise SolidWorksExportError(
+            f"SolidWorks returned {len(matrix)} transform values; expected 16."
+        )
+    scale_factor = float(matrix[12])
+    if not math.isfinite(scale_factor) or abs(scale_factor) <= 1e-15:
+        raise SolidWorksExportError(
+            f"SolidWorks returned an invalid sketch-transform scale: {scale_factor}."
+        )
+    x, y, z = point
+    return (
+        scale_factor * (x * matrix[0] + y * matrix[3] + z * matrix[6])
+        + matrix[9],
+        scale_factor * (x * matrix[1] + y * matrix[4] + z * matrix[7])
+        + matrix[10],
+        scale_factor * (x * matrix[2] + y * matrix[5] + z * matrix[8])
+        + matrix[11],
+    )
 
 
 def _make_frame(origin: Vector3, normal: Vector3) -> PlaneFrame:
