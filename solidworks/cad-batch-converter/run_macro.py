@@ -13,11 +13,13 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
 import traceback
 from typing import Callable
+import uuid
 
 
 SOLIDWORKS_PROGIDS = ("SldWorks.Application.33", "SldWorks.Application")
@@ -135,6 +137,73 @@ def expected_part_stems(source_folder: Path | None) -> set[str]:
         for path in source_folder.iterdir()
         if path.is_file() and path.suffix.casefold() == ".dwg"
     }
+
+
+def publish_plate_outputs(
+    parts: list[Path],
+    destination: Path,
+    expected_stems: set[str],
+    *,
+    batch_log: Path | None = None,
+) -> list[Path]:
+    """Atomically copy verified current-batch outputs back to job staging."""
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    unrelated = [
+        path
+        for path in destination.iterdir()
+        if path.is_file()
+        and path.suffix.casefold() == ".sldprt"
+        and solidworks_part_stem(path.stem).casefold() not in expected_stems
+    ]
+    if unrelated:
+        examples = ", ".join(path.name for path in unrelated[:5])
+        raise SolidWorksRunnerError(
+            "The published staging folder contains unrelated part files "
+            f"(for example: {examples}). Move that folder aside before rerunning."
+        )
+
+    published: list[Path] = []
+    for source in parts:
+        target = destination / source.name
+        temporary = destination / f".{source.name}.{uuid.uuid4().hex}.tmp"
+        try:
+            shutil.copy2(source, temporary)
+            if temporary.stat().st_size != source.stat().st_size:
+                raise OSError("copied file size does not match the local result")
+            os.replace(temporary, target)
+        except OSError as exc:
+            if temporary.exists():
+                temporary.unlink()
+            raise SolidWorksRunnerError(
+                f"Could not publish {source.name} to {destination}: {exc}"
+            ) from exc
+        published.append(target)
+
+    if batch_log is not None and batch_log.is_file():
+        log_target = destination / batch_log.name
+        log_temporary = destination / f".{batch_log.name}.{uuid.uuid4().hex}.tmp"
+        try:
+            shutil.copy2(batch_log, log_temporary)
+            os.replace(log_temporary, log_target)
+        except OSError as exc:
+            if log_temporary.exists():
+                log_temporary.unlink()
+            raise SolidWorksRunnerError(
+                f"Parts were published, but BatchLog.txt could not be copied: {exc}"
+            ) from exc
+    return published
+
+
+def cleanup_speed_workspace(workspace: Path) -> None:
+    """Remove only a marked assistant-owned local speed workspace."""
+    workspace = Path(workspace).resolve()
+    marker = workspace / ".engineering-job-assistant-plate-batch"
+    if not marker.is_file():
+        raise SolidWorksRunnerError(
+            f"Refusing to remove unmarked local workspace: {workspace}"
+        )
+    shutil.rmtree(workspace)
 
 
 @dataclass(frozen=True)
@@ -442,6 +511,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--publish-output",
+        type=Path,
+        help="Copy verified local plate results to this job staging folder.",
+    )
+    parser.add_argument(
+        "--cleanup-workspace",
+        type=Path,
+        help="Remove this marked local speed workspace after verified publication.",
+    )
+    parser.add_argument(
         "--leave-hidden",
         action="store_true",
         help="Keep SolidWorks hidden after the macro instead of restoring it for review.",
@@ -497,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
                     f"(for example: {examples}). Move that staging folder aside "
                     "before rerunning so unrelated models cannot be accepted or moved."
                 )
+        macro_started = time.perf_counter()
         module, procedure = run_macro(
             connection.app,
             args.macro,
@@ -521,13 +601,49 @@ def main(argv: list[str] | None = None) -> int:
                     f"parts matching DWGs in {source_text}. The batch was not accepted."
                 )
             renamed = normalize_plate_model_filenames(output_folder, matched)
+            final_parts = [
+                part.with_name(
+                    f"{solidworks_part_stem(part.stem)}{part.suffix}"
+                )
+                for part in matched
+            ]
+            missing_final = [part for part in final_parts if not part.is_file()]
+            if missing_final:
+                raise SolidWorksRunnerError(
+                    "Filename normalization lost expected current-batch outputs: "
+                    + ", ".join(part.name for part in missing_final[:5])
+                )
+            macro_seconds = time.perf_counter() - macro_started
             print(
                 f"Verified {len(matched)} current-batch part(s); normalized "
-                f"{len(renamed)} filename(s).",
+                f"{len(renamed)} filename(s). Macro time: {macro_seconds:.1f} s.",
                 flush=True,
             )
-            for part in renamed:
-                print(f"  {part.name}", flush=True)
+            if args.publish_output is not None:
+                publish_started = time.perf_counter()
+                published = publish_plate_outputs(
+                    final_parts,
+                    args.publish_output,
+                    expected,
+                    batch_log=output_folder / "BatchLog.txt",
+                )
+                publish_seconds = time.perf_counter() - publish_started
+                print(
+                    f"Published {len(published)} verified part(s) to "
+                    f"{args.publish_output} in {publish_seconds:.1f} s.",
+                    flush=True,
+                )
+                for part in published:
+                    print(f"  {part.name}", flush=True)
+                if args.cleanup_workspace is not None:
+                    cleanup_speed_workspace(args.cleanup_workspace)
+                    print(
+                        f"Removed local speed workspace: {args.cleanup_workspace}",
+                        flush=True,
+                    )
+            else:
+                for part in final_parts:
+                    print(f"  {part.name}", flush=True)
         print(f"SolidWorks macro {module}.{procedure} completed.", flush=True)
         return 0
     except SolidWorksRunnerError as exc:
