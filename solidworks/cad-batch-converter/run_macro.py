@@ -622,6 +622,13 @@ def main(argv: list[str] | None = None) -> int:
                         "Timed out waiting for the parallel-worker start signal."
                     )
                 time.sleep(0.1)
+            signal = args.worker_start_signal.read_text(
+                encoding="utf-8", errors="replace"
+            ).strip().casefold()
+            if signal != "start":
+                raise SolidWorksRunnerError(
+                    "Parallel launch was aborted before any macro executed."
+                )
         print(f"Waiting for the SolidWorks VBA host and {args.macro.name}.", flush=True)
         output_folder = args.normalize_output
         source_folder = None
