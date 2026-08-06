@@ -10,6 +10,7 @@ import json
 import os
 import re
 import tkinter as tk
+import traceback
 from copy import copy
 from fractions import Fraction
 from pathlib import Path
@@ -26,11 +27,34 @@ HEADER_SCAN_ROWS = 50
 PREVIEW_ROWS = 100
 SETTINGS_FILE = Path(__file__).resolve().with_name("bom_converter_mapping.json")
 STEEL_BLUE = "#57a0d3"
-DARK_BG = "#070b0f"
-DARK_SURFACE = "#0d141a"
-DARK_INPUT = "#080d12"
-TEXT_PRIMARY = "#eef5f9"
-TEXT_MUTED = "#a9bac6"
+DARK_BG = "#151d24"
+DARK_SURFACE = "#202b34"
+DARK_INPUT = "#182129"
+TEXT_PRIMARY = "#f2f6f8"
+TEXT_MUTED = "#b8c5cc"
+
+
+def safe_style_configure(style, style_name, **options):
+    """Apply ttk colors without letting an older Windows Tk abort startup.
+
+    Tk builds differ in which theme-specific options they accept.  Applying
+    the options individually preserves every supported setting and ignores
+    only an option the active build does not understand.
+    """
+    for option, value in options.items():
+        try:
+            style.configure(style_name, **{option: value})
+        except tk.TclError:
+            pass
+
+
+def safe_style_map(style, style_name, **options):
+    """Apply supported ttk state mappings without making startup brittle."""
+    for option, value in options.items():
+        try:
+            style.map(style_name, **{option: value})
+        except tk.TclError:
+            pass
 
 
 def configure_dark_style(root):
@@ -40,28 +64,31 @@ def configure_dark_style(root):
         style.theme_use("clam")
     except tk.TclError:
         pass
-    style.configure("TFrame", background=DARK_BG)
-    style.configure("TLabel", background=DARK_BG, foreground=TEXT_PRIMARY)
-    style.configure(
+    safe_style_configure(style, "TFrame", background=DARK_BG)
+    safe_style_configure(style, "TLabel", background=DARK_BG, foreground=TEXT_PRIMARY)
+    safe_style_configure(
+        style,
         "TLabelframe",
         background=DARK_BG,
         bordercolor="#344754",
         relief="solid",
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TLabelframe.Label",
         background=DARK_BG,
         foreground="#d8e8f1",
         font=("Segoe UI Semibold", 10),
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TEntry",
         fieldbackground=DARK_INPUT,
         foreground=TEXT_PRIMARY,
-        insertcolor=TEXT_PRIMARY,
         bordercolor="#40515f",
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TCombobox",
         fieldbackground=DARK_INPUT,
         background=DARK_SURFACE,
@@ -69,58 +96,89 @@ def configure_dark_style(root):
         arrowcolor=TEXT_PRIMARY,
         bordercolor="#40515f",
     )
-    style.map(
+    safe_style_map(
+        style,
         "TCombobox",
         fieldbackground=[("readonly", DARK_INPUT)],
         foreground=[("readonly", TEXT_PRIMARY)],
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TSpinbox",
         fieldbackground=DARK_INPUT,
         background=DARK_SURFACE,
         foreground=TEXT_PRIMARY,
         arrowcolor=TEXT_PRIMARY,
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TButton",
         background=DARK_SURFACE,
         foreground=TEXT_PRIMARY,
         bordercolor="#40515f",
         padding=(10, 6),
     )
-    style.map("TButton", background=[("active", "#2b3c49")])
-    style.configure(
+    safe_style_map(style, "TButton", background=[("active", "#3a4b57")])
+    safe_style_configure(
+        style,
         "Accent.TButton",
         background=STEEL_BLUE,
         foreground="#ffffff",
         bordercolor=STEEL_BLUE,
         padding=(12, 7),
     )
-    style.map("Accent.TButton", background=[("active", "#6eb1df")])
-    style.configure("TCheckbutton", background=DARK_BG, foreground=TEXT_PRIMARY)
-    style.map("TCheckbutton", background=[("active", DARK_BG)])
-    style.configure(
+    safe_style_map(
+        style, "Accent.TButton", background=[("active", "#6eb1df")]
+    )
+    safe_style_configure(
+        style, "TCheckbutton", background=DARK_BG, foreground=TEXT_PRIMARY
+    )
+    safe_style_map(
+        style, "TCheckbutton", background=[("active", DARK_BG)]
+    )
+    safe_style_configure(
+        style,
         "Treeview",
         background=DARK_SURFACE,
         fieldbackground=DARK_SURFACE,
         foreground=TEXT_PRIMARY,
         rowheight=28,
     )
-    style.map(
+    safe_style_map(
+        style,
         "Treeview",
         background=[("selected", "#315f7d")],
         foreground=[("selected", "#ffffff")],
     )
-    style.configure(
-        "Treeview.Heading", background="#293944", foreground="#d6e2e9"
+    safe_style_configure(
+        style,
+        "Treeview.Heading",
+        background="#31414d",
+        foreground="#e2ebf0",
     )
-    style.configure("MappingRow.TFrame", background=DARK_SURFACE)
-    style.configure(
+    safe_style_configure(style, "MappingRow.TFrame", background=DARK_SURFACE)
+    safe_style_configure(
+        style,
         "MappingRow.TLabel", background=DARK_SURFACE, foreground=TEXT_PRIMARY
     )
-    style.configure("MappingActive.TFrame", background="#294d66")
-    style.configure(
-        "MappingActive.TLabel", background="#294d66", foreground="#ffffff"
+    safe_style_configure(style, "MappingActive.TFrame", background="#355d77")
+    safe_style_configure(
+        style,
+        "MappingActive.TLabel", background="#355d77", foreground="#ffffff"
+    )
+    safe_style_configure(style, "TNotebook", background=DARK_BG, borderwidth=0)
+    safe_style_configure(
+        style,
+        "TNotebook.Tab",
+        background=DARK_SURFACE,
+        foreground=TEXT_MUTED,
+        padding=(14, 8),
+    )
+    safe_style_map(
+        style,
+        "TNotebook.Tab",
+        background=[("selected", "#31414d"), ("active", "#2b3944")],
+        foreground=[("selected", TEXT_PRIMARY), ("active", TEXT_PRIMARY)],
     )
 
 STANDARD_TEMPLATE_HEADERS = {
@@ -1624,18 +1682,16 @@ class BomConverterApp:
             text="Plate lb/sf weights use the supplied thickness table.",
         ).grid(row=5, column=3, columnspan=3, sticky="e", pady=(2, 0))
 
-        mapping_frame = ttk.LabelFrame(
-            self.root,
-            text="2. Tell the program where each source column goes",
-            padding=8,
-        )
-        mapping_frame.grid(
+        self.work_tabs = ttk.Notebook(self.root)
+        self.work_tabs.grid(
             row=1,
             column=0,
             sticky="nsew",
             padx=12,
             pady=6,
         )
+        mapping_frame = ttk.Frame(self.work_tabs, padding=8)
+        self.work_tabs.add(mapping_frame, text="2  Column mapping")
         mapping_frame.columnconfigure(0, weight=1)
         mapping_frame.rowconfigure(1, weight=1)
 
@@ -1695,6 +1751,54 @@ class BomConverterApp:
         )
         self.empty_mapping_label.grid(row=0, column=0, columnspan=3)
 
+        self.preview_frame = ttk.Frame(self.work_tabs, padding=8)
+        self.work_tabs.add(self.preview_frame, text="3  Mapped preview")
+        self.preview_frame.columnconfigure(0, weight=1)
+        self.preview_frame.rowconfigure(1, weight=1)
+        preview_header = ttk.Frame(self.preview_frame)
+        preview_header.grid(
+            row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8)
+        )
+        ttk.Label(
+            preview_header,
+            text="Review the mapped rows before writing the Parts List.",
+        ).pack(side="left")
+        ttk.Button(
+            preview_header,
+            text="Refresh Preview",
+            command=self.preview_output,
+        ).pack(side="right")
+        self.preview_tree = ttk.Treeview(
+            self.preview_frame,
+            columns=(),
+            show="headings",
+        )
+        preview_vertical = ttk.Scrollbar(
+            self.preview_frame,
+            orient="vertical",
+            command=self.preview_tree.yview,
+        )
+        preview_horizontal = ttk.Scrollbar(
+            self.preview_frame,
+            orient="horizontal",
+            command=self.preview_tree.xview,
+        )
+        self.preview_tree.configure(
+            yscrollcommand=preview_vertical.set,
+            xscrollcommand=preview_horizontal.set,
+        )
+        self.preview_tree.grid(row=1, column=0, sticky="nsew")
+        preview_vertical.grid(row=1, column=1, sticky="ns")
+        preview_horizontal.grid(row=2, column=0, sticky="ew")
+        self.preview_status = tk.StringVar(
+            value="Build a preview to check the mapped output. No files will be changed."
+        )
+        ttk.Label(
+            self.preview_frame,
+            textvariable=self.preview_status,
+            padding=(2, 8, 2, 2),
+        ).grid(row=3, column=0, columnspan=2, sticky="w")
+
         actions = ttk.Frame(self.root, padding=(12, 6, 12, 12))
         actions.grid(row=2, column=0, sticky="ew")
         actions.columnconfigure(0, weight=1)
@@ -1708,7 +1812,7 @@ class BomConverterApp:
         ttk.Button(actions, text="Clear mappings", command=self.clear_mappings).grid(
             row=0, column=2, padx=4
         )
-        ttk.Button(actions, text="Preview output", command=self.preview_output).grid(
+        ttk.Button(actions, text="Build Preview", command=self.preview_output).grid(
             row=0, column=3, padx=4
         )
         ttk.Checkbutton(
@@ -1994,41 +2098,20 @@ class BomConverterApp:
         except Exception as error:
             self.show_error("Cannot build the preview", error)
             return
-
-        preview = tk.Toplevel(self.root)
-        preview.title(f"Mapped Output Preview — {len(records):,} rows")
-        preview.geometry("1100x520")
-        preview.rowconfigure(0, weight=1)
-        preview.columnconfigure(0, weight=1)
+        if not records:
+            self.show_error(
+                "Cannot build the preview",
+                "No source rows matched the current prefixes and mappings.",
+            )
+            return
 
         columns = list(records[0])
-        tree = ttk.Treeview(
-            preview,
-            columns=columns,
-            show="headings",
-        )
-        vertical = ttk.Scrollbar(
-            preview,
-            orient="vertical",
-            command=tree.yview,
-        )
-        horizontal = ttk.Scrollbar(
-            preview,
-            orient="horizontal",
-            command=tree.xview,
-        )
-        tree.configure(
-            yscrollcommand=vertical.set,
-            xscrollcommand=horizontal.set,
-        )
-
-        tree.grid(row=0, column=0, sticky="nsew")
-        vertical.grid(row=0, column=1, sticky="ns")
-        horizontal.grid(row=1, column=0, sticky="ew")
-
+        tree = self.preview_tree
+        tree.delete(*tree.get_children())
+        tree.configure(columns=columns)
         for column in columns:
-            tree.heading(column, text=column)
-            tree.column(column, width=170, minwidth=100)
+            tree.heading(column, text=column, anchor="w")
+            tree.column(column, width=165, minwidth=100, anchor="w")
 
         for record in records[:PREVIEW_ROWS]:
             tree.insert(
@@ -2037,16 +2120,11 @@ class BomConverterApp:
                 values=[record[column] for column in columns],
             )
 
-        footer = ttk.Label(
-            preview,
-            text=(
-                f"Showing {min(len(records), PREVIEW_ROWS):,} of "
-                f"{len(records):,} mapped rows. This preview does not change "
-                "any files."
-            ),
-            padding=8,
+        self.preview_status.set(
+            f"Showing {min(len(records), PREVIEW_ROWS):,} of "
+            f"{len(records):,} mapped rows. This preview does not change any files."
         )
-        footer.grid(row=2, column=0, columnspan=2, sticky="w")
+        self.work_tabs.select(self.preview_frame)
 
     def save_mapping(self):
         mapping = {
@@ -2219,12 +2297,33 @@ def main(argv=None):
         )
         return 0
 
-    root = tk.Tk()
-    app = BomConverterApp(root, close_when_done=all(supplied))
+    root = None
+    try:
+        root = tk.Tk()
+        app = BomConverterApp(root, close_when_done=all(supplied))
+    except Exception as error:
+        traceback.print_exc()
+        try:
+            messagebox.showerror(
+                APP_TITLE,
+                "The converter could not start.\n\n"
+                f"{type(error).__name__}: {error}",
+                parent=root,
+            )
+        except tk.TclError:
+            pass
+        if root is not None:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+        return 1
+
     if all(supplied):
         try:
             app.load_paths(args.source, args.output, args.template)
         except Exception as error:
+            traceback.print_exc()
             app.show_error("Could not preload the Assistant-selected files", error)
 
     # Keep a reference for the lifetime of the Tk window.
