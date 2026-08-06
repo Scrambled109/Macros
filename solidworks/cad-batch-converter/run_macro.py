@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
@@ -224,6 +225,20 @@ def _get_active_solidworks():
     return None
 
 
+def _dispatch_new_solidworks():
+    import win32com.client
+
+    failures: list[str] = []
+    for prog_id in SOLIDWORKS_PROGIDS:
+        try:
+            return win32com.client.DispatchEx(prog_id)
+        except Exception as exc:
+            failures.append(f"{prog_id}: {exc}")
+    raise SolidWorksRunnerError(
+        "Could not start a dedicated SolidWorks COM instance. " + "; ".join(failures)
+    )
+
+
 def _dispatch_solidworks():
     import win32com.client
 
@@ -244,7 +259,9 @@ def connect_solidworks(
     timeout: float = 120.0,
     get_active: Callable[[], object | None] | None = None,
     dispatch: Callable[[], object] | None = None,
+    dispatch_new: Callable[[], object] | None = None,
     launch: Callable[..., object] | None = None,
+    force_new: bool = False,
     monotonic: Callable[[], float] | None = None,
     sleep: Callable[[float], None] | None = None,
 ) -> SolidWorksConnection:
@@ -257,9 +274,17 @@ def connect_solidworks(
 
     get_active = get_active or _get_active_solidworks
     dispatch = dispatch or _dispatch_solidworks
+    dispatch_new = dispatch_new or _dispatch_new_solidworks
     launch = launch or subprocess.Popen
     monotonic = monotonic or time.monotonic
     sleep = sleep or time.sleep
+
+    if force_new:
+        return SolidWorksConnection(
+            dispatch_new(),
+            reused=False,
+            launch_method="dedicated DispatchEx COM session",
+        )
 
     app = get_active()
     if app is not None:
@@ -503,6 +528,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--connect-timeout", type=float, default=120.0)
     parser.add_argument("--ready-timeout", type=float, default=120.0)
     parser.add_argument(
+        "--new-instance",
+        action="store_true",
+        help="Create a dedicated SolidWorks COM instance instead of reusing one.",
+    )
+    parser.add_argument("--worker-ready-file", type=Path)
+    parser.add_argument("--worker-start-signal", type=Path)
+    parser.add_argument("--worker-start-timeout", type=float, default=240.0)
+    parser.add_argument(
+        "--quit-after-run",
+        action="store_true",
+        help="Exit the dedicated SolidWorks instance when this worker finishes.",
+    )
+    parser.add_argument(
         "--normalize-output",
         type=Path,
         help=(
@@ -544,13 +582,46 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     pythoncom.CoInitialize()
+    connection = None
     try:
         connection = connect_solidworks(
             args.solidworks_executable,
             timeout=args.connect_timeout,
+            force_new=args.new_instance,
         )
         action = "Reusing" if connection.reused else "Started"
         print(f"{action} SolidWorks via {connection.launch_method}.", flush=True)
+        solidworks_pid_value = connection.app.GetProcessID
+        solidworks_pid = int(
+            solidworks_pid_value()
+            if callable(solidworks_pid_value)
+            else solidworks_pid_value
+        )
+        print(f"SolidWorks process ID: {solidworks_pid}", flush=True)
+        if args.worker_ready_file is not None:
+            args.worker_ready_file.parent.mkdir(parents=True, exist_ok=True)
+            temporary_ready = args.worker_ready_file.with_suffix(
+                args.worker_ready_file.suffix + ".tmp"
+            )
+            temporary_ready.write_text(
+                json.dumps(
+                    {
+                        "controller_pid": os.getpid(),
+                        "solidworks_pid": solidworks_pid,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            os.replace(temporary_ready, args.worker_ready_file)
+        if args.worker_start_signal is not None:
+            deadline = time.monotonic() + max(args.worker_start_timeout, 1.0)
+            while not args.worker_start_signal.is_file():
+                if time.monotonic() >= deadline:
+                    raise SolidWorksRunnerError(
+                        "Timed out waiting for the parallel-worker start signal."
+                    )
+                time.sleep(0.1)
         print(f"Waiting for the SolidWorks VBA host and {args.macro.name}.", flush=True)
         output_folder = args.normalize_output
         source_folder = None
@@ -654,6 +725,16 @@ def main(argv: list[str] | None = None) -> int:
         traceback.print_exc()
         return 1
     finally:
+        if args.quit_after_run and connection is not None:
+            try:
+                connection.app.ExitApp()
+                print("Closed dedicated SolidWorks worker instance.", flush=True)
+            except Exception as exc:
+                print(
+                    f"WARNING: could not close dedicated SolidWorks worker: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
         pythoncom.CoUninitialize()
 
 
