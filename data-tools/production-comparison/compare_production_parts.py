@@ -3547,67 +3547,143 @@ def write_summary(
 def select_paths_with_dialogs() -> tuple[Path, Path, Path, Path]:
     try:
         import tkinter as tk
-        from tkinter import filedialog, messagebox
+        from tkinter import filedialog, messagebox, ttk
     except ImportError as exc:
         raise RuntimeError(
             "Tkinter is unavailable. Run the script with command-line arguments."
         ) from exc
 
+    steel_blue = "#57a0d3"
+    dark_bg = "#101820"
+    dark_surface = "#18232d"
+    dark_input = "#111a22"
+    text_primary = "#eef5f9"
     root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-
-    messagebox.showinfo(
-        "Production Part Reconciliation",
-        "Select the folder containing all linear-material nesting CSV files.",
-        parent=root,
+    root.title("Production Part Reconciliation")
+    root.geometry("860x360")
+    root.minsize(720, 330)
+    root.configure(background=dark_bg)
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+    style.configure("TFrame", background=dark_bg)
+    style.configure("TLabel", background=dark_bg, foreground=text_primary)
+    style.configure(
+        "Heading.TLabel",
+        background=dark_bg,
+        foreground=text_primary,
+        font=("Segoe UI Semibold", 18),
     )
-
-    nests = filedialog.askdirectory(
-        title="Select linear-material nesting folder",
-        parent=root,
+    style.configure(
+        "TEntry",
+        fieldbackground=dark_input,
+        foreground=text_primary,
+        insertcolor=text_primary,
+        bordercolor="#40515f",
     )
-    if not nests:
+    style.configure(
+        "TButton",
+        background=dark_surface,
+        foreground=text_primary,
+        bordercolor="#40515f",
+        padding=(10, 6),
+    )
+    style.map("TButton", background=[("active", "#2b3c49")])
+    style.configure(
+        "Accent.TButton",
+        background=steel_blue,
+        foreground="#ffffff",
+        bordercolor=steel_blue,
+        padding=(12, 7),
+    )
+    style.map("Accent.TButton", background=[("active", "#6eb1df")])
+
+    values = {
+        "nests": tk.StringVar(),
+        "parts": tk.StringVar(),
+        "solidworks": tk.StringVar(),
+        "output": tk.StringVar(),
+    }
+    result: list[tuple[Path, Path, Path, Path]] = []
+    frame = ttk.Frame(root, padding=20)
+    frame.pack(fill="both", expand=True)
+    frame.columnconfigure(1, weight=1)
+    ttk.Label(
+        frame,
+        text="Production Part Reconciliation",
+        style="Heading.TLabel",
+    ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
+    ttk.Label(
+        frame,
+        text="Choose the four production inputs, then run the comparison.",
+        foreground="#a9bac6",
+    ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 16))
+
+    file_types = [("CSV or text files", "*.csv *.txt"), ("All files", "*.*")]
+
+    def browse_folder(key: str, title: str) -> None:
+        selected = filedialog.askdirectory(
+            title=title,
+            initialdir=values["nests"].get() or None,
+            parent=root,
+        )
+        if selected:
+            values[key].set(selected)
+
+    def browse_file(key: str, title: str) -> None:
+        selected = filedialog.askopenfilename(
+            title=title,
+            filetypes=file_types,
+            parent=root,
+        )
+        if selected:
+            values[key].set(selected)
+
+    rows = (
+        ("Nesting CSV folder", "nests", lambda: browse_folder("nests", "Select nesting folder")),
+        ("Parts List CSV", "parts", lambda: browse_file("parts", "Select Parts List CSV")),
+        ("SolidWorks CSV", "solidworks", lambda: browse_file("solidworks", "Select SolidWorks CSV")),
+        ("Output folder", "output", lambda: browse_folder("output", "Select output folder")),
+    )
+    for row, (label, key, command) in enumerate(rows, start=2):
+        ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=5)
+        ttk.Entry(frame, textvariable=values[key]).grid(
+            row=row, column=1, sticky="ew", padx=10, pady=5
+        )
+        ttk.Button(frame, text="Browse…", command=command).grid(
+            row=row, column=2, pady=5
+        )
+
+    def accept() -> None:
+        missing = [label for label, key, _command in rows if not values[key].get().strip()]
+        if missing:
+            messagebox.showerror(
+                "Required inputs",
+                "Select: " + ", ".join(missing),
+                parent=root,
+            )
+            return
+        result.append(
+            tuple(Path(values[key].get()) for key in ("nests", "parts", "solidworks", "output"))
+        )
+        root.destroy()
+
+    controls = ttk.Frame(frame)
+    controls.grid(row=6, column=0, columnspan=3, sticky="e", pady=(16, 0))
+    ttk.Button(controls, text="Cancel", command=root.destroy).pack(side="left", padx=6)
+    ttk.Button(
+        controls,
+        text="Run Comparison",
+        command=accept,
+        style="Accent.TButton",
+    ).pack(side="left")
+    root.protocol("WM_DELETE_WINDOW", root.destroy)
+    root.mainloop()
+    if not result:
         raise SystemExit("Cancelled.")
-
-    parts = filedialog.askopenfilename(
-        title="Select Parts List CSV export",
-        filetypes=[
-            ("CSV or text files", "*.csv *.txt"),
-            ("All files", "*.*"),
-        ],
-        parent=root,
-    )
-    if not parts:
-        raise SystemExit("Cancelled.")
-
-    solidworks = filedialog.askopenfilename(
-        title="Select SolidWorks Assembly Visualization CSV export",
-        filetypes=[
-            ("CSV or text files", "*.csv *.txt"),
-            ("All files", "*.*"),
-        ],
-        parent=root,
-    )
-    if not solidworks:
-        raise SystemExit("Cancelled.")
-
-    output = filedialog.askdirectory(
-        title="Select base output folder",
-        initialdir=nests,
-        parent=root,
-    )
-    if not output:
-        raise SystemExit("Cancelled.")
-
-    root.destroy()
-
-    return (
-        Path(nests),
-        Path(parts),
-        Path(solidworks),
-        Path(output),
-    )
+    return result[0]
 
 
 def show_completion_message(
