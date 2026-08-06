@@ -79,13 +79,24 @@ class JobAssistant(tk.Tk):
         self.notice_path: Path | None = None
         self.stage_detail_text = ""
         self.recent_tree: ttk.Treeview | None = None
+        self.dashboard_recent_tree: ttk.Treeview | None = None
+        self.dashboard_recent_files: list[dict] = []
+        self.activity_log_path: Path | None = None
+        self.activity_log_signature: tuple | None = None
         self._configure_style()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.close_application)
 
     @property
     def repo(self) -> Path:
-        return Path(self.settings.get("macros_repo") or DEFAULT_REPO)
+        configured = Path(self.settings.get("macros_repo") or DEFAULT_REPO)
+        # Older settings can retain a disconnected network drive or a checkout
+        # that was moved.  The running assistant's own checkout is a safe source
+        # fallback and prevents child tools from exiting immediately because
+        # their script path no longer exists.
+        if (configured / "job-assistant" / "job_core.py").is_file():
+            return configured
+        return DEFAULT_REPO
 
     def bundled_tool(self, name: str) -> Path | None:
         """Return a packaged companion executable, or use source tools."""
@@ -326,7 +337,7 @@ class JobAssistant(tk.Tk):
         self.logo_image = None
         if logo_path.is_file():
             try:
-                self.logo_image = tk.PhotoImage(file=str(logo_path)).subsample(4, 4)
+                self.logo_image = tk.PhotoImage(file=str(logo_path)).subsample(3, 3)
                 ttk.Label(
                     header,
                     image=self.logo_image,
@@ -376,7 +387,7 @@ class JobAssistant(tk.Tk):
         )
 
         self.workflow_card = ttk.Frame(content, style="Card.TFrame", padding=1)
-        self.workflow_card.pack(fill="both", expand=True)
+        self.workflow_card.pack(fill="x")
         card_header = ttk.Frame(
             self.workflow_card,
             style="Card.TFrame",
@@ -398,13 +409,13 @@ class JobAssistant(tk.Tk):
             self.workflow_card,
             columns=("stage", "status"),
             show="headings",
-            height=7,
+            height=len(STAGES),
         )
-        self.tree.heading("stage", text="Step")
-        self.tree.heading("status", text="Status")
+        self.tree.heading("stage", text="Step", anchor="w")
+        self.tree.heading("status", text="Status", anchor="w")
         self.tree.column("stage", width=650, minwidth=300, anchor="w")
         self.tree.column("status", width=170, minwidth=120, anchor="w")
-        self.tree.pack(fill="both", expand=True, padx=1)
+        self.tree.pack(fill="x", padx=1)
         self.tree.bind("<<TreeviewSelect>>", self._stage_selected)
         self.tree.tag_configure("not_started", foreground="#98a8b3")
         self.tree.tag_configure("ready", foreground="#87c9f3")
@@ -469,6 +480,127 @@ class JobAssistant(tk.Tk):
         self.more_menu = tk.Menu(self.more_button, tearoff=False)
         self._populate_step_menu(self.more_menu)
         self.more_button.configure(menu=self.more_menu)
+
+        dashboard = ttk.Frame(content)
+        dashboard.pack(fill="both", expand=True, pady=(12, 0))
+        dashboard.columnconfigure(0, weight=3)
+        dashboard.columnconfigure(1, weight=2)
+        dashboard.rowconfigure(0, weight=1)
+
+        activity_card = ttk.Frame(
+            dashboard, style="Card.TFrame", padding=(14, 11, 14, 14)
+        )
+        activity_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        activity_card.columnconfigure(0, weight=1)
+        activity_card.rowconfigure(1, weight=1)
+        activity_header = ttk.Frame(activity_card, style="Card.TFrame")
+        activity_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(
+            activity_header, text="Activity", style="StepTitle.TLabel"
+        ).pack(side="left")
+        self.activity_status = ttk.Label(
+            activity_header, text="No process running", style="CardMuted.TLabel"
+        )
+        self.activity_status.pack(side="right")
+        activity_body = ttk.Frame(activity_card, style="Card.TFrame")
+        activity_body.grid(row=1, column=0, sticky="nsew")
+        activity_body.columnconfigure(0, weight=1)
+        activity_body.rowconfigure(0, weight=1)
+        self.activity_text = tk.Text(
+            activity_body,
+            wrap="none",
+            height=10,
+            padx=10,
+            pady=9,
+            relief="flat",
+            background=DARK_INPUT,
+            foreground="#c9d7df",
+            insertbackground=TEXT_PRIMARY,
+            selectbackground="#315f7d",
+            font=("Cascadia Mono", 9),
+        )
+        activity_scroll = ttk.Scrollbar(
+            activity_body, orient="vertical", command=self.activity_text.yview
+        )
+        self.activity_text.configure(yscrollcommand=activity_scroll.set)
+        self.activity_text.grid(row=0, column=0, sticky="nsew")
+        activity_scroll.grid(row=0, column=1, sticky="ns")
+        self._set_activity_text(
+            "Run a workflow step to see its live log here. The latest job log "
+            "remains visible after the process finishes."
+        )
+
+        side = ttk.Frame(dashboard)
+        side.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        side.columnconfigure(0, weight=1)
+        side.rowconfigure(0, weight=1)
+
+        recent_card = ttk.Frame(
+            side, style="Card.TFrame", padding=(14, 11, 14, 12)
+        )
+        recent_card.grid(row=0, column=0, sticky="nsew")
+        recent_card.columnconfigure(0, weight=1)
+        recent_card.rowconfigure(1, weight=1)
+        recent_header = ttk.Frame(recent_card, style="Card.TFrame")
+        recent_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(
+            recent_header, text="Recent outputs", style="StepTitle.TLabel"
+        ).pack(side="left")
+        ttk.Button(
+            recent_header,
+            text="Open Selected",
+            command=self.open_dashboard_recent_file,
+        ).pack(side="right")
+        self.dashboard_recent_tree = ttk.Treeview(
+            recent_card,
+            columns=("file", "revision"),
+            show="headings",
+            height=5,
+        )
+        self.dashboard_recent_tree.heading("file", text="File", anchor="w")
+        self.dashboard_recent_tree.heading("revision", text="Rev", anchor="w")
+        self.dashboard_recent_tree.column("file", width=300, minwidth=150, anchor="w")
+        self.dashboard_recent_tree.column(
+            "revision", width=55, minwidth=45, anchor="center", stretch=False
+        )
+        self.dashboard_recent_tree.grid(row=1, column=0, sticky="nsew")
+        self.dashboard_recent_tree.bind(
+            "<Double-1>", lambda _event: self.open_dashboard_recent_file()
+        )
+
+        folders_card = ttk.Frame(
+            side, style="Card.TFrame", padding=(14, 11, 14, 12)
+        )
+        folders_card.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        ttk.Label(
+            folders_card, text="Job folders", style="StepTitle.TLabel"
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        folder_specs = (
+            ("Engineering", "paths", "engineering_root"),
+            ("Cut Files", "paths", "cut_files"),
+            ("3D Models", "paths", "model_3d"),
+            ("Staging", "workspace", "staging"),
+            ("Logs", "workspace", "logs"),
+        )
+        self.folder_buttons = []
+        for index, (label, section, key) in enumerate(folder_specs):
+            button = ttk.Button(
+                folders_card,
+                text=label,
+                command=lambda s=section, k=key: self.open_job_location(s, k),
+                state="disabled",
+            )
+            button.grid(
+                row=1 + index // 3,
+                column=index % 3,
+                sticky="ew",
+                padx=(0 if index % 3 == 0 else 5, 0),
+                pady=(0, 5),
+            )
+            self.folder_buttons.append(button)
+        for column in range(3):
+            folders_card.columnconfigure(column, weight=1)
+        self.after(750, self.refresh_activity_panel)
 
     def _build_menus(self) -> None:
         menu_bar = tk.Menu(self, tearoff=False)
@@ -582,6 +714,10 @@ class JobAssistant(tk.Tk):
         )
         if not self.notice_row.winfo_manager():
             self.notice_row.pack(fill="x", pady=(0, 8))
+        if level == "warning":
+            # The completion notice already contains the actionable failure.
+            # Do not stack the dashboard's summary of the same warning above it.
+            self.warning_summary.pack_forget()
         if self.notice_path:
             if not self.notice_open_button.winfo_manager():
                 self.notice_open_button.pack(side="right", padx=(8, 0))
@@ -830,7 +966,114 @@ class JobAssistant(tk.Tk):
             self.primary_step_button.pack(side="left", padx=(0, 6))
         if not self.more_button.winfo_manager():
             self.more_button.pack(side="left")
+        self.refresh_recent_outputs()
+        for button in self.folder_buttons:
+            button.configure(state="normal")
         self.show_stage()
+
+    def _set_activity_text(self, content: str) -> None:
+        self.activity_text.configure(state="normal")
+        self.activity_text.delete("1.0", "end")
+        self.activity_text.insert("1.0", content)
+        self.activity_text.configure(state="disabled")
+        self.activity_text.see("end")
+
+    def refresh_activity_panel(self) -> None:
+        """Tail the active process log, or retain the most recent job log."""
+        try:
+            log = None
+            stage = None
+            if self.manifest_path:
+                for process in reversed(list(self.running_processes.values())):
+                    if Path(process.get("manifest_path", "")) == self.manifest_path:
+                        candidate = Path(process.get("log", ""))
+                        if candidate.is_file():
+                            log = candidate
+                            stage = process.get("stage")
+                            break
+                if log is None and self.manifest:
+                    logs = Path(self.manifest["workspace"]["logs"])
+                    candidates = [item for item in logs.glob("*.log") if item.is_file()]
+                    if candidates:
+                        log = max(candidates, key=lambda item: item.stat().st_mtime)
+            if log and log.is_file():
+                stat = log.stat()
+                signature = (log, stat.st_mtime_ns, stat.st_size)
+                if signature != self.activity_log_signature:
+                    with log.open("rb") as handle:
+                        start = max(0, stat.st_size - 65536)
+                        handle.seek(start)
+                        data = handle.read()
+                    if start:
+                        data = data.split(b"\n", 1)[-1]
+                    lines = data.decode("utf-8", errors="replace").splitlines()
+                    self._set_activity_text(
+                        "\n".join(lines[-80:]) or "The log is empty."
+                    )
+                    self.activity_log_signature = signature
+                self.activity_log_path = log
+                if stage:
+                    labels = dict(STAGES)
+                    self.activity_status.configure(
+                        text=f"Running · {labels.get(stage, stage)}"
+                    )
+                else:
+                    self.activity_status.configure(text=f"Latest · {log.name}")
+            elif self.manifest:
+                self.activity_status.configure(text="No process running")
+                self._set_activity_text(
+                    "No log has been created for this job yet. Start a step and "
+                    "its output will stream here."
+                )
+        except (OSError, tk.TclError):
+            pass
+        finally:
+            try:
+                self.after(750, self.refresh_activity_panel)
+            except tk.TclError:
+                pass
+
+    def refresh_recent_outputs(self) -> None:
+        tree = self.dashboard_recent_tree
+        if tree is None or not tree.winfo_exists():
+            return
+        tree.delete(*tree.get_children())
+        self.dashboard_recent_files = [
+            artifact
+            for artifact in self.manifest.get("recent_files", [])
+            if Path(artifact.get("path", "")).suffix.lower() != ".log"
+        ][:5]
+        for index, artifact in enumerate(self.dashboard_recent_files):
+            tree.insert(
+                "",
+                "end",
+                iid=f"dashboard-recent-{index}",
+                values=(artifact.get("name", ""), artifact.get("revision", "")),
+            )
+
+    def open_dashboard_recent_file(self) -> None:
+        def operation() -> None:
+            self.require_job()
+            selected = self.dashboard_recent_tree.selection()
+            if not selected:
+                raise JobError("Select a recent output first.")
+            index = int(selected[0].rsplit("-", 1)[-1])
+            path = Path(self.dashboard_recent_files[index]["path"])
+            if not path.exists():
+                raise JobError(f"The recorded file is no longer available: {path}")
+            open_path(path)
+
+        self.handle(operation)
+
+    def open_job_location(self, section: str, key: str) -> None:
+        def operation() -> None:
+            self.require_job()
+            path = Path(self.manifest[section][key])
+            if not path.exists():
+                raise JobError(f"The job folder is no longer available: {path}")
+            open_path(path)
+
+        self.handle(operation)
 
     def show_stage(self) -> None:
         if not self.manifest or not self.active_stage:
@@ -1100,15 +1343,37 @@ class JobAssistant(tk.Tk):
             Path(template_value),
             self.bundled_tool("Engineering BOM Converter.exe"),
         )
+        log = Path(self.manifest["workspace"]["logs"]) / "bom-converter.log"
+        record_event(
+            self.manifest,
+            "external_process_requested",
+            stage="bom",
+            command=command,
+            output=output,
+            log=str(log),
+        )
+        save_manifest(self.manifest, self.manifest_path)
+        handle = log.open("a", encoding="utf-8")
+        handle.write(f"Windows command: {subprocess.list2cmdline(command)}\n")
+        handle.write(
+            f"Arguments: {command!r}\nOutput: {output}\nStage: bom\n\n"
+        )
+        handle.flush()
         # A remembered repository can be unavailable (especially a disconnected
         # network drive).  Passing that stale path as cwd raises WinError 267
         # before the packaged converter can even start.  The command already
         # contains absolute executable/script paths, so it is safe to inherit the
         # assistant's working directory when the preferred repository is absent.
-        process = subprocess.Popen(
-            command,
-            cwd=existing_working_directory(self.repo),
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=existing_working_directory(self.repo),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+            )
+        except Exception:
+            handle.close()
+            raise
         record_event(
             self.manifest,
             "external_process_launched",
@@ -1116,6 +1381,7 @@ class JobAssistant(tk.Tk):
             command=command,
             pid=process.pid,
             output=output,
+            log=str(log),
         )
         mark_needs_review(
             self.manifest,
@@ -1132,10 +1398,13 @@ class JobAssistant(tk.Tk):
             "job_number": self.manifest["job"]["number"],
             "manifest_path": str(self.manifest_path),
             "result": str(output),
+            "log": str(log),
         }
         self.update_running_summary()
         self._poll_bom_process(
             process,
+            handle,
+            log,
             Path(output),
             self.manifest,
             self.manifest_path,
@@ -1144,6 +1413,8 @@ class JobAssistant(tk.Tk):
     def _poll_bom_process(
         self,
         process,
+        handle,
+        log: Path,
         output: Path,
         process_manifest: dict,
         process_manifest_path: Path,
@@ -1154,11 +1425,15 @@ class JobAssistant(tk.Tk):
                 500,
                 self._poll_bom_process,
                 process,
+                handle,
+                log,
                 output,
                 process_manifest,
                 process_manifest_path,
             )
             return
+        handle.write(f"\nProcess exit code: {exit_code}\n")
+        handle.close()
         self.running_processes.pop(process.pid, None)
         self.update_running_summary()
         record_event(
@@ -1168,6 +1443,7 @@ class JobAssistant(tk.Tk):
             pid=process.pid,
             exit_code=exit_code,
             output=str(output),
+            log=str(log),
         )
         succeeded = exit_code == 0 and output.is_file()
         if succeeded:
@@ -1182,8 +1458,9 @@ class JobAssistant(tk.Tk):
             item["status"] = "warning"
             item["notes"] = (
                 "The BOM converter closed without creating the selected Parts "
-                f"List output: {output}"
+                f"List output: {output}. Review the converter log: {log}"
             )
+            record_artifact(process_manifest, "bom", log)
         save_manifest(process_manifest, process_manifest_path)
         if self.manifest_path == process_manifest_path:
             self.manifest = process_manifest
@@ -1197,7 +1474,7 @@ class JobAssistant(tk.Tk):
                 else "No completed Parts List was found."
             ),
             level="info" if succeeded else "warning",
-            path=output if succeeded else output.parent,
+            path=output if succeeded else log,
         )
         if succeeded:
             self.open_review_and_offer_completion(
