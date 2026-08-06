@@ -816,7 +816,7 @@ def dashboard_warnings(manifest: dict[str, Any]) -> list[str]:
 
 
 _CUT_FILE_PART_SUFFIX = re.compile(
-    r"^(?P<part>.+)_[^_]+_\\d+(?:\\(B\\))?$", re.IGNORECASE
+    r"^(?P<part>.+)_[^_]+_\d+(?:\(B\))?$", re.IGNORECASE
 )
 
 
