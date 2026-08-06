@@ -2039,7 +2039,14 @@ class JobAssistant(tk.Tk):
                 )
             command.extend(["--solidworks-executable", solidworks])
         if stage == "plate_model" and output is not None:
-            command.extend(["--normalize-output", str(output)])
+            try:
+                runner_supports_normalization = (
+                    "--normalize-output" in runner.read_text(encoding="utf-8")
+                )
+            except OSError:
+                runner_supports_normalization = False
+            if runner_supports_normalization:
+                command.extend(["--normalize-output", str(output)])
         suffix = safe_name(source.name if source else stage)
         log = Path(self.manifest["workspace"]["logs"]) / f"solidworks-{suffix}.log"
         handle = log.open("a", encoding="utf-8")
