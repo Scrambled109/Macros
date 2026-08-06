@@ -56,6 +56,12 @@ not silently deleted.
   components—or the whole assembly when none are selected.
 - Production comparison runs in the background so the Job Assistant remains
   responsive. Review the Excel or HTML report before completing the stage.
+- **Open Results** opens the selected step's actual output: the current DXF run,
+  the current SolidWorks staging folder, the modified model folder, or the
+  comparison report folder. Logs remain separately available from **Tools >
+  Open Logs**.
+- The AutoCAD worker setting accepts any positive whole number. Two remains the
+  recommended default, but the assistant does not impose an upper limit.
 
 ## Finishing a stage
 
