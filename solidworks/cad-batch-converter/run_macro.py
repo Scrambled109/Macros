@@ -482,6 +482,21 @@ def main(argv: list[str] | None = None) -> int:
             configured_source = os.environ.get("MACROS_SOURCE_FOLDER", "").strip()
             source_folder = Path(configured_source) if configured_source else None
         before_models = snapshot_plate_models(output_folder)
+        expected_before_run = expected_part_stems(source_folder)
+        if expected_before_run:
+            unrelated = [
+                part
+                for part in before_models
+                if solidworks_part_stem(part.stem).casefold() not in expected_before_run
+            ]
+            if unrelated:
+                examples = ", ".join(part.name for part in unrelated[:5])
+                raise SolidWorksRunnerError(
+                    "The selected SolidWorks output folder already contains "
+                    f"{len(unrelated)} part(s) unrelated to the selected DWGs "
+                    f"(for example: {examples}). Move that staging folder aside "
+                    "before rerunning so unrelated models cannot be accepted or moved."
+                )
         module, procedure = run_macro(
             connection.app,
             args.macro,
@@ -492,7 +507,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if output_folder is not None:
             changed = changed_plate_models(before_models, output_folder)
-            expected = expected_part_stems(source_folder)
+            expected = expected_before_run
             matched = [
                 part
                 for part in changed
