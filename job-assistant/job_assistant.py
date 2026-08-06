@@ -1934,7 +1934,15 @@ class JobAssistant(tk.Tk):
         if not source_value:
             return
         source = Path(source_value)
-        if not any(source.glob("*.dwg")) and not any(source.glob("*.DWG")):
+        drawings = sorted(
+            (
+                path
+                for path in source.iterdir()
+                if path.is_file() and path.suffix.casefold() == ".dwg"
+            ),
+            key=lambda path: path.name.casefold(),
+        )
+        if not drawings:
             raise JobError("The selected plate-input folder contains no DWG files.")
         thickness = simpledialog.askfloat(
             "Plate thickness",
@@ -1944,7 +1952,21 @@ class JobAssistant(tk.Tk):
             maxvalue=20.0,
             parent=self,
         )
-        if thickness is None or not self._accept_warnings(stage):
+        if thickness is None:
+            return
+        worker_limit = min(8, len(drawings))
+        workers = simpledialog.askinteger(
+            "Parallel SolidWorks instances",
+            f"How many isolated SolidWorks instances should process "
+            f"{len(drawings)} DWG(s)?\n\n"
+            "This is the experimental super-speed mode. Each instance uses "
+            "additional memory and a separate local worker folder.",
+            initialvalue=min(4, worker_limit),
+            minvalue=1,
+            maxvalue=worker_limit,
+            parent=self,
+        )
+        if workers is None or not self._accept_warnings(stage):
             return
 
         run_name = safe_name(source.name)
@@ -1978,10 +2000,9 @@ class JobAssistant(tk.Tk):
         )
         copied = 0
         try:
-            for drawing in source.iterdir():
-                if drawing.is_file() and drawing.suffix.casefold() == ".dwg":
-                    shutil.copy2(drawing, local_source / drawing.name)
-                    copied += 1
+            for drawing in drawings:
+                shutil.copy2(drawing, local_source / drawing.name)
+                copied += 1
         except OSError as exc:
             raise JobError(
                 f"Could not stage DWGs on the local drive at {local_source}: {exc}"
@@ -2024,6 +2045,7 @@ class JobAssistant(tk.Tk):
             local_output=str(automation_output),
             output=str(output),
             local_dwgs=copied,
+            solidworks_workers=workers,
             thickness_inches=thickness,
         )
         self._start_solidworks_runner(
@@ -2032,8 +2054,10 @@ class JobAssistant(tk.Tk):
             runner,
             source=source,
             output=output,
+            automation_source=local_source,
             automation_output=automation_output,
             cleanup_workspace=local_run,
+            workers=workers,
             thickness=thickness,
         )
 
@@ -2045,16 +2069,13 @@ class JobAssistant(tk.Tk):
         *,
         source: Path | None = None,
         output: Path | None = None,
+        automation_source: Path | None = None,
         automation_output: Path | None = None,
         cleanup_workspace: Path | None = None,
+        workers: int = 1,
         thickness: float | None = None,
     ) -> None:
-        """Run one macro through the active SolidWorks COM session.
-
-        The companion runner checks the Windows Running Object Table first and
-        only starts SolidWorks when no usable instance exists. Runs stay serial
-        so document activation and selection cannot cross between jobs.
-        """
+        """Run a SolidWorks macro, optionally through isolated parallel workers."""
 
         for item in self.running_processes.values():
             if item.get("stage") in {"plate_model", "autobom"}:
@@ -2062,21 +2083,58 @@ class JobAssistant(tk.Tk):
                     "A SolidWorks automation run is already active. Wait for it "
                     "to finish before starting another SolidWorks step."
                 )
-        command = [
-            sys.executable,
-            "-u",
-            str(runner),
-            "--macro",
-            str(macro),
-        ]
-        solidworks = self.settings.get("solidworks_executable", "").strip()
-        if solidworks:
-            if not Path(solidworks).is_file():
+        parallel = stage == "plate_model" and workers > 1
+        if parallel:
+            parallel_runner = (
+                self.repo
+                / "solidworks"
+                / "cad-batch-converter"
+                / "parallel_run_macro.py"
+            )
+            if not parallel_runner.is_file():
                 raise JobError(
-                    f"Configured SolidWorks executable was not found: {solidworks}"
+                    f"Parallel SolidWorks controller was not found: {parallel_runner}"
                 )
-            command.extend(["--solidworks-executable", solidworks])
-        if stage == "plate_model" and output is not None:
+            if None in (automation_source, cleanup_workspace, output, thickness):
+                raise JobError(
+                    "Parallel SolidWorks mode is missing its local source, "
+                    "workspace, output, or thickness configuration."
+                )
+            command = [
+                sys.executable,
+                "-u",
+                str(parallel_runner),
+                "--macro",
+                str(macro),
+                "--runner",
+                str(runner),
+                "--source",
+                str(automation_source),
+                "--workspace",
+                str(cleanup_workspace),
+                "--publish-output",
+                str(output),
+                "--extrude-depth-meters",
+                format(thickness * 0.0254, ".12g"),
+                "--workers",
+                str(workers),
+            ]
+        else:
+            command = [
+                sys.executable,
+                "-u",
+                str(runner),
+                "--macro",
+                str(macro),
+            ]
+            solidworks = self.settings.get("solidworks_executable", "").strip()
+            if solidworks:
+                if not Path(solidworks).is_file():
+                    raise JobError(
+                        f"Configured SolidWorks executable was not found: {solidworks}"
+                    )
+                command.extend(["--solidworks-executable", solidworks])
+        if stage == "plate_model" and output is not None and not parallel:
             try:
                 runner_source = runner.read_text(encoding="utf-8")
             except OSError:
@@ -2100,6 +2158,7 @@ class JobAssistant(tk.Tk):
             handle.write(f"Local automation output: {automation_output}\n")
         if cleanup_workspace:
             handle.write(f"Local speed workspace: {cleanup_workspace}\n")
+        handle.write(f"SolidWorks workers: {workers}\n")
         if thickness is not None:
             handle.write(f"Thickness: {thickness:g} in\n")
         handle.flush()
@@ -2121,6 +2180,7 @@ class JobAssistant(tk.Tk):
             macro=str(macro),
             source=str(source) if source else "",
             output=str(output) if output else "",
+            solidworks_workers=workers,
             log=str(log),
         )
         self.running_processes[process.pid] = {
