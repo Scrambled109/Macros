@@ -514,14 +514,38 @@ def material_code_from_token(value):
     return ""
 
 
+CATIA_TRAILING_METADATA_LABELS = {
+    "AREA",
+    "DESC",
+    "DESCRIPTION",
+    "HEIGHT",
+    "HEIGHTN",
+    "LENGTH",
+    "LEN",
+    "MASS",
+    "QTY",
+    "QUANTITY",
+    "THICK",
+    "THICKN",
+    "THICKNESS",
+    "THK",
+    "VOLUME",
+    "WEIGHT",
+    "WIDTH",
+    "WT",
+}
+
+
 def material_from_selected_value(value):
-    """Keep the last comma-delimited material term, ignoring trailing Weight."""
+    """Return the last material value before trailing CATIA metadata labels."""
     tokens = [token.strip() for token in str(value or "").split(",")]
     tokens = [token for token in tokens if token]
-    while tokens and normalize_header(tokens[-1]) == "WEIGHT":
+    while (
+        tokens
+        and normalize_header(tokens[-1]) in CATIA_TRAILING_METADATA_LABELS
+    ):
         tokens.pop()
     return tokens[-1] if tokens else ""
-
 
 def parse_pbom_material_description(value):
     """
@@ -1508,7 +1532,9 @@ class BomConverterApp:
         )
         self.mapping_inner.bind("<Configure>", self.mapping_frame_changed)
         self.mapping_canvas.bind("<Configure>", self.mapping_canvas_changed)
-        self.mapping_canvas.bind_all("<MouseWheel>", self.mapping_mousewheel)
+        self.mapping_canvas.bind_all(
+            "<MouseWheel>", self.mapping_mousewheel, add="+"
+        )
 
         self.empty_mapping_label = ttk.Label(
             self.mapping_inner,
@@ -1559,12 +1585,36 @@ class BomConverterApp:
             width=event.width,
         )
 
+    def _mapping_contains_widget(self, widget):
+        """Return whether a mouse-wheel event originated in the mapping pane."""
+        try:
+            current = widget
+            while current is not None:
+                if current == self.mapping_canvas:
+                    return True
+                parent_name = current.winfo_parent()
+                if not parent_name:
+                    return False
+                current = current._nametowidget(parent_name)
+        except (AttributeError, KeyError, tk.TclError):
+            return False
+        return False
+
     def mapping_mousewheel(self, event):
-        if self.mapping_canvas.winfo_exists():
-            self.mapping_canvas.yview_scroll(
-                int(-1 * (event.delta / 120)),
-                "units",
-            )
+        try:
+            if not self.mapping_canvas.winfo_exists():
+                return None
+            if event.widget.winfo_class() in {"TCombobox", "Combobox", "Listbox"}:
+                return None
+            if not self._mapping_contains_widget(event.widget):
+                return None
+            delta = int(-1 * (event.delta / 120))
+            if not delta:
+                return None
+            self.mapping_canvas.yview_scroll(delta, "units")
+            return "break"
+        except (AttributeError, tk.TclError):
+            return None
 
     def choose_source(self):
         selected = filedialog.askopenfilename(
