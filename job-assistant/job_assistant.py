@@ -85,7 +85,14 @@ class JobAssistant(tk.Tk):
 
     @property
     def repo(self) -> Path:
-        return Path(self.settings.get("macros_repo") or DEFAULT_REPO)
+        configured = Path(self.settings.get("macros_repo") or DEFAULT_REPO)
+        # Older settings can retain a disconnected network drive or a checkout
+        # that was moved.  The running assistant's own checkout is a safe source
+        # fallback and prevents child tools from exiting immediately because
+        # their script path no longer exists.
+        if (configured / "job-assistant" / "job_core.py").is_file():
+            return configured
+        return DEFAULT_REPO
 
     def bundled_tool(self, name: str) -> Path | None:
         """Return a packaged companion executable, or use source tools."""
@@ -326,7 +333,7 @@ class JobAssistant(tk.Tk):
         self.logo_image = None
         if logo_path.is_file():
             try:
-                self.logo_image = tk.PhotoImage(file=str(logo_path)).subsample(4, 4)
+                self.logo_image = tk.PhotoImage(file=str(logo_path)).subsample(3, 3)
                 ttk.Label(
                     header,
                     image=self.logo_image,
@@ -376,7 +383,7 @@ class JobAssistant(tk.Tk):
         )
 
         self.workflow_card = ttk.Frame(content, style="Card.TFrame", padding=1)
-        self.workflow_card.pack(fill="both", expand=True)
+        self.workflow_card.pack(fill="x")
         card_header = ttk.Frame(
             self.workflow_card,
             style="Card.TFrame",
@@ -398,13 +405,13 @@ class JobAssistant(tk.Tk):
             self.workflow_card,
             columns=("stage", "status"),
             show="headings",
-            height=7,
+            height=len(STAGES),
         )
-        self.tree.heading("stage", text="Step")
-        self.tree.heading("status", text="Status")
+        self.tree.heading("stage", text="Step", anchor="w")
+        self.tree.heading("status", text="Status", anchor="w")
         self.tree.column("stage", width=650, minwidth=300, anchor="w")
         self.tree.column("status", width=170, minwidth=120, anchor="w")
-        self.tree.pack(fill="both", expand=True, padx=1)
+        self.tree.pack(fill="x", padx=1)
         self.tree.bind("<<TreeviewSelect>>", self._stage_selected)
         self.tree.tag_configure("not_started", foreground="#98a8b3")
         self.tree.tag_configure("ready", foreground="#87c9f3")
@@ -582,6 +589,10 @@ class JobAssistant(tk.Tk):
         )
         if not self.notice_row.winfo_manager():
             self.notice_row.pack(fill="x", pady=(0, 8))
+        if level == "warning":
+            # The completion notice already contains the actionable failure.
+            # Do not stack the dashboard's summary of the same warning above it.
+            self.warning_summary.pack_forget()
         if self.notice_path:
             if not self.notice_open_button.winfo_manager():
                 self.notice_open_button.pack(side="right", padx=(8, 0))
@@ -1100,15 +1111,37 @@ class JobAssistant(tk.Tk):
             Path(template_value),
             self.bundled_tool("Engineering BOM Converter.exe"),
         )
+        log = Path(self.manifest["workspace"]["logs"]) / "bom-converter.log"
+        record_event(
+            self.manifest,
+            "external_process_requested",
+            stage="bom",
+            command=command,
+            output=output,
+            log=str(log),
+        )
+        save_manifest(self.manifest, self.manifest_path)
+        handle = log.open("a", encoding="utf-8")
+        handle.write(f"Windows command: {subprocess.list2cmdline(command)}\n")
+        handle.write(
+            f"Arguments: {command!r}\nOutput: {output}\nStage: bom\n\n"
+        )
+        handle.flush()
         # A remembered repository can be unavailable (especially a disconnected
         # network drive).  Passing that stale path as cwd raises WinError 267
         # before the packaged converter can even start.  The command already
         # contains absolute executable/script paths, so it is safe to inherit the
         # assistant's working directory when the preferred repository is absent.
-        process = subprocess.Popen(
-            command,
-            cwd=existing_working_directory(self.repo),
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=existing_working_directory(self.repo),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+            )
+        except Exception:
+            handle.close()
+            raise
         record_event(
             self.manifest,
             "external_process_launched",
@@ -1116,6 +1149,7 @@ class JobAssistant(tk.Tk):
             command=command,
             pid=process.pid,
             output=output,
+            log=str(log),
         )
         mark_needs_review(
             self.manifest,
@@ -1132,10 +1166,13 @@ class JobAssistant(tk.Tk):
             "job_number": self.manifest["job"]["number"],
             "manifest_path": str(self.manifest_path),
             "result": str(output),
+            "log": str(log),
         }
         self.update_running_summary()
         self._poll_bom_process(
             process,
+            handle,
+            log,
             Path(output),
             self.manifest,
             self.manifest_path,
@@ -1144,6 +1181,8 @@ class JobAssistant(tk.Tk):
     def _poll_bom_process(
         self,
         process,
+        handle,
+        log: Path,
         output: Path,
         process_manifest: dict,
         process_manifest_path: Path,
@@ -1154,11 +1193,15 @@ class JobAssistant(tk.Tk):
                 500,
                 self._poll_bom_process,
                 process,
+                handle,
+                log,
                 output,
                 process_manifest,
                 process_manifest_path,
             )
             return
+        handle.write(f"\nProcess exit code: {exit_code}\n")
+        handle.close()
         self.running_processes.pop(process.pid, None)
         self.update_running_summary()
         record_event(
@@ -1168,6 +1211,7 @@ class JobAssistant(tk.Tk):
             pid=process.pid,
             exit_code=exit_code,
             output=str(output),
+            log=str(log),
         )
         succeeded = exit_code == 0 and output.is_file()
         if succeeded:
@@ -1182,8 +1226,9 @@ class JobAssistant(tk.Tk):
             item["status"] = "warning"
             item["notes"] = (
                 "The BOM converter closed without creating the selected Parts "
-                f"List output: {output}"
+                f"List output: {output}. Review the converter log: {log}"
             )
+            record_artifact(process_manifest, "bom", log)
         save_manifest(process_manifest, process_manifest_path)
         if self.manifest_path == process_manifest_path:
             self.manifest = process_manifest
@@ -1197,7 +1242,7 @@ class JobAssistant(tk.Tk):
                 else "No completed Parts List was found."
             ),
             level="info" if succeeded else "warning",
-            path=output if succeeded else output.parent,
+            path=output if succeeded else log,
         )
         if succeeded:
             self.open_review_and_offer_completion(

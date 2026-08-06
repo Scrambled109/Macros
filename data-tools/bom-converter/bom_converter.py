@@ -10,6 +10,7 @@ import json
 import os
 import re
 import tkinter as tk
+import traceback
 from copy import copy
 from fractions import Fraction
 from pathlib import Path
@@ -26,11 +27,34 @@ HEADER_SCAN_ROWS = 50
 PREVIEW_ROWS = 100
 SETTINGS_FILE = Path(__file__).resolve().with_name("bom_converter_mapping.json")
 STEEL_BLUE = "#57a0d3"
-DARK_BG = "#070b0f"
-DARK_SURFACE = "#0d141a"
-DARK_INPUT = "#080d12"
-TEXT_PRIMARY = "#eef5f9"
-TEXT_MUTED = "#a9bac6"
+DARK_BG = "#151d24"
+DARK_SURFACE = "#202b34"
+DARK_INPUT = "#182129"
+TEXT_PRIMARY = "#f2f6f8"
+TEXT_MUTED = "#b8c5cc"
+
+
+def safe_style_configure(style, style_name, **options):
+    """Apply ttk colors without letting an older Windows Tk abort startup.
+
+    Tk builds differ in which theme-specific options they accept.  Applying
+    the options individually preserves every supported setting and ignores
+    only an option the active build does not understand.
+    """
+    for option, value in options.items():
+        try:
+            style.configure(style_name, **{option: value})
+        except tk.TclError:
+            pass
+
+
+def safe_style_map(style, style_name, **options):
+    """Apply supported ttk state mappings without making startup brittle."""
+    for option, value in options.items():
+        try:
+            style.map(style_name, **{option: value})
+        except tk.TclError:
+            pass
 
 
 def configure_dark_style(root):
@@ -40,28 +64,31 @@ def configure_dark_style(root):
         style.theme_use("clam")
     except tk.TclError:
         pass
-    style.configure("TFrame", background=DARK_BG)
-    style.configure("TLabel", background=DARK_BG, foreground=TEXT_PRIMARY)
-    style.configure(
+    safe_style_configure(style, "TFrame", background=DARK_BG)
+    safe_style_configure(style, "TLabel", background=DARK_BG, foreground=TEXT_PRIMARY)
+    safe_style_configure(
+        style,
         "TLabelframe",
         background=DARK_BG,
         bordercolor="#344754",
         relief="solid",
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TLabelframe.Label",
         background=DARK_BG,
         foreground="#d8e8f1",
         font=("Segoe UI Semibold", 10),
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TEntry",
         fieldbackground=DARK_INPUT,
         foreground=TEXT_PRIMARY,
-        insertcolor=TEXT_PRIMARY,
         bordercolor="#40515f",
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TCombobox",
         fieldbackground=DARK_INPUT,
         background=DARK_SURFACE,
@@ -69,58 +96,75 @@ def configure_dark_style(root):
         arrowcolor=TEXT_PRIMARY,
         bordercolor="#40515f",
     )
-    style.map(
+    safe_style_map(
+        style,
         "TCombobox",
         fieldbackground=[("readonly", DARK_INPUT)],
         foreground=[("readonly", TEXT_PRIMARY)],
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TSpinbox",
         fieldbackground=DARK_INPUT,
         background=DARK_SURFACE,
         foreground=TEXT_PRIMARY,
         arrowcolor=TEXT_PRIMARY,
     )
-    style.configure(
+    safe_style_configure(
+        style,
         "TButton",
         background=DARK_SURFACE,
         foreground=TEXT_PRIMARY,
         bordercolor="#40515f",
         padding=(10, 6),
     )
-    style.map("TButton", background=[("active", "#2b3c49")])
-    style.configure(
+    safe_style_map(style, "TButton", background=[("active", "#3a4b57")])
+    safe_style_configure(
+        style,
         "Accent.TButton",
         background=STEEL_BLUE,
         foreground="#ffffff",
         bordercolor=STEEL_BLUE,
         padding=(12, 7),
     )
-    style.map("Accent.TButton", background=[("active", "#6eb1df")])
-    style.configure("TCheckbutton", background=DARK_BG, foreground=TEXT_PRIMARY)
-    style.map("TCheckbutton", background=[("active", DARK_BG)])
-    style.configure(
+    safe_style_map(
+        style, "Accent.TButton", background=[("active", "#6eb1df")]
+    )
+    safe_style_configure(
+        style, "TCheckbutton", background=DARK_BG, foreground=TEXT_PRIMARY
+    )
+    safe_style_map(
+        style, "TCheckbutton", background=[("active", DARK_BG)]
+    )
+    safe_style_configure(
+        style,
         "Treeview",
         background=DARK_SURFACE,
         fieldbackground=DARK_SURFACE,
         foreground=TEXT_PRIMARY,
         rowheight=28,
     )
-    style.map(
+    safe_style_map(
+        style,
         "Treeview",
         background=[("selected", "#315f7d")],
         foreground=[("selected", "#ffffff")],
     )
-    style.configure(
-        "Treeview.Heading", background="#293944", foreground="#d6e2e9"
+    safe_style_configure(
+        style,
+        "Treeview.Heading",
+        background="#31414d",
+        foreground="#e2ebf0",
     )
-    style.configure("MappingRow.TFrame", background=DARK_SURFACE)
-    style.configure(
+    safe_style_configure(style, "MappingRow.TFrame", background=DARK_SURFACE)
+    safe_style_configure(
+        style,
         "MappingRow.TLabel", background=DARK_SURFACE, foreground=TEXT_PRIMARY
     )
-    style.configure("MappingActive.TFrame", background="#294d66")
-    style.configure(
-        "MappingActive.TLabel", background="#294d66", foreground="#ffffff"
+    safe_style_configure(style, "MappingActive.TFrame", background="#355d77")
+    safe_style_configure(
+        style,
+        "MappingActive.TLabel", background="#355d77", foreground="#ffffff"
     )
 
 STANDARD_TEMPLATE_HEADERS = {
@@ -2219,12 +2263,33 @@ def main(argv=None):
         )
         return 0
 
-    root = tk.Tk()
-    app = BomConverterApp(root, close_when_done=all(supplied))
+    root = None
+    try:
+        root = tk.Tk()
+        app = BomConverterApp(root, close_when_done=all(supplied))
+    except Exception as error:
+        traceback.print_exc()
+        try:
+            messagebox.showerror(
+                APP_TITLE,
+                "The converter could not start.\n\n"
+                f"{type(error).__name__}: {error}",
+                parent=root,
+            )
+        except tk.TclError:
+            pass
+        if root is not None:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+        return 1
+
     if all(supplied):
         try:
             app.load_paths(args.source, args.output, args.template)
         except Exception as error:
+            traceback.print_exc()
             app.show_error("Could not preload the Assistant-selected files", error)
 
     # Keep a reference for the lifetime of the Tk window.
