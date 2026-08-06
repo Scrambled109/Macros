@@ -266,9 +266,9 @@ def run_gui() -> None:
     root.geometry("820x560")
     root.minsize(720, 480)
     steel_blue = "#57a0d3"
-    dark_bg = "#101820"
-    dark_surface = "#18232d"
-    dark_input = "#111a22"
+    dark_bg = "#070b0f"
+    dark_surface = "#0d141a"
+    dark_input = "#080d12"
     text_primary = "#eef5f9"
     root.configure(background=dark_bg)
     style = ttk.Style(root)

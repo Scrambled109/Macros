@@ -13,6 +13,9 @@ from .engine import convert_epls, load_metadata
 
 STEEL_BLUE = "#57a0d3"
 STEEL_BLUE_HOVER = "#6eb1df"
+DARK_BG = "#070b0f"
+DARK_SURFACE = "#0d141a"
+DARK_INPUT = "#080d12"
 if hasattr(ctk, "set_appearance_mode"):
     ctk.set_appearance_mode("dark")
 
@@ -20,6 +23,7 @@ if hasattr(ctk, "set_appearance_mode"):
 class ConverterApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
+        self.configure(fg_color=DARK_BG)
         self.title(f"EPL-to-Parts-List Converter v{__version__}")
         self.geometry("920x820")
         self.minsize(760, 640)
@@ -75,7 +79,7 @@ class ConverterApp(ctk.CTk):
             required=True,
         )
 
-        options = ctk.CTkFrame(content)
+        options = ctk.CTkFrame(content, fg_color=DARK_SURFACE)
         options.grid(row=2, column=0, padx=6, pady=7, sticky="ew")
         options.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
@@ -95,7 +99,12 @@ class ConverterApp(ctk.CTk):
         ctk.CTkLabel(options, text="Output name", width=125, anchor="w").grid(
             row=4, column=0, padx=(14, 8), pady=(8, 14)
         )
-        ctk.CTkEntry(options, textvariable=self.output_name).grid(
+        ctk.CTkEntry(
+            options,
+            textvariable=self.output_name,
+            fg_color=DARK_INPUT,
+            border_color="#263642",
+        ).grid(
             row=4, column=1, columnspan=2, padx=(0, 14), pady=(8, 14), sticky="ew"
         )
 
@@ -130,6 +139,7 @@ class ConverterApp(ctk.CTk):
     ) -> tuple[ctk.CTkTextbox, ctk.CTkLabel]:
         panel = ctk.CTkFrame(
             parent,
+            fg_color=DARK_SURFACE,
             border_width=2 if required else 0,
             border_color="#D97706" if required else None,
         )
@@ -157,7 +167,7 @@ class ConverterApp(ctk.CTk):
         button.grid(row=2, column=0, padx=14, pady=(0, 8), sticky="w")
         count = ctk.CTkLabel(panel, text="No files selected", anchor="e")
         count.grid(row=2, column=1, padx=14, pady=(0, 8), sticky="e")
-        box = ctk.CTkTextbox(panel, height=72)
+        box = ctk.CTkTextbox(panel, height=72, fg_color=DARK_INPUT)
         box.grid(row=3, column=0, columnspan=2, padx=14, pady=(0, 14), sticky="ew")
         box.insert("1.0", "Nothing selected")
         box.configure(state="disabled")
@@ -167,7 +177,12 @@ class ConverterApp(ctk.CTk):
         ctk.CTkLabel(parent, text=label, width=125, anchor="w").grid(
             row=row, column=0, padx=(14, 8), pady=8
         )
-        ctk.CTkEntry(parent, textvariable=variable).grid(
+        ctk.CTkEntry(
+            parent,
+            textvariable=variable,
+            fg_color=DARK_INPUT,
+            border_color="#263642",
+        ).grid(
             row=row, column=1, padx=(0, 8), pady=8, sticky="ew"
         )
         ctk.CTkButton(

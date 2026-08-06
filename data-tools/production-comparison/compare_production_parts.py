@@ -3554,9 +3554,9 @@ def select_paths_with_dialogs() -> tuple[Path, Path, Path, Path]:
         ) from exc
 
     steel_blue = "#57a0d3"
-    dark_bg = "#101820"
-    dark_surface = "#18232d"
-    dark_input = "#111a22"
+    dark_bg = "#070b0f"
+    dark_surface = "#0d141a"
+    dark_input = "#080d12"
     text_primary = "#eef5f9"
     root = tk.Tk()
     root.title("Production Part Reconciliation")
