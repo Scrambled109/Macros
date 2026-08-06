@@ -28,6 +28,9 @@ Dedicated workers are launched from the SolidWorks executable configured in
 Job Assistant Settings and attached by their exact Windows process ID. COM-only
 creation requests can resolve back to the already-running SolidWorks session,
 so the controller deliberately does not use that approach.
+Workers are opened one at a time and held at the start barrier. This avoids
+concurrent SolidWorks startup requests collapsing into the same session; the
+actual plate macros still run together after every unique session is ready.
 
 The compiled VBA currently attempts to reuse an active AutoCAD session. That is
 the biggest experimental risk: SolidWorks sessions are isolated, but their DWG
