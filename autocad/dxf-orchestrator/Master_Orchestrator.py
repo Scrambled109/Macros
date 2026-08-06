@@ -390,7 +390,7 @@ def process_files(
     workers: int,
     console_timeout: int,
 ) -> dict[str, int]:
-    """Run standard and bevel-marked DXFs through bounded console workers."""
+    """Run standard and bevel-marked DXFs through console workers."""
 
     counts = {"clean": 0, "bevel": 0, "failed": 0}
     safe_files, collisions = split_output_collisions(files, parts, workspace)
@@ -405,7 +405,7 @@ def process_files(
     if not safe_files:
         return counts
 
-    worker_count = max(1, min(4, workers))
+    worker_count = max(1, workers)
     print(
         f"\n=== RUNNING {len(safe_files)} DXF FILE(S) WITH "
         f"{worker_count} AUTOCAD CORE WORKER(S) ===",
@@ -454,9 +454,9 @@ def worker_count(value: str) -> int:
     try:
         parsed = int(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("workers must be an integer from 1 to 4") from exc
-    if not 1 <= parsed <= 4:
-        raise argparse.ArgumentTypeError("workers must be from 1 to 4")
+        raise argparse.ArgumentTypeError("workers must be a positive integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("workers must be at least 1")
     return parsed
 
 
@@ -484,8 +484,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=worker_count,
         default=2,
         help=(
-            "Concurrent AutoCAD Core Console jobs for all drawings (1-4; "
-            "default 2). Detected bevel drawings are named with (B)."
+            "Concurrent AutoCAD Core Console jobs for all drawings (default 2; "
+            "no software cap). Detected bevel drawings are named with (B)."
         ),
     )
     return parser.parse_args(argv)
