@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from run_macro import (  # noqa: E402
+    SW_METHODS_WITHOUT_ARGUMENTS,
     SolidWorksRunnerError,
     _invoke_macro,
     connect_solidworks,
@@ -84,9 +85,18 @@ class SolidWorksRunnerTests(unittest.TestCase):
 
         self.assertEqual(available, ["CADBatch.main"])
 
+    def test_macro_method_filter_matches_solidworks_enum(self) -> None:
+        self.assertEqual(SW_METHODS_WITHOUT_ARGUMENTS, 1)
+
     def test_resolves_main_from_actual_compiled_module_name(self) -> None:
         self.assertEqual(
             resolve_entry_point(["Main_RunBatch1.Helper", "Main_RunBatch1.main"]),
+            ("Main_RunBatch1", "main"),
+        )
+
+    def test_resolves_module_only_response_from_get_macro_methods(self) -> None:
+        self.assertEqual(
+            resolve_entry_point(["Main_RunBatch1"]),
             ("Main_RunBatch1", "main"),
         )
 

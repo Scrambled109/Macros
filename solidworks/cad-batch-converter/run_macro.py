@@ -21,7 +21,10 @@ from typing import Callable
 
 SOLIDWORKS_PROGIDS = ("SldWorks.Application.33", "SldWorks.Application")
 SW_RUN_MACRO_UNLOAD_AFTER_RUN = 1
-SW_METHODS_WITHOUT_ARGUMENTS = 0
+# swMacroMethods_e.swMethodsWithoutArguments. This is 1, not a zero-based
+# selector; passing 0 makes GetMacroMethods return no modules on current
+# SolidWorks versions and causes a false 120-second readiness timeout.
+SW_METHODS_WITHOUT_ARGUMENTS = 1
 
 
 class SolidWorksRunnerError(RuntimeError):
@@ -164,14 +167,22 @@ def resolve_entry_point(
     preferred_module: str = "",
     preferred_procedure: str = "main",
 ) -> tuple[str, str]:
-    """Resolve Module.Procedure from the methods stored inside the SWP."""
+    """Resolve the module reported by GetMacroMethods and its procedure.
+
+    SolidWorks documents GetMacroMethods as returning module names. Some COM
+    wrappers or older releases have exposed ``Module.Procedure`` strings, so
+    both shapes are accepted.
+    """
 
     parsed: list[tuple[str, str]] = []
+    modules: list[str] = []
     for method in methods:
         module, separator, procedure = method.rpartition(".")
         if separator and module and procedure:
             parsed.append((module, procedure))
-    if not parsed:
+        elif method.strip():
+            modules.append(method.strip())
+    if not parsed and not modules:
         raise SolidWorksRunnerError(
             "SolidWorks could inspect the macro, but no parameter-free entry "
             f"points were found. Reported methods: {methods!r}"
@@ -184,10 +195,15 @@ def resolve_entry_point(
                 and procedure.casefold() == preferred_procedure.casefold()
             ):
                 return module, procedure
+        for module in modules:
+            if module.casefold() == preferred_module.casefold():
+                return module, preferred_procedure
     for module, procedure in parsed:
         if procedure.casefold() == preferred_procedure.casefold():
             return module, procedure
-    return parsed[0]
+    if parsed:
+        return parsed[0]
+    return modules[0], preferred_procedure
 
 
 def _invoke_macro(app, macro: Path, module: str, procedure: str) -> tuple[bool, int]:
