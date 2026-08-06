@@ -38,3 +38,7 @@ marking layers.
 Original DXFs are archived only after a valid output exists. Failures remain
 available for retry. Review _ORCHESTRATOR_LOGS, the final summary, and every
 output before deleting or moving originals.
+
+Output DWGs keep the quantity suffix but do not repeat material/thickness in the
+filename. For example, `DS5505A-1-4017.dxf` with quantity 1 and material folder
+`250-HS` becomes `250-HS/DS5505A-1-4017_1.dwg`.
