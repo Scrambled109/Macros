@@ -1413,15 +1413,6 @@ class JobAssistant(tk.Tk):
             )
             return
 
-        if any(
-            item.get("stage") == "plate_model"
-            for item in self.running_processes.values()
-        ):
-            raise JobError(
-                "SolidWorks plate automation is already running. Wait for its "
-                "completion notification before starting another thickness group."
-            )
-
         prepared_root = self.manifest["stages"]["dxf"].get(
             "workspace", self.manifest["workspace"]["working"]
         )
@@ -1484,154 +1475,41 @@ class JobAssistant(tk.Tk):
                         key, names[env_name], 0, winreg.REG_SZ, value
                     )
 
-        runner = self.repo / "solidworks/cad-batch-converter/run_macro.py"
-        if not runner.is_file():
-            raise JobError(f"SolidWorks background runner was not found: {runner}")
-        python_command = "py" if getattr(sys, "frozen", False) else sys.executable
-        command = [
-            python_command,
-            "-u",
-            str(runner),
-            "--macro",
-            str(macro),
-        ]
         solidworks = self.settings.get("solidworks_executable", "").strip()
         if solidworks and Path(solidworks).is_file():
-            command.extend(["--solidworks-executable", solidworks])
+            subprocess.Popen([solidworks])
 
-        log = (
-            Path(self.manifest["workspace"]["logs"])
-            / f"solidworks-{run_name}.log"
+        open_path(macro.parent)
+        messagebox.showinfo(
+            "Run one SolidWorks thickness group",
+            (
+                "The CAD batch macro settings are ready.\n\n"
+                f"Source: {source}\n"
+                f"Filtered: {filtered}\n"
+                f"Output: {output}\n"
+                f"Thickness: {thickness:g} in\n\n"
+                "Wait until SolidWorks has completely finished opening, then "
+                "run Main.RunBatch.swp from the folder that just opened. "
+                "Review the generated parts and BatchLog.txt afterward."
+            ),
+            parent=self,
         )
         record_event(
             self.manifest,
-            "external_process_requested",
+            "cad_macro_guidance_opened",
             stage=stage,
-            command=command,
+            macro=str(macro),
             source=str(source),
             output=str(output),
             thickness_inches=thickness,
-            log=str(log),
         )
-        save_manifest(self.manifest, self.manifest_path)
-        handle = log.open("a", encoding="utf-8")
-        handle.write(
-            f"\nWindows command: {subprocess.list2cmdline(command)}\n"
-            f"Source: {source}\nOutput: {output}\n"
-            f"Thickness: {thickness:g} in\nStage: plate_model\n\n"
-        )
-        handle.flush()
-        try:
-            process = subprocess.Popen(
-                command,
-                cwd=existing_working_directory(self.repo),
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-            )
-        except Exception:
-            handle.close()
-            raise
-
-        record_event(
+        mark_needs_review(
             self.manifest,
-            "external_process_launched",
-            stage=stage,
-            pid=process.pid,
-            source=str(source),
-            output=str(output),
-            log=str(log),
-        )
-        self.running_processes[process.pid] = {
-            "stage": stage,
-            "job_number": self.manifest["job"]["number"],
-            "manifest_path": str(self.manifest_path),
-            "log": str(log),
-        }
-        self.update_running_summary()
-        save_manifest(self.manifest, self.manifest_path)
-        self._poll_solidworks_process(
-            process,
-            handle,
-            log,
-            source,
-            output,
-            thickness,
-            self.manifest,
-            self.manifest_path,
-        )
-
-    def _poll_solidworks_process(
-        self,
-        process,
-        handle,
-        log: Path,
-        source: Path,
-        output: Path,
-        thickness: float,
-        process_manifest: dict,
-        process_manifest_path: Path,
-    ) -> None:
-        exit_code = process.poll()
-        if exit_code is None:
-            self.after(
-                500,
-                self._poll_solidworks_process,
-                process,
-                handle,
-                log,
-                source,
-                output,
-                thickness,
-                process_manifest,
-                process_manifest_path,
-            )
-            return
-
-        handle.write(f"\nExit code: {exit_code}\n")
-        handle.close()
-        running = self.__dict__.get("running_processes")
-        if running is not None:
-            running.pop(process.pid, None)
-            self.update_running_summary()
-        record_event(
-            process_manifest,
-            "external_process_finished",
-            stage="plate_model",
-            pid=process.pid,
-            exit_code=exit_code,
-            source=str(source),
-            output=str(output),
-            thickness_inches=thickness,
-            log=str(log),
-        )
-        if exit_code == 0:
-            mark_needs_review(
-                process_manifest,
-                "plate_model",
-                "Background SolidWorks automation finished. Review representative "
-                "parts and BatchLog.txt before marking the step complete.",
-                [log],
-            )
-        else:
-            item = process_manifest["stages"]["plate_model"]
-            item["status"] = "warning"
-            item["notes"] = (
-                f"SolidWorks automation failed with exit code {exit_code}. "
-                f"Review {log}."
-            )
-            record_artifact(process_manifest, "plate_model", log)
-        save_manifest(process_manifest, process_manifest_path)
-        if self.manifest_path == process_manifest_path:
-            self.manifest = process_manifest
-            self.refresh()
-            self.show_stage()
-        outcome = "finished and needs review" if exit_code == 0 else "failed"
-        self.post_background_notice(
-            "SolidWorks plate automation finished",
-            f"Job {process_manifest['job']['number']} {outcome} for "
-            f"{source.name} at {thickness:g} in.",
-            level="warning" if exit_code else "info",
-            path=output if output.exists() else log,
+            stage,
+            "CAD batch settings prepared. Run Main.RunBatch.swp manually after "
+            "SolidWorks is fully loaded, then review representative parts and "
+            "BatchLog.txt before marking the step complete.",
+            [output],
         )
 
     def open_stage_folder(self) -> None:
