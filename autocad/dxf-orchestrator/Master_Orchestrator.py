@@ -255,7 +255,8 @@ def output_details(
     working_name = re.sub(r"\s+_", "_", working_name)
     working_name = re.sub(r"_\d+-[A-Za-z0-9-]+_\d+$", "", working_name)
     working_name = re.sub(r"_\d+_\d+$", "", working_name)
-    working_name = safe_name(f"{working_name}_{target_name}_{quantity}")
+    # Material/thickness belongs in the sorting folder, not the DWG name.
+    working_name = safe_name(f"{working_name}_{quantity}")
     if beveled:
         working_name += "(B)"
     target_dir = workspace / target_name
