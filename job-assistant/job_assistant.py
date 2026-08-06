@@ -28,6 +28,7 @@ from job_core import (
     load_manifest,
     load_settings,
     mark_needs_review,
+    normalize_plate_model_filenames,
     inferred_plate_thickness,
     parse_comparison_summary,
     plan_completed_outputs,
@@ -2110,6 +2111,31 @@ class JobAssistant(tk.Tk):
                 process_manifest_path,
             )
             return
+        rename_error = ""
+        renamed_parts: list[Path] = []
+        if exit_code == 0 and stage == "plate_model" and output is not None:
+            try:
+                renamed_parts = normalize_plate_model_filenames(output)
+                handle.write(
+                    f"\nNormalized {len(renamed_parts)} SolidWorks part filename(s).\n"
+                )
+                for part in renamed_parts:
+                    handle.write(f"  {part.name}\n")
+                record_event(
+                    process_manifest,
+                    "plate_model_filenames_normalized",
+                    output=str(output),
+                    renamed=[part.name for part in renamed_parts],
+                )
+            except JobError as exc:
+                rename_error = str(exc)
+                handle.write(f"\nFilename normalization failed: {rename_error}\n")
+                record_event(
+                    process_manifest,
+                    "plate_model_filename_normalization_failed",
+                    output=str(output),
+                    error=rename_error,
+                )
         handle.write(f"\nExit code: {exit_code}\n")
         handle.close()
         self.running_processes.pop(process.pid, None)
@@ -2124,19 +2150,28 @@ class JobAssistant(tk.Tk):
             log=str(log),
         )
         review_target = output or Path(process_manifest["paths"]["model_3d"])
-        if exit_code == 0:
+        successful = exit_code == 0 and not rename_error
+        if successful:
+            note = (
+                f"SolidWorks macro finished and normalized {len(renamed_parts)} "
+                "part filename(s). The result location was opened for required review."
+                if stage == "plate_model"
+                else "SolidWorks macro finished. The result location was opened for "
+                "required review."
+            )
             mark_needs_review(
                 process_manifest,
                 stage,
-                "SolidWorks macro finished. The result location was opened for "
-                "required review.",
+                note,
                 [review_target, log],
             )
         else:
             item = process_manifest["stages"][stage]
             item["status"] = "warning"
             item["notes"] = (
-                f"SolidWorks automation exited with code {exit_code}. Review {log}"
+                f"SolidWorks filename cleanup failed: {rename_error}. Review {log}"
+                if rename_error
+                else f"SolidWorks automation exited with code {exit_code}. Review {log}"
             )
             record_artifact(process_manifest, stage, log)
         save_manifest(process_manifest, process_manifest_path)
@@ -2145,16 +2180,20 @@ class JobAssistant(tk.Tk):
             self.refresh()
             self.show_stage()
         self.post_background_notice(
-            "SolidWorks automation finished" if exit_code == 0 else "SolidWorks automation failed",
+            "SolidWorks automation finished" if successful else "SolidWorks automation failed",
             (
                 "Review the generated models."
-                if exit_code == 0
-                else f"Review {log.name}."
+                if successful
+                else (
+                    f"{rename_error} Review {log.name}."
+                    if rename_error
+                    else f"Review {log.name}."
+                )
             ),
-            level="info" if exit_code == 0 else "warning",
-            path=review_target if exit_code == 0 else log,
+            level="info" if successful else "warning",
+            path=review_target if successful else log,
         )
-        if exit_code != 0 or self.manifest_path != process_manifest_path:
+        if not successful or self.manifest_path != process_manifest_path:
             return
         self.open_review_and_offer_completion(
             stage,
