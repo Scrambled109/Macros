@@ -71,10 +71,11 @@ responsive while SolidWorks is controlled synchronously through COM. The
 runner checks the Windows Running Object Table first and attaches to the active
 SolidWorks session; it starts SolidWorks only when no session exists.
 
-During `RunMacro2`, the runner hides the SolidWorks application and suppresses
-new part windows with `ISldWorks.DocumentVisible(False, swDocPART)`. It restores
-part visibility and the same SolidWorks window when the batch returns. The VBA
-also creates native outline and marking sketch entities with `AddToDB` and
+Before `RunMacro2`, the runner asks SolidWorks for the compiled macro's
+parameter-free module names and then calls that module's public `main`
+procedure. The runner leaves document visibility under VBA control and restores
+the same SolidWorks window when the batch returns. The VBA creates native
+outline and marking sketch entities with `AddToDB` and
 `DisplayWhenAdded = False`, avoiding a graphics refresh for each segment.
 
 Runs remain serial. Do not start multiple SolidWorks runners against one
