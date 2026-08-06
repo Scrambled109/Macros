@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from run_macro import (  # noqa: E402
+    DISP_E_PARAMNOTOPTIONAL,
     SW_METHODS_WITHOUT_ARGUMENTS,
     SolidWorksRunnerError,
     _invoke_macro,
@@ -156,6 +157,56 @@ class SolidWorksRunnerTests(unittest.TestCase):
             (True, 0),
         )
         self.assertEqual(len(app.args), 4)
+
+    def test_dynamic_wrapper_retries_with_required_out_parameter(self) -> None:
+        class ParameterNotOptional(Exception):
+            hresult = DISP_E_PARAMNOTOPTIONAL
+
+        class ErrorVariant:
+            def __init__(self, _kind, value):
+                self.value = value
+
+        class DynamicWrapper:
+            def __init__(self):
+                self.calls = []
+
+            def RunMacro2(self, *args):
+                self.calls.append(args)
+                if len(args) == 4:
+                    raise ParameterNotOptional("Parameter not optional")
+                args[-1].value = 0
+                return True
+
+        app = DynamicWrapper()
+        self.assertEqual(
+            _invoke_macro(
+                app,
+                self.macro,
+                "CADBatch",
+                "main",
+                variant_factory=ErrorVariant,
+                byref_i4=99,
+            ),
+            (True, 0),
+        )
+        self.assertEqual([len(call) for call in app.calls], [4, 5])
+
+    def test_real_com_failure_is_not_retried(self) -> None:
+        class MacroFailure(Exception):
+            hresult = -123
+
+        class FailingWrapper:
+            def __init__(self):
+                self.calls = 0
+
+            def RunMacro2(self, *_args):
+                self.calls += 1
+                raise MacroFailure("macro failed")
+
+        app = FailingWrapper()
+        with self.assertRaisesRegex(MacroFailure, "macro failed"):
+            _invoke_macro(app, self.macro, "CADBatch", "main")
+        self.assertEqual(app.calls, 1)
 
     def test_rejects_non_compiled_macro(self) -> None:
         source = Path(self.temp.name) / "Main.bas"
