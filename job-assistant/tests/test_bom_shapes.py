@@ -83,6 +83,34 @@ class StructuralShapeTests(unittest.TestCase):
             "HSLA-65",
         )
 
+    def test_selected_material_skips_other_trailing_metadata_labels(self):
+        for label in (
+            "THICKN",
+            "Thickness",
+            "THK",
+            "Length",
+            "Width",
+            "Mass",
+            "Description",
+        ):
+            with self.subTest(label=label):
+                value = f"G5505D-12,Plate,0.313,HSLA-65,{label}"
+                self.assertEqual(
+                    bom_converter.material_from_selected_value(value),
+                    "HSLA-65",
+                )
+                self.assertEqual(
+                    bom_converter.parse_catia_name_spec(value),
+                    ("5/16", "HSLA-65"),
+                )
+
+    def test_selected_material_skips_multiple_metadata_labels(self):
+        value = "G5505D-12,Plate,0.313,HSLA-65,THICKN,Weight"
+        self.assertEqual(
+            bom_converter.material_from_selected_value(value),
+            "HSLA-65",
+        )
+
     def test_plate_weight_converts_while_shape_keeps_full_designation(self):
         self.assertEqual(
             bom_converter.parse_pbom_material_description(
@@ -162,6 +190,48 @@ class StructuralShapeTests(unittest.TestCase):
         )
         self.assertEqual(records[0]["THICKNESS/SHAPE"], "7.125X5X9.7")
         self.assertEqual(records[0]["MATERIAL TYPE"], "HS")
+
+
+    def test_mapping_wheel_does_not_move_pane_from_combobox(self):
+        class Widget:
+            def __init__(self, name, widget_class, parent=None):
+                self.name = name
+                self.widget_class = widget_class
+                self.parent = parent
+                self.scrolls = []
+                self.registry = {name: self}
+                if parent is not None:
+                    self.registry = parent.registry
+                    self.registry[name] = self
+
+            def winfo_exists(self):
+                return True
+
+            def winfo_class(self):
+                return self.widget_class
+
+            def winfo_parent(self):
+                return self.parent.name if self.parent is not None else ""
+
+            def _nametowidget(self, name):
+                return self.registry[name]
+
+            def yview_scroll(self, amount, units):
+                self.scrolls.append((amount, units))
+
+        canvas = Widget(".mapping", "Canvas")
+        combo = Widget(".mapping.combo", "TCombobox", canvas)
+        label = Widget(".mapping.label", "TLabel", canvas)
+        app = object.__new__(bom_converter.BomConverterApp)
+        app.mapping_canvas = canvas
+
+        combo_event = type("Event", (), {"widget": combo, "delta": -120})()
+        self.assertIsNone(app.mapping_mousewheel(combo_event))
+        self.assertEqual(canvas.scrolls, [])
+
+        label_event = type("Event", (), {"widget": label, "delta": -120})()
+        self.assertEqual(app.mapping_mousewheel(label_event), "break")
+        self.assertEqual(canvas.scrolls, [(1, "units")])
 
 
 if __name__ == "__main__":
