@@ -45,8 +45,10 @@ def solidworks_part_stem(cut_file_stem: str) -> str:
     return (match.group("legacy") or match.group("current")) if match else cut_file_stem
 
 
-def normalize_plate_model_filenames(output_folder: Path) -> list[Path]:
-    """Remove material and quantity suffixes from generated .SLDPRT files."""
+def normalize_plate_model_filenames(
+    output_folder: Path, candidates: list[Path] | None = None
+) -> list[Path]:
+    """Remove suffixes from this batch's generated .SLDPRT files."""
     output_folder = Path(output_folder)
     if not output_folder.is_dir():
         raise SolidWorksRunnerError(
@@ -55,14 +57,16 @@ def normalize_plate_model_filenames(output_folder: Path) -> list[Path]:
 
     plan: list[tuple[Path, Path]] = []
     destinations: dict[str, Path] = {}
-    for source in sorted(
-        (
+    sources = (
+        candidates
+        if candidates is not None
+        else [
             path
             for path in output_folder.rglob("*")
             if path.is_file() and path.suffix.casefold() == ".sldprt"
-        ),
-        key=lambda path: str(path).casefold(),
-    ):
+        ]
+    )
+    for source in sorted(sources, key=lambda path: str(path).casefold()):
         target = source.with_name(f"{solidworks_part_stem(source.stem)}{source.suffix}")
         if target == source:
             continue
@@ -97,6 +101,40 @@ def normalize_plate_model_filenames(output_folder: Path) -> list[Path]:
             f"Could not normalize SolidWorks part filenames: {exc}"
         ) from exc
     return renamed
+
+
+def snapshot_plate_models(output_folder: Path | None) -> dict[Path, tuple[int, int]]:
+    """Capture size and modification time for existing plate models."""
+    if output_folder is None or not output_folder.is_dir():
+        return {}
+    result: dict[Path, tuple[int, int]] = {}
+    for path in output_folder.rglob("*"):
+        if path.is_file() and path.suffix.casefold() == ".sldprt":
+            stat = path.stat()
+            result[path.resolve()] = (stat.st_size, stat.st_mtime_ns)
+    return result
+
+
+def changed_plate_models(
+    before: dict[Path, tuple[int, int]], output_folder: Path
+) -> list[Path]:
+    """Return models created or changed after the macro ran."""
+    after = snapshot_plate_models(output_folder)
+    return sorted(
+        (path for path, signature in after.items() if before.get(path) != signature),
+        key=lambda path: str(path).casefold(),
+    )
+
+
+def expected_part_stems(source_folder: Path | None) -> set[str]:
+    """Return normalized part stems represented by selected source DWGs."""
+    if source_folder is None or not source_folder.is_dir():
+        return set()
+    return {
+        solidworks_part_stem(path.stem).casefold()
+        for path in source_folder.iterdir()
+        if path.is_file() and path.suffix.casefold() == ".dwg"
+    }
 
 
 @dataclass(frozen=True)
@@ -333,7 +371,6 @@ def run_macro(
     procedure: str = "main",
     ready_timeout: float = 120.0,
     show_after_run: bool = True,
-    hide_during_run: bool = False,
     ready: Callable[..., list[str]] | None = None,
     invoke: Callable[[object, Path, str, str], tuple[bool, int]] | None = None,
 ) -> tuple[str, str]:
@@ -348,7 +385,6 @@ def run_macro(
     ready = ready or wait_until_macro_ready
     invoke = invoke or _invoke_macro
     command_flag_set = False
-    window_hidden = False
     available = ready(app, macro, timeout=ready_timeout)
     resolved_module, resolved_procedure = resolve_entry_point(
         available,
@@ -364,18 +400,6 @@ def run_macro(
             command_flag_set = True
         except Exception as exc:
             print(f"WARNING: could not enable CommandInProgress: {exc}")
-
-        if hide_during_run:
-            try:
-                app.Visible = False
-                app.UserControl = False
-                window_hidden = True
-                print(
-                    "SolidWorks window hidden during plate creation to reduce redraw.",
-                    flush=True,
-                )
-            except Exception as exc:
-                print(f"WARNING: could not hide SolidWorks during the batch: {exc}")
 
         succeeded, error_code = invoke(
             app, macro, resolved_module, resolved_procedure
@@ -395,8 +419,6 @@ def run_macro(
             try:
                 app.Visible = True
                 app.UserControl = True
-                if window_hidden:
-                    print("SolidWorks window restored for review.", flush=True)
             except Exception as exc:
                 print(f"WARNING: could not restore the SolidWorks window: {exc}")
 
@@ -417,14 +439,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "After a successful CAD batch, remove the orchestrator material and "
             "quantity suffix from generated SolidWorks part filenames."
-        ),
-    )
-    parser.add_argument(
-        "--hide-during-run",
-        action="store_true",
-        help=(
-            "Hide the SolidWorks application window while the macro runs to "
-            "reduce redraw overhead; it is restored afterward unless --leave-hidden."
         ),
     )
     parser.add_argument(
@@ -459,6 +473,15 @@ def main(argv: list[str] | None = None) -> int:
         action = "Reusing" if connection.reused else "Started"
         print(f"{action} SolidWorks via {connection.launch_method}.", flush=True)
         print(f"Waiting for the SolidWorks VBA host and {args.macro.name}.", flush=True)
+        output_folder = args.normalize_output
+        source_folder = None
+        if args.macro.name.casefold() == "main.runbatch.swp":
+            if output_folder is None:
+                configured_output = os.environ.get("MACROS_OUTPUT_FOLDER", "").strip()
+                output_folder = Path(configured_output) if configured_output else None
+            configured_source = os.environ.get("MACROS_SOURCE_FOLDER", "").strip()
+            source_folder = Path(configured_source) if configured_source else None
+        before_models = snapshot_plate_models(output_folder)
         module, procedure = run_macro(
             connection.app,
             args.macro,
@@ -466,16 +489,26 @@ def main(argv: list[str] | None = None) -> int:
             procedure=args.procedure,
             ready_timeout=args.ready_timeout,
             show_after_run=not args.leave_hidden,
-            hide_during_run=args.hide_during_run,
         )
-        output_folder = args.normalize_output
-        if output_folder is None and args.macro.name.casefold() == "main.runbatch.swp":
-            configured = os.environ.get("MACROS_OUTPUT_FOLDER", "").strip()
-            output_folder = Path(configured) if configured else None
         if output_folder is not None:
-            renamed = normalize_plate_model_filenames(output_folder)
+            changed = changed_plate_models(before_models, output_folder)
+            expected = expected_part_stems(source_folder)
+            matched = [
+                part
+                for part in changed
+                if not expected
+                or solidworks_part_stem(part.stem).casefold() in expected
+            ]
+            if not matched:
+                source_text = str(source_folder) if source_folder else "configured source"
+                raise SolidWorksRunnerError(
+                    "The macro returned success but created or updated no SolidWorks "
+                    f"parts matching DWGs in {source_text}. The batch was not accepted."
+                )
+            renamed = normalize_plate_model_filenames(output_folder, matched)
             print(
-                f"Normalized {len(renamed)} SolidWorks part filename(s).",
+                f"Verified {len(matched)} current-batch part(s); normalized "
+                f"{len(renamed)} filename(s).",
                 flush=True,
             )
             for part in renamed:
