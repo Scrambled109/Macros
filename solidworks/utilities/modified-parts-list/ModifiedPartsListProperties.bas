@@ -1,10 +1,11 @@
 Attribute VB_Name = "ModifiedPartsListProperties"
 ' SolidWorks VBA: apply properties from a modified Parts List.
-' Import this module and ModifiedPartsListMapper.frm into (MOD)2(SECONDARY).swp.
+' Import this module into (MOD)2(SECONDARY).swp.
 Option Explicit
 
 Private Const DEFAULT_SHEET_NAME As String = "Parts_List"
 Private Const MAX_HEADER_SCAN_ROWS As Long = 25
+Private Const DO_NOT_UPDATE As String = "(Do not update)"
 Private Const SW_DOC_ASSEMBLY As Long = 2
 Private Const SW_DOC_PART As Long = 1
 Private Const SW_SEL_COMPONENTS As Long = 20
@@ -66,20 +67,14 @@ Public Sub main()
         GoTo cleanExit
     End If
 
-    Dim mapper As ModifiedPartsListMapper
-    Set mapper = New ModifiedPartsListMapper
-    mapper.Configure xlSheet, headerRow, CStr(xlBook.Name), CStr(xlSheet.Name)
-    mapper.Show vbModal
-    If mapper.Cancelled Then GoTo cleanExit
-
     Dim partColumn As Long
     Dim descriptionColumn As Long
     Dim materialColumn As Long
-    partColumn = mapper.PartNumberColumn
-    descriptionColumn = mapper.DescriptionColumn
-    materialColumn = mapper.RawMaterialColumn
-    Unload mapper
-    Set mapper = Nothing
+    If Not PromptForMappings( _
+            xlApp, xlBook, xlSheet, headerRow, partColumn, _
+            descriptionColumn, materialColumn) Then
+        GoTo cleanExit
+    End If
 
     Dim rowsByPart As Object
     Dim duplicateRows As Long
@@ -204,6 +199,198 @@ Private Function ResolvePartsListSheet(ByVal book As Object) As Object
     End If
     On Error GoTo 0
     Set ResolvePartsListSheet = sheet
+End Function
+
+Private Function PromptForMappings( _
+        ByVal xlApp As Object, ByVal sourceBook As Object, _
+        ByVal sourceSheet As Object, ByVal headerRow As Long, _
+        ByRef partColumn As Long, ByRef descriptionColumn As Long, _
+        ByRef materialColumn As Long) As Boolean
+    On Error GoTo mappingFailed
+
+    Dim mappingBook As Object
+    Dim mappingSheet As Object
+    Dim choiceSheet As Object
+    Set mappingBook = xlApp.Workbooks.Add
+    Set mappingSheet = mappingBook.Worksheets(1)
+    mappingSheet.Name = "Column Mapping"
+    Set choiceSheet = mappingBook.Worksheets.Add
+    choiceSheet.Name = "Header Choices"
+
+    Dim firstColumn As Long
+    Dim lastColumn As Long
+    firstColumn = sourceSheet.UsedRange.Column
+    lastColumn = firstColumn + sourceSheet.UsedRange.Columns.Count - 1
+
+    choiceSheet.Cells(1, 1).Value2 = DO_NOT_UPDATE
+    Dim choiceRow As Long
+    Dim columnIndex As Long
+    choiceRow = 2
+    For columnIndex = firstColumn To lastColumn
+        choiceSheet.Cells(choiceRow, 1).Value2 = _
+            MappingLabel(sourceSheet, headerRow, columnIndex)
+        choiceRow = choiceRow + 1
+    Next columnIndex
+
+    mappingBook.Names.Add "ModifiedPartsListHeaderChoices", _
+        "='" & choiceSheet.Name & "'!$A$1:$A$" & CStr(choiceRow - 1)
+
+    mappingSheet.Cells(1, 1).Value2 = _
+        "Modified Parts List column mapping"
+    mappingSheet.Cells(2, 1).Value2 = "Part number / filename"
+    mappingSheet.Cells(3, 1).Value2 = "Description property"
+    mappingSheet.Cells(4, 1).Value2 = "Raw_Material property"
+    mappingSheet.Cells(6, 1).Value2 = _
+        "Choose each value from its dropdown, then return to SolidWorks."
+    mappingSheet.Cells(7, 1).Value2 = _
+        CStr(sourceBook.Name) & " > " & CStr(sourceSheet.Name) & _
+        " (header row " & CStr(headerRow) & ")"
+
+    With mappingSheet.Range("B2:B4")
+        .Validation.Delete
+        .Validation.Add 3, 1, 1, "=ModifiedPartsListHeaderChoices"
+        .Validation.IgnoreBlank = True
+        .Validation.InCellDropdown = True
+        .Interior.Color = RGB(221, 235, 247)
+    End With
+
+    mappingSheet.Cells(2, 2).Value2 = BestMappingLabel( _
+        sourceSheet, headerRow, _
+        Array("part number", "part no", "part #", _
+              "filename", "file name", "item"), True)
+    mappingSheet.Cells(3, 2).Value2 = BestMappingLabel( _
+        sourceSheet, headerRow, _
+        Array("description", "part description", "part desc"), False)
+    mappingSheet.Cells(4, 2).Value2 = BestMappingLabel( _
+        sourceSheet, headerRow, _
+        Array("raw material", "material", "material spec"), False)
+
+    mappingSheet.Columns("A:B").AutoFit
+    mappingSheet.Range("B2").Select
+    choiceSheet.Visible = 2
+    xlApp.Visible = True
+    mappingBook.Activate
+
+    Dim response As VbMsgBoxResult
+    response = MsgBox( _
+        "A temporary Excel mapping sheet is open." & vbCrLf & vbCrLf & _
+        "Use the three blue dropdown cells, then return here and click OK." & _
+        vbCrLf & "Click Cancel to stop without changing any parts.", _
+        vbOKCancel + vbInformation, "Map Modified Parts List Columns")
+    If response <> vbOK Then GoTo mappingCleanup
+
+    partColumn = ColumnFromMappingLabel( _
+        sourceSheet, headerRow, CStr(mappingSheet.Cells(2, 2).Value2))
+    descriptionColumn = ColumnFromMappingLabel( _
+        sourceSheet, headerRow, CStr(mappingSheet.Cells(3, 2).Value2))
+    materialColumn = ColumnFromMappingLabel( _
+        sourceSheet, headerRow, CStr(mappingSheet.Cells(4, 2).Value2))
+
+    If partColumn = 0 Then
+        MsgBox "Choose a valid part-number/filename column.", _
+               vbExclamation, "Map Modified Parts List Columns"
+        GoTo mappingCleanup
+    End If
+    If descriptionColumn = 0 And materialColumn = 0 Then
+        MsgBox "Map at least one property column.", vbExclamation, _
+               "Map Modified Parts List Columns"
+        GoTo mappingCleanup
+    End If
+    PromptForMappings = True
+
+mappingCleanup:
+    On Error Resume Next
+    mappingBook.Close False
+    sourceBook.Activate
+    sourceSheet.Activate
+    On Error GoTo 0
+    Exit Function
+
+mappingFailed:
+    Dim mappingError As String
+    mappingError = "Could not build the mapping dropdowns: " & Err.Description
+    On Error Resume Next
+    If Not mappingBook Is Nothing Then mappingBook.Close False
+    sourceBook.Activate
+    sourceSheet.Activate
+    On Error GoTo 0
+    MsgBox mappingError, vbCritical, "Map Modified Parts List Columns"
+End Function
+
+Private Function BestMappingLabel( _
+        ByVal sheet As Object, ByVal headerRow As Long, _
+        ByVal aliases As Variant, ByVal required As Boolean) As String
+    Dim firstColumn As Long
+    Dim lastColumn As Long
+    firstColumn = sheet.UsedRange.Column
+    lastColumn = firstColumn + sheet.UsedRange.Columns.Count - 1
+
+    Dim columnIndex As Long
+    Dim aliasIndex As Long
+    Dim normalizedHeader As String
+    For columnIndex = firstColumn To lastColumn
+        normalizedHeader = NormalizeMappingHeader( _
+            CStr(sheet.Cells(headerRow, columnIndex).Value2))
+        For aliasIndex = LBound(aliases) To UBound(aliases)
+            If normalizedHeader = NormalizeMappingHeader( _
+                    CStr(aliases(aliasIndex))) Then
+                BestMappingLabel = MappingLabel( _
+                    sheet, headerRow, columnIndex)
+                Exit Function
+            End If
+        Next aliasIndex
+    Next columnIndex
+
+    If required And firstColumn <= lastColumn Then
+        BestMappingLabel = MappingLabel(sheet, headerRow, firstColumn)
+    Else
+        BestMappingLabel = DO_NOT_UPDATE
+    End If
+End Function
+
+Private Function ColumnFromMappingLabel( _
+        ByVal sheet As Object, ByVal headerRow As Long, _
+        ByVal selectedLabel As String) As Long
+    If selectedLabel = DO_NOT_UPDATE Then Exit Function
+
+    Dim firstColumn As Long
+    Dim lastColumn As Long
+    firstColumn = sheet.UsedRange.Column
+    lastColumn = firstColumn + sheet.UsedRange.Columns.Count - 1
+
+    Dim columnIndex As Long
+    For columnIndex = firstColumn To lastColumn
+        If MappingLabel(sheet, headerRow, columnIndex) = selectedLabel Then
+            ColumnFromMappingLabel = columnIndex
+            Exit Function
+        End If
+    Next columnIndex
+End Function
+
+Private Function MappingLabel( _
+        ByVal sheet As Object, ByVal headerRow As Long, _
+        ByVal columnIndex As Long) As String
+    MappingLabel = ColumnLetter(columnIndex) & " | " & _
+                   Trim$(CStr(sheet.Cells(headerRow, columnIndex).Value2))
+End Function
+
+Private Function NormalizeMappingHeader(ByVal value As String) As String
+    Dim normalized As String
+    normalized = LCase$(Trim$(value))
+    normalized = Replace(normalized, "_", " ")
+    normalized = Replace(normalized, "-", " ")
+    Do While InStr(normalized, "  ") > 0
+        normalized = Replace(normalized, "  ", " ")
+    Loop
+    NormalizeMappingHeader = normalized
+End Function
+
+Private Function ColumnLetter(ByVal columnNumber As Long) As String
+    Do While columnNumber > 0
+        columnNumber = columnNumber - 1
+        ColumnLetter = Chr$(65 + (columnNumber Mod 26)) & ColumnLetter
+        columnNumber = columnNumber \ 26
+    Loop
 End Function
 
 Private Function FindLikelyHeaderRow(ByVal sheet As Object) As Long
