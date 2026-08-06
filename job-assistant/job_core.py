@@ -183,7 +183,7 @@ def load_settings(
     settings.update({key: value for key, value in loaded.items() if key in settings})
     try:
         settings["autocad_workers"] = max(
-            1, min(4, int(settings.get("autocad_workers", 2)))
+            1, int(settings.get("autocad_workers", 2))
         )
     except (TypeError, ValueError):
         settings["autocad_workers"] = 2
@@ -212,7 +212,7 @@ def save_settings(settings: dict[str, Any], path: Path | None = None) -> Path:
     clean.update({key: value for key, value in settings.items() if key in clean})
     try:
         clean["autocad_workers"] = max(
-            1, min(4, int(clean.get("autocad_workers", 2)))
+            1, int(clean.get("autocad_workers", 2))
         )
     except (TypeError, ValueError):
         clean["autocad_workers"] = 2
@@ -472,7 +472,44 @@ def prepare_dxf_workspace(
     record_event(manifest, "dxf_workspace_prepared", run=str(run), files=len(selected))
     manifest["stages"]["dxf"]["status"] = "ready"
     manifest["stages"]["dxf"]["workspace"] = str(run)
+    manifest["stages"]["dxf"]["result_path"] = str(run)
     return run
+
+
+def stage_result_path(manifest: dict[str, Any], stage: str) -> Path:
+    """Return the operator-facing output for an assistant stage.
+
+    Logs remain available from Tools > Open Logs, but result buttons should
+    always lead to the actual generated workbook, run folder, models, or report.
+    """
+    if stage not in manifest.get("stages", {}):
+        raise JobError(f"Unknown assistant step: {stage}")
+
+    item = manifest["stages"][stage]
+    recorded = item.get("result_path")
+    if recorded:
+        return Path(recorded)
+
+    if stage == "bom":
+        workbook = item.get("parts_list_workbook")
+        if workbook:
+            return Path(workbook)
+    elif stage == "dxf":
+        workspace = item.get("workspace")
+        if workspace:
+            return Path(workspace)
+        return Path(manifest["workspace"]["working"]) / "DXF Orchestrator"
+    elif stage == "plate_model":
+        return Path(manifest["workspace"]["staging"]) / "SolidWorks Parts"
+    elif stage == "autobom":
+        return Path(manifest["paths"]["model_3d"])
+    elif stage == "comparison":
+        comparison = manifest.get("comparison") or {}
+        if comparison.get("folder"):
+            return Path(comparison["folder"])
+        return Path(manifest["workspace"]["reports"])
+
+    return Path(manifest["paths"]["engineering_root"])
 
 
 def export_parts_list_csv(workbook_path: Path, destination: Path) -> Path:
@@ -597,7 +634,7 @@ def command_dxf(
         ]
     )
     command.extend(["--workspace", str(workspace), "--parts-list", str(parts_list_csv)])
-    command.extend(["--workers", str(max(1, min(4, int(workers))))])
+    command.extend(["--workers", str(max(1, int(workers)))])
     if autocad_console:
         command.extend(["--acad-console-path", str(autocad_console)])
     return command
