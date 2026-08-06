@@ -25,6 +25,7 @@ SW_RUN_MACRO_UNLOAD_AFTER_RUN = 1
 # selector; passing 0 makes GetMacroMethods return no modules on current
 # SolidWorks versions and causes a false 120-second readiness timeout.
 SW_METHODS_WITHOUT_ARGUMENTS = 1
+DISP_E_PARAMNOTOPTIONAL = -2147352561
 
 
 class SolidWorksRunnerError(RuntimeError):
@@ -206,7 +207,24 @@ def resolve_entry_point(
     return modules[0], preferred_procedure
 
 
-def _invoke_macro(app, macro: Path, module: str, procedure: str) -> tuple[bool, int]:
+def _missing_out_parameter(error: Exception) -> bool:
+    """Return whether COM rejected the omitted RunMacro2 output argument."""
+
+    hresult = getattr(error, "hresult", None)
+    if hresult is None and error.args:
+        hresult = error.args[0]
+    return isinstance(error, TypeError) or hresult == DISP_E_PARAMNOTOPTIONAL
+
+
+def _invoke_macro(
+    app,
+    macro: Path,
+    module: str,
+    procedure: str,
+    *,
+    variant_factory=None,
+    byref_i4: int | None = None,
+) -> tuple[bool, int]:
     """Call RunMacro2 through either generated or dynamic pywin32 wrappers."""
 
     # makepy-generated wrappers omit the final [out] parameter and return it in
@@ -220,11 +238,16 @@ def _invoke_macro(app, macro: Path, module: str, procedure: str) -> tuple[bool, 
             error_code = int(result[1]) if len(result) > 1 else 0
             return succeeded, error_code
         return bool(result), 0
-    except TypeError:
-        import pythoncom
-        from win32com.client import VARIANT
+    except Exception as exc:
+        if not _missing_out_parameter(exc):
+            raise
+        if variant_factory is None or byref_i4 is None:
+            import pythoncom
+            from win32com.client import VARIANT
 
-        error = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+            variant_factory = VARIANT
+            byref_i4 = pythoncom.VT_BYREF | pythoncom.VT_I4
+        error = variant_factory(byref_i4, 0)
         succeeded = app.RunMacro2(
             str(macro),
             module,
