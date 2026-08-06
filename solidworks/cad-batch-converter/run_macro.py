@@ -1,10 +1,9 @@
 """Run the compiled CAD batch macro through one reusable SolidWorks session.
 
-The Engineering Job Assistant starts this helper as a separate process so the
-Tkinter dashboard remains responsive while SolidWorks is busy.  The helper
-attaches to the running COM server first, starts SolidWorks only when needed,
-hides application/document graphics for the batch, and restores the UI when
-the macro returns.
+The runner deliberately leaves document visibility to the VBA macro. Hiding all
+part documents from an out-of-process controller changes how newly imported
+documents are activated and made the previous runner less stable than running
+the same SWP manually.
 """
 
 from __future__ import annotations
@@ -21,8 +20,8 @@ from typing import Callable
 
 
 SOLIDWORKS_PROGIDS = ("SldWorks.Application.33", "SldWorks.Application")
-SW_DOC_PART = 1
 SW_RUN_MACRO_UNLOAD_AFTER_RUN = 1
+SW_METHODS_WITHOUT_ARGUMENTS = 0
 
 
 class SolidWorksRunnerError(RuntimeError):
@@ -64,14 +63,19 @@ def _dispatch_solidworks():
 def connect_solidworks(
     executable: Path | None = None,
     *,
-    timeout: float = 90.0,
+    timeout: float = 120.0,
     get_active: Callable[[], object | None] | None = None,
     dispatch: Callable[[], object] | None = None,
     launch: Callable[..., object] | None = None,
     monotonic: Callable[[], float] | None = None,
     sleep: Callable[[float], None] | None = None,
 ) -> SolidWorksConnection:
-    """Reuse the active instance, otherwise start exactly one SolidWorks app."""
+    """Reuse the active instance, otherwise start exactly one SolidWorks app.
+
+    Starting the executable is followed by a COM-registration wait. Macro-level
+    readiness is checked separately because SolidWorks can enter the Running
+    Object Table while its add-ins and VBA host are still starting.
+    """
 
     get_active = get_active or _get_active_solidworks
     dispatch = dispatch or _dispatch_solidworks
@@ -111,36 +115,122 @@ def connect_solidworks(
     )
 
 
-def _invoke_macro(
+def _available_macro_methods(app, macro: Path) -> list[str]:
+    methods = app.GetMacroMethods(str(macro), SW_METHODS_WITHOUT_ARGUMENTS)
+    if methods is None:
+        return []
+    if isinstance(methods, str):
+        return [methods]
+    return [str(method) for method in methods]
+
+
+def wait_until_macro_ready(
     app,
     macro: Path,
-    module: str,
-    procedure: str,
-) -> tuple[bool, int]:
-    import pythoncom
-    from win32com.client import VARIANT
+    *,
+    timeout: float = 120.0,
+    monotonic: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
+    methods: Callable[[object, Path], list[str]] | None = None,
+) -> list[str]:
+    """Wait until the VBA host can inspect the compiled macro.
 
-    error = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-    succeeded = app.RunMacro2(
-        str(macro),
-        module,
-        procedure,
-        SW_RUN_MACRO_UNLOAD_AFTER_RUN,
-        error,
+    A non-empty GetMacroMethods result proves more than an early COM attach: the
+    SolidWorks automation object, VBA host, and SWP file are all available.
+    """
+
+    monotonic = monotonic or time.monotonic
+    sleep = sleep or time.sleep
+    methods = methods or _available_macro_methods
+    deadline = monotonic() + max(timeout, 1.0)
+    last_error = "SolidWorks returned no macro methods."
+    while monotonic() < deadline:
+        try:
+            available = methods(app, macro)
+            if available:
+                return available
+        except Exception as exc:
+            last_error = str(exc)
+        sleep(0.5)
+    raise SolidWorksRunnerError(
+        "SolidWorks registered with Windows but its VBA host did not become "
+        f"ready within {timeout:g} seconds. Last response: {last_error}"
     )
-    return bool(succeeded), int(error.value)
+
+
+def resolve_entry_point(
+    methods: list[str],
+    *,
+    preferred_module: str = "",
+    preferred_procedure: str = "main",
+) -> tuple[str, str]:
+    """Resolve Module.Procedure from the methods stored inside the SWP."""
+
+    parsed: list[tuple[str, str]] = []
+    for method in methods:
+        module, separator, procedure = method.rpartition(".")
+        if separator and module and procedure:
+            parsed.append((module, procedure))
+    if not parsed:
+        raise SolidWorksRunnerError(
+            "SolidWorks could inspect the macro, but no parameter-free entry "
+            f"points were found. Reported methods: {methods!r}"
+        )
+
+    if preferred_module:
+        for module, procedure in parsed:
+            if (
+                module.casefold() == preferred_module.casefold()
+                and procedure.casefold() == preferred_procedure.casefold()
+            ):
+                return module, procedure
+    for module, procedure in parsed:
+        if procedure.casefold() == preferred_procedure.casefold():
+            return module, procedure
+    return parsed[0]
+
+
+def _invoke_macro(app, macro: Path, module: str, procedure: str) -> tuple[bool, int]:
+    """Call RunMacro2 through either generated or dynamic pywin32 wrappers."""
+
+    # makepy-generated wrappers omit the final [out] parameter and return it in
+    # a tuple. Dynamic dispatch wrappers require an explicit by-reference VARIANT.
+    try:
+        result = app.RunMacro2(
+            str(macro), module, procedure, SW_RUN_MACRO_UNLOAD_AFTER_RUN
+        )
+        if isinstance(result, tuple):
+            succeeded = bool(result[0])
+            error_code = int(result[1]) if len(result) > 1 else 0
+            return succeeded, error_code
+        return bool(result), 0
+    except TypeError:
+        import pythoncom
+        from win32com.client import VARIANT
+
+        error = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        succeeded = app.RunMacro2(
+            str(macro),
+            module,
+            procedure,
+            SW_RUN_MACRO_UNLOAD_AFTER_RUN,
+            error,
+        )
+        return bool(succeeded), int(error.value)
 
 
 def run_macro(
     app,
     macro: Path,
     *,
-    module: str = "CADBatch",
+    module: str = "",
     procedure: str = "main",
+    ready_timeout: float = 120.0,
     show_after_run: bool = True,
+    ready: Callable[..., list[str]] | None = None,
     invoke: Callable[[object, Path, str, str], tuple[bool, int]] | None = None,
-) -> None:
-    """Run a compiled SWP with graphics suppressed and restore the UI safely."""
+) -> tuple[str, str]:
+    """Wait for SolidWorks, resolve the SWP entry point, and run it safely."""
 
     macro = Path(macro).resolve()
     if not macro.is_file():
@@ -148,46 +238,57 @@ def run_macro(
     if macro.suffix.casefold() != ".swp":
         raise SolidWorksRunnerError(f"Expected a compiled .swp macro: {macro}")
 
+    ready = ready or wait_until_macro_ready
     invoke = invoke or _invoke_macro
-    document_windows_hidden = False
+    command_flag_set = False
+    available = ready(app, macro, timeout=ready_timeout)
+    resolved_module, resolved_procedure = resolve_entry_point(
+        available,
+        preferred_module=module,
+        preferred_procedure=procedure,
+    )
     try:
+        # Officially intended for a sequence of calls from an out-of-process
+        # client. It reduces redraw/update overhead without making new part
+        # documents invisible to the macro itself.
         try:
-            app.Visible = False
+            app.CommandInProgress = True
+            command_flag_set = True
         except Exception as exc:
-            print(f"WARNING: could not hide the SolidWorks application: {exc}")
-        try:
-            app.DocumentVisible(False, SW_DOC_PART)
-            document_windows_hidden = True
-        except Exception as exc:
-            print(f"WARNING: could not suppress part windows: {exc}")
+            print(f"WARNING: could not enable CommandInProgress: {exc}")
 
-        succeeded, error_code = invoke(app, macro, module, procedure)
+        succeeded, error_code = invoke(
+            app, macro, resolved_module, resolved_procedure
+        )
         if not succeeded:
             raise SolidWorksRunnerError(
                 f"SolidWorks RunMacro2 failed with error code {error_code}."
             )
+        return resolved_module, resolved_procedure
     finally:
-        if document_windows_hidden:
+        if command_flag_set:
             try:
-                app.DocumentVisible(True, SW_DOC_PART)
+                app.CommandInProgress = False
             except Exception as exc:
-                print(f"WARNING: could not restore part-window visibility: {exc}")
+                print(f"WARNING: could not clear CommandInProgress: {exc}")
         if show_after_run:
             try:
                 app.Visible = True
+                app.UserControl = True
             except Exception as exc:
                 print(f"WARNING: could not restore the SolidWorks window: {exc}")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the CAD batch converter in a reusable background SolidWorks session."
+        description="Run the CAD batch converter in a reusable SolidWorks session."
     )
     parser.add_argument("--macro", required=True, type=Path)
-    parser.add_argument("--module", default="CADBatch")
+    parser.add_argument("--module", default="")
     parser.add_argument("--procedure", default="main")
     parser.add_argument("--solidworks-executable", type=Path)
-    parser.add_argument("--connect-timeout", type=float, default=90.0)
+    parser.add_argument("--connect-timeout", type=float, default=120.0)
+    parser.add_argument("--ready-timeout", type=float, default=120.0)
     parser.add_argument(
         "--leave-hidden",
         action="store_true",
@@ -219,15 +320,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         action = "Reusing" if connection.reused else "Started"
         print(f"{action} SolidWorks via {connection.launch_method}.", flush=True)
-        print(f"Running {args.macro}::{args.module}.{args.procedure}", flush=True)
-        run_macro(
+        print(f"Waiting for the SolidWorks VBA host and {args.macro.name}.", flush=True)
+        module, procedure = run_macro(
             connection.app,
             args.macro,
             module=args.module,
             procedure=args.procedure,
+            ready_timeout=args.ready_timeout,
             show_after_run=not args.leave_hidden,
         )
-        print("SolidWorks macro completed and returned control.", flush=True)
+        print(f"SolidWorks macro {module}.{procedure} completed.", flush=True)
         return 0
     except SolidWorksRunnerError as exc:
         print(f"ERROR: {exc}", file=sys.stderr, flush=True)
