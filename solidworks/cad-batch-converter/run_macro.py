@@ -241,7 +241,13 @@ def _running_solidworks_sessions() -> dict[int, object]:
         moniker = monikers[0]
         try:
             display_name = moniker.GetDisplayName(bind_context, None)
-            if "sldworks" not in display_name.casefold():
+            normalized_name = display_name.casefold()
+            # Depending on the release and COM registration path, SolidWorks
+            # exposes ROT monikers as either SldWorks... or SolidWorks_PID....
+            if not any(
+                marker in normalized_name
+                for marker in ("sldworks", "solidworks")
+            ):
                 continue
             app = win32com.client.Dispatch(table.GetObject(moniker))
             process_id_value = app.GetProcessID
