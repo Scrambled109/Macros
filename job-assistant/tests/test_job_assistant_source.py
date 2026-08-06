@@ -80,6 +80,26 @@ class JobAssistantSourceTests(unittest.TestCase):
         self.assertIn("job-assistant", constants)
         self.assertIn("job_core.py", constants)
 
+    def test_dashboard_fills_lower_area_with_live_job_information(self) -> None:
+        build = _function(self.tree, "_build")
+        constants = {
+            node.value
+            for node in ast.walk(build)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertIn("Activity", constants)
+        self.assertIn("Recent outputs", constants)
+        self.assertIn("Job folders", constants)
+        self.assertIn("Cut Files", constants)
+        refresh = _function(self.tree, "refresh_activity_panel")
+        refresh_calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(refresh)
+            if isinstance(node, ast.Call)
+        }
+        self.assertIn("self.after", refresh_calls)
+        self.assertIn("log.open", refresh_calls)
+
     def test_dxf_launch_is_nonblocking(self) -> None:
         launch = _function(self.tree, "run_dxf")
         launch_calls = {
@@ -139,7 +159,7 @@ class JobAssistantSourceTests(unittest.TestCase):
             for node in ast.walk(build)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         }
-        self.assertNotIn("tk.Text", calls)
+        self.assertIn("tk.Text", calls)
         self.assertNotIn("ttk.Panedwindow", calls)
         self.assertNotIn("Recently recorded files", constants)
         self.assertIn("More", constants)
@@ -160,8 +180,11 @@ class JobAssistantSourceTests(unittest.TestCase):
                 None,
             )
             self.assertIsNotNone(text_keyword)
-            self.assertIsInstance(text_keyword.value, ast.Constant)
-            self.assertTrue(text_keyword.value.value.strip())
+            if isinstance(text_keyword.value, ast.Constant):
+                self.assertTrue(text_keyword.value.value.strip())
+            else:
+                self.assertIsInstance(text_keyword.value, ast.Name)
+                self.assertEqual(text_keyword.value.id, "label")
 
     def test_more_menu_contains_completed_output_move(self) -> None:
         menu = _function(self.tree, "_populate_step_menu")
