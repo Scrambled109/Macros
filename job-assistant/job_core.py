@@ -815,6 +815,71 @@ def dashboard_warnings(manifest: dict[str, Any]) -> list[str]:
     return warnings
 
 
+_CUT_FILE_PART_SUFFIX = re.compile(
+    r"^(?P<part>.+)_[^_]+_\\d+(?:\\(B\\))?$", re.IGNORECASE
+)
+
+
+def solidworks_part_stem(cut_file_stem: str) -> str:
+    """Return the original part number from an orchestrator cut-file stem."""
+    match = _CUT_FILE_PART_SUFFIX.fullmatch(cut_file_stem)
+    return match.group("part") if match else cut_file_stem
+
+
+def normalize_plate_model_filenames(output_folder: Path) -> list[Path]:
+    """Remove orchestrator material/quantity suffixes from generated parts.
+
+    Only .SLDPRT files below the SolidWorks output folder are changed. Existing
+    destination names and duplicate normalized names stop the operation before
+    anything is renamed, so a generated model is never silently overwritten.
+    """
+    if not output_folder.is_dir():
+        raise JobError(f"SolidWorks output folder does not exist: {output_folder}")
+
+    plan: list[tuple[Path, Path]] = []
+    destinations: dict[str, Path] = {}
+    for source in sorted(
+        (
+            path
+            for path in output_folder.rglob("*")
+            if path.is_file() and path.suffix.casefold() == ".sldprt"
+        ),
+        key=lambda path: str(path).casefold(),
+    ):
+        target = source.with_name(f"{solidworks_part_stem(source.stem)}{source.suffix}")
+        if target == source:
+            continue
+        key = os.path.normcase(str(target.resolve()))
+        previous = destinations.get(key)
+        if previous is not None:
+            raise JobError(
+                "Two generated SolidWorks parts would have the same original "
+                f"name: {previous.name} and {source.name} -> {target.name}"
+            )
+        if target.exists():
+            raise JobError(
+                f"Cannot rename {source.name} to {target.name} because that file "
+                "already exists. Review the generated models before moving them."
+            )
+        destinations[key] = source
+        plan.append((source, target))
+
+    renamed: list[Path] = []
+    try:
+        for source, target in plan:
+            source.rename(target)
+            renamed.append(target)
+    except OSError as exc:
+        for target in reversed(renamed):
+            source = next(old for old, new in plan if new == target)
+            try:
+                target.rename(source)
+            except OSError:
+                pass
+        raise JobError(f"Could not normalize SolidWorks part filenames: {exc}") from exc
+    return renamed
+
+
 def plan_completed_outputs(manifest: dict[str, Any]) -> list[OutputMoveItem]:
     """Find reviewed cut files and plate models that are ready for production.
 
