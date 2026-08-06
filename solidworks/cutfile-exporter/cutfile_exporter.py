@@ -265,6 +265,44 @@ def run_gui() -> None:
     root.title("SolidWorks Layered Cut-File Exporter")
     root.geometry("820x560")
     root.minsize(720, 480)
+    steel_blue = "#57a0d3"
+    dark_bg = "#101820"
+    dark_surface = "#18232d"
+    dark_input = "#111a22"
+    text_primary = "#eef5f9"
+    root.configure(background=dark_bg)
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+    style.configure("TFrame", background=dark_bg)
+    style.configure("TLabel", background=dark_bg, foreground=text_primary)
+    style.configure(
+        "TEntry",
+        fieldbackground=dark_input,
+        foreground=text_primary,
+        insertcolor=text_primary,
+        bordercolor="#40515f",
+    )
+    style.configure(
+        "TButton",
+        background=dark_surface,
+        foreground=text_primary,
+        bordercolor="#40515f",
+        padding=(10, 6),
+    )
+    style.map("TButton", background=[("active", "#2b3c49")])
+    style.configure(
+        "Accent.TButton",
+        background=steel_blue,
+        foreground="#ffffff",
+        bordercolor=steel_blue,
+        padding=(12, 7),
+    )
+    style.map("Accent.TButton", background=[("active", "#6eb1df")])
+    style.configure("TCheckbutton", background=dark_bg, foreground=text_primary)
+    style.map("TCheckbutton", background=[("active", dark_bg)])
 
     input_var = tk.StringVar()
     output_var = tk.StringVar()
@@ -315,7 +353,18 @@ def run_gui() -> None:
         side="left", padx=18
     )
 
-    log = tk.Text(frame, height=18, wrap="word", state="disabled", font=("Consolas", 9))
+    log = tk.Text(
+        frame,
+        height=18,
+        wrap="word",
+        state="disabled",
+        font=("Consolas", 9),
+        background=dark_input,
+        foreground=text_primary,
+        insertbackground=text_primary,
+        selectbackground="#315f7d",
+        relief="flat",
+    )
     log.grid(row=6, column=0, columnspan=3, sticky="nsew", pady=(8, 8))
     ttk.Label(frame, textvariable=status_var).grid(row=7, column=0, columnspan=2, sticky="w")
 
@@ -421,7 +470,12 @@ def run_gui() -> None:
         append(f"[FATAL] {message}")
         messagebox.showerror("Export stopped", message)
 
-    run_button = ttk.Button(frame, text="Create Layered DXFs", command=start_export)
+    run_button = ttk.Button(
+        frame,
+        text="Create Layered DXFs",
+        command=start_export,
+        style="Accent.TButton",
+    )
     run_button.grid(row=7, column=2, sticky="e")
     root.mainloop()
 

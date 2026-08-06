@@ -80,6 +80,7 @@
     (5 . "CUT - INSIDE STRAIGHT")
     (6 . "PIN STAMP TEXT")
     (7 . "PIN STAMP TEXT")
+    (8 . "PLOT")
   ))
 
   (foreach mapItem colorMap

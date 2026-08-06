@@ -42,7 +42,6 @@ from job_core import (
     safe_name,
     set_optional_path,
     setup_job,
-    stage_result_path,
     stage_checks,
     start_stage,
     suggest_job_number,
@@ -50,6 +49,13 @@ from job_core import (
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_REPO = HERE.parent
+STEEL_BLUE = "#57a0d3"
+DARK_BG = "#101820"
+DARK_SURFACE = "#18232d"
+DARK_CARD = "#202d38"
+DARK_INPUT = "#111a22"
+TEXT_PRIMARY = "#eef5f9"
+TEXT_MUTED = "#a9bac6"
 
 
 def open_path(path: Path) -> None:
@@ -94,7 +100,12 @@ class JobAssistant(tk.Tk):
         return path
 
     def _configure_style(self) -> None:
-        self.configure(background="#f6f7f9")
+        self.configure(background=DARK_BG)
+        self.option_add("*Menu.background", DARK_SURFACE)
+        self.option_add("*Menu.foreground", TEXT_PRIMARY)
+        self.option_add("*Menu.activeBackground", STEEL_BLUE)
+        self.option_add("*Menu.activeForeground", "#ffffff")
+        self.option_add("*Toplevel.background", DARK_BG)
         style = ttk.Style(self)
         try:
             # Clam is intentionally used on Windows too.  It gives the assistant
@@ -103,157 +114,191 @@ class JobAssistant(tk.Tk):
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("TFrame", background="#f6f7f9")
-        style.configure("Card.TFrame", background="#ffffff")
+        style.configure("TFrame", background=DARK_BG)
+        style.configure("Card.TFrame", background=DARK_CARD)
+        style.configure("Brand.TFrame", background=STEEL_BLUE)
         style.configure(
             "TLabel",
-            background="#f6f7f9",
-            foreground="#25313a",
+            background=DARK_BG,
+            foreground=TEXT_PRIMARY,
             font=("Segoe UI", 10),
         )
         style.configure(
             "Card.TLabel",
-            background="#ffffff",
-            foreground="#25313a",
+            background=DARK_CARD,
+            foreground=TEXT_PRIMARY,
             font=("Segoe UI", 10),
         )
         style.configure(
             "Muted.TLabel",
-            background="#f6f7f9",
-            foreground="#66727d",
+            background=DARK_BG,
+            foreground=TEXT_MUTED,
             font=("Segoe UI", 9),
         )
         style.configure(
             "CardMuted.TLabel",
-            background="#ffffff",
-            foreground="#66727d",
+            background=DARK_CARD,
+            foreground=TEXT_MUTED,
             font=("Segoe UI", 9),
         )
         style.configure(
             "TButton",
-            background="#ffffff",
-            foreground="#25313a",
-            bordercolor="#ccd3d9",
-            lightcolor="#ffffff",
-            darkcolor="#ffffff",
+            background=DARK_CARD,
+            foreground=TEXT_PRIMARY,
+            bordercolor="#40515f",
+            lightcolor=DARK_CARD,
+            darkcolor=DARK_CARD,
             font=("Segoe UI", 10),
             padding=(11, 7),
             relief="flat",
         )
         style.map(
             "TButton",
-            background=[("active", "#eef2f5"), ("pressed", "#e5eaee")],
-            bordercolor=[("focus", "#7aa7d8"), ("active", "#aeb9c2")],
+            background=[("active", "#2b3c49"), ("pressed", "#344a5a")],
+            bordercolor=[("focus", STEEL_BLUE), ("active", "#668094")],
         )
         style.configure(
             "TMenubutton",
-            background="#ffffff",
-            foreground="#25313a",
-            bordercolor="#ccd3d9",
-            lightcolor="#ffffff",
-            darkcolor="#ffffff",
+            background=DARK_CARD,
+            foreground=TEXT_PRIMARY,
+            bordercolor="#40515f",
+            lightcolor=DARK_CARD,
+            darkcolor=DARK_CARD,
             font=("Segoe UI", 10),
             padding=(10, 7),
             relief="flat",
         )
-        style.map("TMenubutton", background=[("active", "#eef2f5")])
+        style.map("TMenubutton", background=[("active", "#2b3c49")])
         style.configure(
             "Primary.TButton",
             font=("Segoe UI Semibold", 10),
             foreground="#ffffff",
-            background="#1769aa",
-            bordercolor="#1769aa",
-            lightcolor="#1769aa",
-            darkcolor="#1769aa",
+            background=STEEL_BLUE,
+            bordercolor=STEEL_BLUE,
+            lightcolor=STEEL_BLUE,
+            darkcolor=STEEL_BLUE,
             padding=(14, 8),
             relief="flat",
         )
         style.map(
             "Primary.TButton",
-            foreground=[("disabled", "#d8e6f1")],
+            foreground=[("disabled", "#c4d4df")],
             background=[
-                ("disabled", "#7fa8c8"),
-                ("active", "#125c96"),
-                ("pressed", "#0e4f82"),
+                ("disabled", "#42677f"),
+                ("active", "#6eb1df"),
+                ("pressed", "#438bbd"),
             ],
         )
         style.configure(
             "Heading.TLabel",
-            background="#f6f7f9",
-            foreground="#17242e",
+            background=DARK_BG,
+            foreground=TEXT_PRIMARY,
             font=("Segoe UI Semibold", 18),
         )
         style.configure(
             "Next.TLabel",
-            background="#f6f7f9",
-            foreground="#3c4a55",
+            background=DARK_BG,
+            foreground="#c7d5de",
             font=("Segoe UI", 10),
         )
         style.configure(
             "Notice.TLabel",
-            background="#edf7f0",
-            foreground="#176b32",
+            background="#173a2b",
+            foreground="#a4e5bd",
             padding=(10, 7),
         )
         style.configure(
             "Warning.TLabel",
-            background="#fff6e7",
-            foreground="#7a4b00",
+            background="#493719",
+            foreground="#ffd28a",
             padding=(10, 7),
         )
         style.configure(
             "StepTitle.TLabel",
-            background="#ffffff",
-            foreground="#17242e",
+            background=DARK_CARD,
+            foreground=TEXT_PRIMARY,
             font=("Segoe UI Semibold", 12),
         )
         style.configure(
             "Status.TLabel",
-            background="#ffffff",
-            foreground="#5e6a74",
+            background=DARK_CARD,
+            foreground=TEXT_MUTED,
             font=("Segoe UI Semibold", 9),
         )
         style.configure(
             "StatusComplete.TLabel",
-            background="#ffffff",
-            foreground="#176b32",
+            background=DARK_CARD,
+            foreground="#72d99a",
             font=("Segoe UI Semibold", 9),
         )
         style.configure(
             "StatusAttention.TLabel",
-            background="#ffffff",
-            foreground="#98530b",
+            background=DARK_CARD,
+            foreground="#ffc36f",
             font=("Segoe UI Semibold", 9),
         )
         style.configure(
             "Horizontal.TProgressbar",
-            background="#1769aa",
-            troughcolor="#e3e8ec",
-            bordercolor="#e3e8ec",
-            lightcolor="#1769aa",
-            darkcolor="#1769aa",
+            background=STEEL_BLUE,
+            troughcolor="#293944",
+            bordercolor="#293944",
+            lightcolor=STEEL_BLUE,
+            darkcolor=STEEL_BLUE,
         )
         style.configure(
             "Treeview",
-            background="#ffffff",
-            fieldbackground="#ffffff",
-            foreground="#25313a",
+            background=DARK_CARD,
+            fieldbackground=DARK_CARD,
+            foreground=TEXT_PRIMARY,
             borderwidth=0,
             rowheight=38,
             font=("Segoe UI", 10),
         )
         style.map(
             "Treeview",
-            background=[("selected", "#e5f0fa")],
-            foreground=[("selected", "#173f5f")],
+            background=[("selected", "#315f7d")],
+            foreground=[("selected", "#ffffff")],
         )
         style.configure(
             "Treeview.Heading",
-            background="#f1f3f5",
-            foreground="#4c5963",
+            background="#293944",
+            foreground="#d6e2e9",
             borderwidth=0,
             font=("Segoe UI Semibold", 9),
             padding=(8, 7),
+        )
+        style.configure(
+            "BrandTitle.TLabel",
+            background=STEEL_BLUE,
+            foreground="#ffffff",
+            font=("Segoe UI Semibold", 18),
+        )
+        style.configure(
+            "BrandMuted.TLabel",
+            background=STEEL_BLUE,
+            foreground="#eaf6fc",
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=DARK_INPUT,
+            foreground=TEXT_PRIMARY,
+            insertcolor=TEXT_PRIMARY,
+            bordercolor="#40515f",
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=DARK_INPUT,
+            background=DARK_CARD,
+            foreground=TEXT_PRIMARY,
+            arrowcolor=TEXT_PRIMARY,
+        )
+        style.configure(
+            "TSpinbox",
+            fieldbackground=DARK_INPUT,
+            background=DARK_CARD,
+            foreground=TEXT_PRIMARY,
+            arrowcolor=TEXT_PRIMARY,
         )
 
     def _build(self) -> None:
@@ -262,21 +307,33 @@ class JobAssistant(tk.Tk):
         content = ttk.Frame(self, padding=(22, 18, 22, 16))
         content.pack(fill="both", expand=True)
 
-        header = ttk.Frame(content)
-        header.pack(fill="x")
+        header = ttk.Frame(content, style="Brand.TFrame", padding=(16, 10))
+        header.pack(fill="x", pady=(0, 8))
         self.running_summary = ttk.Label(
             header,
             text="",
-            style="Muted.TLabel",
+            style="BrandMuted.TLabel",
         )
         self.running_summary.pack(side="right", padx=(12, 0))
         self.running_summary.pack_forget()
         self.heading = ttk.Label(
             header,
             text="Engineering Job Assistant",
-            style="Heading.TLabel",
+            style="BrandTitle.TLabel",
         )
         self.heading.pack(side="left")
+        logo_path = HERE / "assets" / "steel_america_logo.png"
+        self.logo_image = None
+        if logo_path.is_file():
+            try:
+                self.logo_image = tk.PhotoImage(file=str(logo_path)).subsample(4, 4)
+                ttk.Label(
+                    header,
+                    image=self.logo_image,
+                    style="BrandMuted.TLabel",
+                ).pack(side="right", padx=(14, 0))
+            except tk.TclError:
+                self.logo_image = None
 
         progress_row = ttk.Frame(content)
         progress_row.pack(fill="x", pady=(8, 14))
@@ -349,12 +406,12 @@ class JobAssistant(tk.Tk):
         self.tree.column("status", width=170, minwidth=120, anchor="w")
         self.tree.pack(fill="both", expand=True, padx=1)
         self.tree.bind("<<TreeviewSelect>>", self._stage_selected)
-        self.tree.tag_configure("not_started", foreground="#666666")
-        self.tree.tag_configure("ready", foreground="#1f5f99")
-        self.tree.tag_configure("in_progress", foreground="#7a4b00")
-        self.tree.tag_configure("needs_review", foreground="#8a3f00")
-        self.tree.tag_configure("complete", foreground="#176b32")
-        self.tree.tag_configure("warning", foreground="#a31621")
+        self.tree.tag_configure("not_started", foreground="#98a8b3")
+        self.tree.tag_configure("ready", foreground="#87c9f3")
+        self.tree.tag_configure("in_progress", foreground="#ffd078")
+        self.tree.tag_configure("needs_review", foreground="#ffb66d")
+        self.tree.tag_configure("complete", foreground="#79dfa1")
+        self.tree.tag_configure("warning", foreground="#ff8d95")
 
         ttk.Separator(self.workflow_card).pack(fill="x")
         selected = ttk.Frame(
@@ -463,7 +520,7 @@ class JobAssistant(tk.Tk):
             label="Move Completed Outputs…", command=self.move_outputs
         )
         menu.add_separator()
-        menu.add_command(label="Open Results", command=self.open_stage_folder)
+        menu.add_command(label="Open Step Folder", command=self.open_stage_folder)
         menu.add_command(label="Record File…", command=self.record_file)
         menu.add_command(label="Mark Complete…", command=self.finish_stage)
         menu.add_command(label="Reopen Step…", command=self.reopen)
@@ -544,6 +601,75 @@ class JobAssistant(tk.Tk):
             open_path(target)
 
         self.handle(operation)
+
+    def open_review_and_offer_completion(
+        self,
+        stage: str,
+        result_path: Path,
+        process_manifest: dict,
+        process_manifest_path: Path,
+        *,
+        ask_to_complete: bool = True,
+    ) -> bool:
+        """Open required review output, then offer one-click completion.
+
+        Completion prompts are only shown for the job still displayed in the
+        assistant. Background work for another job remains available through
+        its dashboard notice without mutating the currently open job.
+        """
+
+        if self.manifest_path != process_manifest_path:
+            return False
+        # Unit-level process polling tests use an uninitialized Tk subclass.
+        # The real application always owns ``tk``; skipping UI work here keeps
+        # the workflow mutation logic independently testable.
+        if "tk" not in self.__dict__:
+            return False
+        target = Path(result_path)
+        if target.exists():
+            try:
+                open_path(target)
+            except (JobError, OSError):
+                # The dashboard's Open Result button remains available if the
+                # Windows shell cannot open the result automatically.
+                pass
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        if not ask_to_complete:
+            return False
+        label = process_manifest["stages"][stage]["label"]
+        if not messagebox.askyesno(
+            "Mark this step complete?",
+            f"The required review output for:\n\n{label}\n\nhas been opened. "
+            "After checking it, select Yes to mark the step complete. "
+            "Select No if corrections are still needed.",
+            parent=self,
+        ):
+            return False
+        if stage == "bom":
+            workbook = Path(
+                process_manifest["stages"]["bom"].get(
+                    "parts_list_workbook", result_path
+                )
+            )
+            csv_path = export_parts_list_csv(
+                workbook,
+                Path(process_manifest["workspace"]["source_copies"])
+                / "Parts List.csv",
+            )
+            record_artifact(process_manifest, "bom", workbook)
+            record_artifact(process_manifest, "bom", csv_path)
+        complete_stage(
+            process_manifest,
+            stage,
+            "Operator confirmed the automatically opened review output.",
+        )
+        save_manifest(process_manifest, process_manifest_path)
+        self.manifest = process_manifest
+        self.refresh()
+        self.show_stage()
+        return True
 
     def close_application(self) -> None:
         if self.running_processes and not messagebox.askyesno(
@@ -793,8 +919,9 @@ class JobAssistant(tk.Tk):
             padx=10,
             pady=10,
             relief="flat",
-            background="#ffffff",
-            foreground="#25313a",
+            background=DARK_INPUT,
+            foreground=TEXT_PRIMARY,
+            insertbackground=TEXT_PRIMARY,
             font=("Segoe UI", 10),
         )
         info.insert("1.0", details)
@@ -851,7 +978,15 @@ class JobAssistant(tk.Tk):
         window.geometry("860x620")
         window.minsize(650, 420)
         window.transient(self)
-        text = tk.Text(window, wrap="word", padx=12, pady=12)
+        text = tk.Text(
+            window,
+            wrap="word",
+            padx=12,
+            pady=12,
+            background=DARK_INPUT,
+            foreground=TEXT_PRIMARY,
+            insertbackground=TEXT_PRIMARY,
+        )
         scrollbar = ttk.Scrollbar(window, orient="vertical", command=text.yview)
         text.configure(yscrollcommand=scrollbar.set)
         text.insert("1.0", self.stage_detail_text)
@@ -970,12 +1105,17 @@ class JobAssistant(tk.Tk):
         # before the packaged converter can even start.  The command already
         # contains absolute executable/script paths, so it is safe to inherit the
         # assistant's working directory when the preferred repository is absent.
-        subprocess.Popen(command, cwd=existing_working_directory(self.repo))
+        process = subprocess.Popen(
+            command,
+            cwd=existing_working_directory(self.repo),
+        )
         record_event(
             self.manifest,
-            "external_process_started",
+            "external_process_launched",
             stage="bom",
             command=command,
+            pid=process.pid,
+            output=output,
         )
         mark_needs_review(
             self.manifest,
@@ -987,6 +1127,82 @@ class JobAssistant(tk.Tk):
         # cannot be recorded as an artifact above.  Retain its intended path so
         # completion can create the orchestrator-specific, plate-only CSV.
         self.manifest["stages"]["bom"]["parts_list_workbook"] = str(Path(output))
+        self.running_processes[process.pid] = {
+            "stage": "bom",
+            "job_number": self.manifest["job"]["number"],
+            "manifest_path": str(self.manifest_path),
+            "result": str(output),
+        }
+        self.update_running_summary()
+        self._poll_bom_process(
+            process,
+            Path(output),
+            self.manifest,
+            self.manifest_path,
+        )
+
+    def _poll_bom_process(
+        self,
+        process,
+        output: Path,
+        process_manifest: dict,
+        process_manifest_path: Path,
+    ) -> None:
+        exit_code = process.poll()
+        if exit_code is None:
+            self.after(
+                500,
+                self._poll_bom_process,
+                process,
+                output,
+                process_manifest,
+                process_manifest_path,
+            )
+            return
+        self.running_processes.pop(process.pid, None)
+        self.update_running_summary()
+        record_event(
+            process_manifest,
+            "external_process_finished",
+            stage="bom",
+            pid=process.pid,
+            exit_code=exit_code,
+            output=str(output),
+        )
+        succeeded = exit_code == 0 and output.is_file()
+        if succeeded:
+            mark_needs_review(
+                process_manifest,
+                "bom",
+                "Parts List created. The workbook was opened for required review.",
+                [output],
+            )
+        else:
+            item = process_manifest["stages"]["bom"]
+            item["status"] = "warning"
+            item["notes"] = (
+                "The BOM converter closed without creating the selected Parts "
+                f"List output: {output}"
+            )
+        save_manifest(process_manifest, process_manifest_path)
+        if self.manifest_path == process_manifest_path:
+            self.manifest = process_manifest
+            self.refresh()
+            self.show_stage()
+        self.post_background_notice(
+            "BOM conversion finished" if succeeded else "BOM conversion incomplete",
+            (
+                "The Parts List is ready for review."
+                if succeeded
+                else "No completed Parts List was found."
+            ),
+            level="info" if succeeded else "warning",
+            path=output if succeeded else output.parent,
+        )
+        if succeeded:
+            self.open_review_and_offer_completion(
+                "bom", output, process_manifest, process_manifest_path
+            )
 
     def run_dxf(self) -> None:
         incoming = filedialog.askdirectory(
@@ -1161,10 +1377,14 @@ class JobAssistant(tk.Tk):
         outcome = "finished and needs review" if exit_code == 0 else "failed"
         self.post_background_notice(
             "DXF automation finished",
-            f"Job {process_manifest['job']['number']} {outcome}. Review the generated DWGs.",
+            f"Job {process_manifest['job']['number']} {outcome}.",
             level="warning" if exit_code else "info",
-            path=run,
+            path=run if exit_code == 0 else log,
         )
+        if exit_code == 0:
+            self.open_review_and_offer_completion(
+                "dxf", run, process_manifest, process_manifest_path
+            )
 
     def review_drawings(self) -> list[Path]:
         window = tk.Toplevel(self)
@@ -1179,7 +1399,7 @@ class JobAssistant(tk.Tk):
         ).pack(anchor="w")
         frame = ttk.Frame(window)
         frame.pack(fill="both", expand=True, padx=8)
-        canvas = tk.Canvas(frame)
+        canvas = tk.Canvas(frame, background=DARK_BG, highlightthickness=0)
         scroll = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
         body = ttk.Frame(canvas)
         body.bind(
@@ -1245,7 +1465,6 @@ class JobAssistant(tk.Tk):
             / f"comparison-{self.manifest['job']['revision']}"
         )
         output.mkdir(parents=True, exist_ok=True)
-        self.manifest["stages"]["comparison"]["result_path"] = str(output)
         log = Path(self.manifest["workspace"]["logs"]) / "comparison.log"
         command = command_comparison(
             sys.executable,
@@ -1357,9 +1576,6 @@ class JobAssistant(tk.Tk):
         else:
             comparison = parse_comparison_summary(output)
             process_manifest["comparison"] = comparison
-            process_manifest["stages"]["comparison"]["result_path"] = comparison.get(
-                "folder", str(output)
-            )
             if comparison["status"] == "not_available":
                 item = process_manifest["stages"]["comparison"]
                 item["status"] = "warning"
@@ -1389,37 +1605,46 @@ class JobAssistant(tk.Tk):
             level=(
                 "warning" if title.endswith(("failed", "incomplete")) else "info"
             ),
-            path=stage_result_path(process_manifest, "comparison"),
+            path=output if output.exists() else log,
         )
+        if exit_code == 0 and process_manifest["stages"]["comparison"]["status"] == "needs_review":
+            workbook = output / "production_part_comparison.xlsx"
+            review_target = workbook if workbook.is_file() else output
+            self.open_review_and_offer_completion(
+                "comparison",
+                review_target,
+                process_manifest,
+                process_manifest_path,
+            )
 
     def launch_solidworks_macro(self, stage: str) -> None:
         macro = self.repo / (
             "solidworks/cad-batch-converter/Main.RunBatch.swp"
             if stage == "plate_model"
-            else "solidworks/auto-bom/AutoBOMProperties.swp"
+            else "solidworks/utilities/(MOD)2(SECONDARY).swp"
         )
         if not macro.is_file():
             raise JobError(f"Macro was not found: {macro}")
+        runner = self.repo / "solidworks/cad-batch-converter/run_macro.py"
+        if not runner.is_file():
+            raise JobError(f"SolidWorks runner was not found: {runner}")
         if stage != "plate_model":
-            if not self._accept_warnings(stage):
-                return
-            open_path(macro)
-            record_event(
-                self.manifest,
-                "cad_macro_launch_initiated",
-                stage=stage,
-                macro=str(macro),
-            )
-            mark_needs_review(
-                self.manifest,
-                stage,
-                "Macro launch initiated. Review CAD output and logs; launch "
-                "does not mean the engineering task succeeded.",
-            )
+            if self._accept_warnings(stage):
+                self._start_solidworks_runner(stage, macro, runner)
             return
 
-        prepared_root = self.manifest["stages"]["dxf"].get(
-            "workspace", self.manifest["workspace"]["working"]
+        # Completed DXF outputs may already have been moved out of the
+        # assistant workspace. Production Cut Files is therefore the primary
+        # location; the orchestrator run is only a fallback.
+        cut_files = Path(self.manifest["paths"]["cut_files"])
+        prepared_root = (
+            cut_files
+            if cut_files.is_dir()
+            else Path(
+                self.manifest["stages"]["dxf"].get(
+                    "workspace", self.manifest["workspace"]["working"]
+                )
+            )
         )
         source_value = filedialog.askdirectory(
             title="Select the reviewed folder containing prepared DWGs",
@@ -1455,7 +1680,6 @@ class JobAssistant(tk.Tk):
         )
         filtered.mkdir(parents=True, exist_ok=True)
         output.mkdir(parents=True, exist_ok=True)
-        self.manifest["stages"][stage]["result_path"] = str(output)
         values = {
             "MACROS_SOURCE_FOLDER": str(source),
             "MACROS_FILTERED_FOLDER": str(filtered),
@@ -1481,54 +1705,220 @@ class JobAssistant(tk.Tk):
                         key, names[env_name], 0, winreg.REG_SZ, value
                     )
 
-        solidworks = self.settings.get("solidworks_executable", "").strip()
-        if solidworks and Path(solidworks).is_file():
-            subprocess.Popen([solidworks])
-
-        open_path(macro.parent)
-        messagebox.showinfo(
-            "Run one SolidWorks thickness group",
-            (
-                "The CAD batch macro settings are ready.\n\n"
-                f"Source: {source}\n"
-                f"Filtered: {filtered}\n"
-                f"Output: {output}\n"
-                f"Thickness: {thickness:g} in\n\n"
-                "Wait until SolidWorks has completely finished opening, then "
-                "run Main.RunBatch.swp from the folder that just opened. "
-                "Review the generated parts and BatchLog.txt afterward."
-            ),
-            parent=self,
-        )
         record_event(
             self.manifest,
-            "cad_macro_guidance_opened",
+            "cad_batch_configured",
             stage=stage,
             macro=str(macro),
             source=str(source),
             output=str(output),
             thickness_inches=thickness,
         )
-        mark_needs_review(
-            self.manifest,
+        self._start_solidworks_runner(
             stage,
-            "CAD batch settings prepared. Run Main.RunBatch.swp manually after "
-            "SolidWorks is fully loaded, then review representative parts and "
-            "BatchLog.txt before marking the step complete.",
-            [output],
+            macro,
+            runner,
+            source=source,
+            output=output,
+            thickness=thickness,
         )
+
+    def _start_solidworks_runner(
+        self,
+        stage: str,
+        macro: Path,
+        runner: Path,
+        *,
+        source: Path | None = None,
+        output: Path | None = None,
+        thickness: float | None = None,
+    ) -> None:
+        """Run one macro through the active SolidWorks COM session.
+
+        The companion runner checks the Windows Running Object Table first and
+        only starts SolidWorks when no usable instance exists. Runs stay serial
+        so document activation and selection cannot cross between jobs.
+        """
+
+        for item in self.running_processes.values():
+            if item.get("stage") in {"plate_model", "autobom"}:
+                raise JobError(
+                    "A SolidWorks automation run is already active. Wait for it "
+                    "to finish before starting another SolidWorks step."
+                )
+        command = [
+            sys.executable,
+            "-u",
+            str(runner),
+            "--macro",
+            str(macro),
+        ]
+        solidworks = self.settings.get("solidworks_executable", "").strip()
+        if solidworks:
+            if not Path(solidworks).is_file():
+                raise JobError(
+                    f"Configured SolidWorks executable was not found: {solidworks}"
+                )
+            command.extend(["--solidworks-executable", solidworks])
+        suffix = safe_name(source.name if source else stage)
+        log = Path(self.manifest["workspace"]["logs"]) / f"solidworks-{suffix}.log"
+        handle = log.open("a", encoding="utf-8")
+        handle.write(f"Windows command: {subprocess.list2cmdline(command)}\n")
+        if source:
+            handle.write(f"Source: {source}\n")
+        if output:
+            handle.write(f"Output: {output}\n")
+        if thickness is not None:
+            handle.write(f"Thickness: {thickness:g} in\n")
+        handle.flush()
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=existing_working_directory(self.repo),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+            )
+        except Exception:
+            handle.close()
+            raise
+        record_event(
+            self.manifest,
+            "external_process_launched",
+            stage=stage,
+            pid=process.pid,
+            macro=str(macro),
+            source=str(source) if source else "",
+            output=str(output) if output else "",
+            log=str(log),
+        )
+        self.running_processes[process.pid] = {
+            "stage": stage,
+            "job_number": self.manifest["job"]["number"],
+            "manifest_path": str(self.manifest_path),
+            "log": str(log),
+        }
+        self.update_running_summary()
+        save_manifest(self.manifest, self.manifest_path)
+        self._poll_solidworks_process(
+            process,
+            handle,
+            stage,
+            log,
+            output,
+            self.manifest,
+            self.manifest_path,
+        )
+
+    def _poll_solidworks_process(
+        self,
+        process,
+        handle,
+        stage: str,
+        log: Path,
+        output: Path | None,
+        process_manifest: dict,
+        process_manifest_path: Path,
+    ) -> None:
+        exit_code = process.poll()
+        if exit_code is None:
+            self.after(
+                500,
+                self._poll_solidworks_process,
+                process,
+                handle,
+                stage,
+                log,
+                output,
+                process_manifest,
+                process_manifest_path,
+            )
+            return
+        handle.write(f"\nExit code: {exit_code}\n")
+        handle.close()
+        self.running_processes.pop(process.pid, None)
+        self.update_running_summary()
+        record_event(
+            process_manifest,
+            "external_process_finished",
+            stage=stage,
+            pid=process.pid,
+            exit_code=exit_code,
+            output=str(output) if output else "",
+            log=str(log),
+        )
+        review_target = output or Path(process_manifest["paths"]["model_3d"])
+        if exit_code == 0:
+            mark_needs_review(
+                process_manifest,
+                stage,
+                "SolidWorks macro finished. The result location was opened for "
+                "required review.",
+                [review_target, log],
+            )
+        else:
+            item = process_manifest["stages"][stage]
+            item["status"] = "warning"
+            item["notes"] = (
+                f"SolidWorks automation exited with code {exit_code}. Review {log}"
+            )
+            record_artifact(process_manifest, stage, log)
+        save_manifest(process_manifest, process_manifest_path)
+        if self.manifest_path == process_manifest_path:
+            self.manifest = process_manifest
+            self.refresh()
+            self.show_stage()
+        self.post_background_notice(
+            "SolidWorks automation finished" if exit_code == 0 else "SolidWorks automation failed",
+            (
+                "Review the generated models."
+                if exit_code == 0
+                else f"Review {log.name}."
+            ),
+            level="info" if exit_code == 0 else "warning",
+            path=review_target if exit_code == 0 else log,
+        )
+        if exit_code != 0 or self.manifest_path != process_manifest_path:
+            return
+        self.open_review_and_offer_completion(
+            stage,
+            review_target,
+            process_manifest,
+            process_manifest_path,
+            ask_to_complete=stage != "plate_model",
+        )
+        if stage != "plate_model":
+            return
+        if messagebox.askyesno(
+            "Process another thickness folder?",
+            "This folder has finished and its output is open for review.\n\n"
+            "Select Yes to choose the next plate folder. Select No when all "
+            "plate folders are finished.",
+            parent=self,
+        ):
+            self.after(0, lambda: self.launch_solidworks_macro("plate_model"))
+        else:
+            self.open_review_and_offer_completion(
+                stage,
+                review_target,
+                process_manifest,
+                process_manifest_path,
+            )
 
     def open_stage_folder(self) -> None:
         def operation():
             self.require_job()
             stage = self.selected_stage()
-            target = stage_result_path(self.manifest, stage)
-            if not target.exists():
-                raise JobError(
-                    f"No output is available for this step yet: {target}. "
-                    "Run the step first."
-                )
-            open_path(target)
+            key = (
+                "model_3d"
+                if stage in {"plate_model", "autobom"}
+                else "nesting"
+                if stage == "comparison"
+                and self.manifest["paths"].get("nesting")
+                else "cut_files"
+                if stage == "dxf"
+                else "engineering_root"
+            )
+            open_path(Path(self.manifest["paths"][key]))
 
         self.handle(operation)
 
@@ -1728,10 +2118,10 @@ class JobAssistant(tk.Tk):
                 ),
                 tags=("conflict" if item.conflict else "new",),
             )
-        tree.tag_configure("conflict", foreground="#8a3f00")
-        tree.tag_configure("new", foreground="#176b32")
-        tree.tag_configure("failed", foreground="#a31621")
-        tree.tag_configure("finished", foreground="#176b32")
+        tree.tag_configure("conflict", foreground="#ffb66d")
+        tree.tag_configure("new", foreground="#79dfa1")
+        tree.tag_configure("failed", foreground="#ff8d95")
+        tree.tag_configure("finished", foreground="#79dfa1")
 
         detail = tk.StringVar(
             value="Review the destinations, then move all completed outputs."
@@ -1836,15 +2226,18 @@ class JobAssistant(tk.Tk):
         ttk.Label(window, text="Parallel AutoCAD processes").grid(
             row=workers_row, column=0, sticky="w", padx=8, pady=7
         )
-        workers = tk.StringVar(value=str(self.settings.get("autocad_workers", 2)))
-        ttk.Entry(
+        workers = tk.IntVar(value=self.settings.get("autocad_workers", 2))
+        ttk.Spinbox(
             window,
+            from_=1,
+            to=4,
             textvariable=workers,
             width=8,
+            state="readonly",
         ).grid(row=workers_row, column=1, sticky="w", padx=5)
         ttk.Label(
             window,
-            text="2 recommended. Enter any positive number; each worker starts an AutoCAD Core Console process.",
+            text="2 recommended. Each process converts one DXF; bevel files get (B).",
         ).grid(row=workers_row + 1, column=1, sticky="w", padx=5)
         window.columnconfigure(1, weight=1)
 
@@ -1852,13 +2245,7 @@ class JobAssistant(tk.Tk):
             self.settings.update(
                 {key: var.get().strip() for key, var in entries.items()}
             )
-            try:
-                worker_count = int(workers.get())
-            except ValueError as exc:
-                raise JobError("Parallel AutoCAD processes must be a whole number.") from exc
-            if worker_count < 1:
-                raise JobError("Parallel AutoCAD processes must be at least 1.")
-            self.settings["autocad_workers"] = worker_count
+            self.settings["autocad_workers"] = workers.get()
             save_settings(self.settings)
             window.destroy()
 

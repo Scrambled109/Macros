@@ -11,6 +11,12 @@ from . import __version__
 from .engine import convert_epls, load_metadata
 
 
+STEEL_BLUE = "#57a0d3"
+STEEL_BLUE_HOVER = "#6eb1df"
+if hasattr(ctk, "set_appearance_mode"):
+    ctk.set_appearance_mode("dark")
+
+
 class ConverterApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
@@ -102,6 +108,8 @@ class ConverterApp(ctk.CTk):
             height=44,
             width=220,
             command=self._start_conversion,
+            fg_color=STEEL_BLUE,
+            hover_color=STEEL_BLUE_HOVER,
         )
         self.convert_button.grid(row=0, column=1, sticky="e")
         self.progress = ctk.CTkProgressBar(actions, mode="indeterminate", width=260)
@@ -138,7 +146,14 @@ class ConverterApp(ctk.CTk):
             text=description,
             text_color=("gray35", "gray70"),
         ).grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="w")
-        button = ctk.CTkButton(panel, text=button_text, command=command, width=235)
+        button = ctk.CTkButton(
+            panel,
+            text=button_text,
+            command=command,
+            width=235,
+            fg_color=STEEL_BLUE,
+            hover_color=STEEL_BLUE_HOVER,
+        )
         button.grid(row=2, column=0, padx=14, pady=(0, 8), sticky="w")
         count = ctk.CTkLabel(panel, text="No files selected", anchor="e")
         count.grid(row=2, column=1, padx=14, pady=(0, 8), sticky="e")
@@ -155,7 +170,14 @@ class ConverterApp(ctk.CTk):
         ctk.CTkEntry(parent, textvariable=variable).grid(
             row=row, column=1, padx=(0, 8), pady=8, sticky="ew"
         )
-        ctk.CTkButton(parent, text="Browse…", width=90, command=command).grid(
+        ctk.CTkButton(
+            parent,
+            text="Browse…",
+            width=90,
+            command=command,
+            fg_color=STEEL_BLUE,
+            hover_color=STEEL_BLUE_HOVER,
+        ).grid(
             row=row, column=2, padx=(0, 14), pady=8
         )
 

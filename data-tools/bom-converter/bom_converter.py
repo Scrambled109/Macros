@@ -25,6 +25,103 @@ IGNORE_MAPPING = "— Ignore this column —"
 HEADER_SCAN_ROWS = 50
 PREVIEW_ROWS = 100
 SETTINGS_FILE = Path(__file__).resolve().with_name("bom_converter_mapping.json")
+STEEL_BLUE = "#57a0d3"
+DARK_BG = "#101820"
+DARK_SURFACE = "#18232d"
+DARK_INPUT = "#111a22"
+TEXT_PRIMARY = "#eef5f9"
+TEXT_MUTED = "#a9bac6"
+
+
+def configure_dark_style(root):
+    root.configure(background=DARK_BG)
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+    style.configure("TFrame", background=DARK_BG)
+    style.configure("TLabel", background=DARK_BG, foreground=TEXT_PRIMARY)
+    style.configure(
+        "TLabelframe",
+        background=DARK_BG,
+        bordercolor="#344754",
+        relief="solid",
+    )
+    style.configure(
+        "TLabelframe.Label",
+        background=DARK_BG,
+        foreground="#d8e8f1",
+        font=("Segoe UI Semibold", 10),
+    )
+    style.configure(
+        "TEntry",
+        fieldbackground=DARK_INPUT,
+        foreground=TEXT_PRIMARY,
+        insertcolor=TEXT_PRIMARY,
+        bordercolor="#40515f",
+    )
+    style.configure(
+        "TCombobox",
+        fieldbackground=DARK_INPUT,
+        background=DARK_SURFACE,
+        foreground=TEXT_PRIMARY,
+        arrowcolor=TEXT_PRIMARY,
+        bordercolor="#40515f",
+    )
+    style.map(
+        "TCombobox",
+        fieldbackground=[("readonly", DARK_INPUT)],
+        foreground=[("readonly", TEXT_PRIMARY)],
+    )
+    style.configure(
+        "TSpinbox",
+        fieldbackground=DARK_INPUT,
+        background=DARK_SURFACE,
+        foreground=TEXT_PRIMARY,
+        arrowcolor=TEXT_PRIMARY,
+    )
+    style.configure(
+        "TButton",
+        background=DARK_SURFACE,
+        foreground=TEXT_PRIMARY,
+        bordercolor="#40515f",
+        padding=(10, 6),
+    )
+    style.map("TButton", background=[("active", "#2b3c49")])
+    style.configure(
+        "Accent.TButton",
+        background=STEEL_BLUE,
+        foreground="#ffffff",
+        bordercolor=STEEL_BLUE,
+        padding=(12, 7),
+    )
+    style.map("Accent.TButton", background=[("active", "#6eb1df")])
+    style.configure("TCheckbutton", background=DARK_BG, foreground=TEXT_PRIMARY)
+    style.map("TCheckbutton", background=[("active", DARK_BG)])
+    style.configure(
+        "Treeview",
+        background=DARK_SURFACE,
+        fieldbackground=DARK_SURFACE,
+        foreground=TEXT_PRIMARY,
+        rowheight=28,
+    )
+    style.map(
+        "Treeview",
+        background=[("selected", "#315f7d")],
+        foreground=[("selected", "#ffffff")],
+    )
+    style.configure(
+        "Treeview.Heading", background="#293944", foreground="#d6e2e9"
+    )
+    style.configure("MappingRow.TFrame", background=DARK_SURFACE)
+    style.configure(
+        "MappingRow.TLabel", background=DARK_SURFACE, foreground=TEXT_PRIMARY
+    )
+    style.configure("MappingActive.TFrame", background="#294d66")
+    style.configure(
+        "MappingActive.TLabel", background="#294d66", foreground="#ffffff"
+    )
 
 STANDARD_TEMPLATE_HEADERS = {
     "ORDER #",
@@ -1305,32 +1402,81 @@ class MappingRow:
         sample,
         destinations,
         initial_destination,
+        on_select,
     ):
         self.source_column = source_column
         self.destination = tk.StringVar(value=initial_destination)
+        self.on_select = on_select
+        self.selected = False
+        self.container = ttk.Frame(parent, style="MappingRow.TFrame")
+        self.container.grid(
+            row=row_number,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            padx=2,
+            pady=1,
+        )
+        self.container.columnconfigure(0, weight=2)
+        self.container.columnconfigure(1, weight=3)
+        self.container.columnconfigure(2, weight=2)
 
-        ttk.Label(
-            parent,
+        self.source_label = ttk.Label(
+            self.container,
             text=source_column,
             width=29,
             anchor="w",
-        ).grid(row=row_number, column=0, sticky="ew", padx=(4, 8), pady=2)
+            style="MappingRow.TLabel",
+        )
+        self.source_label.grid(row=0, column=0, sticky="ew", padx=(8, 8), pady=5)
 
-        ttk.Label(
-            parent,
+        self.sample_label = ttk.Label(
+            self.container,
             text=sample,
             width=55,
             anchor="w",
-        ).grid(row=row_number, column=1, sticky="ew", padx=4, pady=2)
+            style="MappingRow.TLabel",
+        )
+        self.sample_label.grid(row=0, column=1, sticky="ew", padx=4, pady=5)
 
-        combo = ttk.Combobox(
-            parent,
+        self.combo = ttk.Combobox(
+            self.container,
             textvariable=self.destination,
             values=destinations,
             state="readonly",
             width=29,
         )
-        combo.grid(row=row_number, column=2, sticky="ew", padx=(8, 4), pady=2)
+        self.combo.grid(row=0, column=2, sticky="ew", padx=(8, 8), pady=4)
+        for widget in (self.container, self.source_label, self.sample_label, self.combo):
+            widget.bind("<Enter>", lambda _event: self.set_highlighted(True), add="+")
+            widget.bind("<Leave>", lambda _event: self._leave(), add="+")
+            widget.bind("<Button-1>", lambda _event: self.on_select(self), add="+")
+        self.combo.bind(
+            "<<ComboboxSelected>>", lambda _event: self.on_select(self), add="+"
+        )
+        self.combo.bind("<FocusIn>", lambda _event: self.on_select(self), add="+")
+
+    def _leave(self):
+        self.container.after(20, self._clear_hover_if_outside)
+
+    def _clear_hover_if_outside(self):
+        x, y = self.container.winfo_pointerxy()
+        widget = self.container.winfo_containing(x, y)
+        if widget not in (self.container, self.source_label, self.sample_label, self.combo):
+            self.set_highlighted(False)
+
+    def set_selected(self, selected):
+        self.selected = selected
+        self.set_highlighted(selected)
+
+    def set_highlighted(self, highlighted):
+        active = highlighted or self.selected
+        self.container.configure(
+            style="MappingActive.TFrame" if active else "MappingRow.TFrame"
+        )
+        label_style = "MappingActive.TLabel" if active else "MappingRow.TLabel"
+        self.source_label.configure(style=label_style)
+        self.sample_label.configure(style=label_style)
 
 
 class BomConverterApp:
@@ -1340,6 +1486,7 @@ class BomConverterApp:
         self.root.title(APP_TITLE)
         self.root.geometry("1180x780")
         self.root.minsize(960, 650)
+        configure_dark_style(self.root)
 
         self.source_path = tk.StringVar()
         self.template_path = tk.StringVar()
@@ -1357,6 +1504,7 @@ class BomConverterApp:
         self.source_dataframe = None
         self.template_layout = None
         self.mapping_rows = []
+        self.selected_mapping_row = None
         self.saved_mapping = self.load_saved_mapping()
 
         self.build_interface()
@@ -1514,6 +1662,7 @@ class BomConverterApp:
         self.mapping_canvas = tk.Canvas(
             canvas_holder,
             highlightthickness=0,
+            background=DARK_BG,
         )
         self.mapping_canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(
@@ -1738,6 +1887,18 @@ class BomConverterApp:
         }
         return destination_lookup.get(saved)
 
+    def select_mapping_row(self, mapping_row):
+        if self.selected_mapping_row is mapping_row:
+            mapping_row.set_selected(True)
+            return
+        if self.selected_mapping_row is not None:
+            self.selected_mapping_row.set_selected(False)
+        self.selected_mapping_row = mapping_row
+        mapping_row.set_selected(True)
+        self.status.set(
+            f"Selected source row: {mapping_row.source_column}"
+        )
+
     def rebuild_mapping_rows(self):
         if self.source_dataframe is None or self.template_layout is None:
             return
@@ -1745,6 +1906,7 @@ class BomConverterApp:
         for child in self.mapping_inner.winfo_children():
             child.destroy()
         self.mapping_rows = []
+        self.selected_mapping_row = None
 
         template_headers = self.template_layout["headers"]
         destinations = [IGNORE_MAPPING] + [
@@ -1763,6 +1925,7 @@ class BomConverterApp:
                 sample_for_column(self.source_dataframe, source_column),
                 destinations,
                 initial,
+                self.select_mapping_row,
             )
             self.mapping_rows.append(mapping_row)
 
