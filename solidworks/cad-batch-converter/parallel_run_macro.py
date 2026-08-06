@@ -39,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--macro", required=True, type=Path)
     parser.add_argument("--runner", required=True, type=Path)
+    parser.add_argument("--solidworks-executable", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--publish-output", required=True, type=Path)
@@ -87,6 +88,7 @@ def worker_command(
     *,
     runner: Path,
     macro: Path,
+    solidworks_executable: Path,
     start_signal: Path,
 ) -> list[str]:
     return [
@@ -95,6 +97,8 @@ def worker_command(
         str(runner),
         "--macro",
         str(macro),
+        "--solidworks-executable",
+        str(solidworks_executable),
         "--normalize-output",
         str(worker.output),
         "--new-instance",
@@ -214,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
                     worker,
                     runner=args.runner,
                     macro=args.macro,
+                    solidworks_executable=args.solidworks_executable,
                     start_signal=start_signal,
                 ),
                 cwd=str(args.runner.parent),
