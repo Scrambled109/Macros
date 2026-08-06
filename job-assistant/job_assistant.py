@@ -42,6 +42,7 @@ from job_core import (
     safe_name,
     set_optional_path,
     setup_job,
+    stage_result_path,
     stage_checks,
     start_stage,
     suggest_job_number,
@@ -462,7 +463,7 @@ class JobAssistant(tk.Tk):
             label="Move Completed Outputs…", command=self.move_outputs
         )
         menu.add_separator()
-        menu.add_command(label="Open Step Folder", command=self.open_stage_folder)
+        menu.add_command(label="Open Results", command=self.open_stage_folder)
         menu.add_command(label="Record File…", command=self.record_file)
         menu.add_command(label="Mark Complete…", command=self.finish_stage)
         menu.add_command(label="Reopen Step…", command=self.reopen)
@@ -1160,9 +1161,9 @@ class JobAssistant(tk.Tk):
         outcome = "finished and needs review" if exit_code == 0 else "failed"
         self.post_background_notice(
             "DXF automation finished",
-            f"Job {process_manifest['job']['number']} {outcome}. Review the log.",
+            f"Job {process_manifest['job']['number']} {outcome}. Review the generated DWGs.",
             level="warning" if exit_code else "info",
-            path=log,
+            path=run,
         )
 
     def review_drawings(self) -> list[Path]:
@@ -1244,6 +1245,7 @@ class JobAssistant(tk.Tk):
             / f"comparison-{self.manifest['job']['revision']}"
         )
         output.mkdir(parents=True, exist_ok=True)
+        self.manifest["stages"]["comparison"]["result_path"] = str(output)
         log = Path(self.manifest["workspace"]["logs"]) / "comparison.log"
         command = command_comparison(
             sys.executable,
@@ -1355,6 +1357,9 @@ class JobAssistant(tk.Tk):
         else:
             comparison = parse_comparison_summary(output)
             process_manifest["comparison"] = comparison
+            process_manifest["stages"]["comparison"]["result_path"] = comparison.get(
+                "folder", str(output)
+            )
             if comparison["status"] == "not_available":
                 item = process_manifest["stages"]["comparison"]
                 item["status"] = "warning"
@@ -1384,7 +1389,7 @@ class JobAssistant(tk.Tk):
             level=(
                 "warning" if title.endswith(("failed", "incomplete")) else "info"
             ),
-            path=output if output.exists() else log,
+            path=stage_result_path(process_manifest, "comparison"),
         )
 
     def launch_solidworks_macro(self, stage: str) -> None:
@@ -1450,6 +1455,7 @@ class JobAssistant(tk.Tk):
         )
         filtered.mkdir(parents=True, exist_ok=True)
         output.mkdir(parents=True, exist_ok=True)
+        self.manifest["stages"][stage]["result_path"] = str(output)
         values = {
             "MACROS_SOURCE_FOLDER": str(source),
             "MACROS_FILTERED_FOLDER": str(filtered),
@@ -1516,17 +1522,13 @@ class JobAssistant(tk.Tk):
         def operation():
             self.require_job()
             stage = self.selected_stage()
-            key = (
-                "model_3d"
-                if stage in {"plate_model", "autobom"}
-                else "nesting"
-                if stage == "comparison"
-                and self.manifest["paths"].get("nesting")
-                else "cut_files"
-                if stage == "dxf"
-                else "engineering_root"
-            )
-            open_path(Path(self.manifest["paths"][key]))
+            target = stage_result_path(self.manifest, stage)
+            if not target.exists():
+                raise JobError(
+                    f"No output is available for this step yet: {target}. "
+                    "Run the step first."
+                )
+            open_path(target)
 
         self.handle(operation)
 
@@ -1834,18 +1836,15 @@ class JobAssistant(tk.Tk):
         ttk.Label(window, text="Parallel AutoCAD processes").grid(
             row=workers_row, column=0, sticky="w", padx=8, pady=7
         )
-        workers = tk.IntVar(value=self.settings.get("autocad_workers", 2))
-        ttk.Spinbox(
+        workers = tk.StringVar(value=str(self.settings.get("autocad_workers", 2)))
+        ttk.Entry(
             window,
-            from_=1,
-            to=4,
             textvariable=workers,
             width=8,
-            state="readonly",
         ).grid(row=workers_row, column=1, sticky="w", padx=5)
         ttk.Label(
             window,
-            text="2 recommended. Each process converts one DXF; bevel files get (B).",
+            text="2 recommended. Enter any positive number; each worker starts an AutoCAD Core Console process.",
         ).grid(row=workers_row + 1, column=1, sticky="w", padx=5)
         window.columnconfigure(1, weight=1)
 
@@ -1853,7 +1852,13 @@ class JobAssistant(tk.Tk):
             self.settings.update(
                 {key: var.get().strip() for key, var in entries.items()}
             )
-            self.settings["autocad_workers"] = workers.get()
+            try:
+                worker_count = int(workers.get())
+            except ValueError as exc:
+                raise JobError("Parallel AutoCAD processes must be a whole number.") from exc
+            if worker_count < 1:
+                raise JobError("Parallel AutoCAD processes must be at least 1.")
+            self.settings["autocad_workers"] = worker_count
             save_settings(self.settings)
             window.destroy()
 
