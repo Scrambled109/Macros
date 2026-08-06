@@ -1,5 +1,5 @@
 param(
-    [string]$AcadConsolePath = "C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
+    [string]$AcadConsolePath = ""
 )
 
 Write-Host "====================================================" -ForegroundColor Cyan
@@ -10,6 +10,41 @@ Write-Host "====================================================" -ForegroundCol
 $CsvPath         = Join-Path $PSScriptRoot "parts.csv"
 $LspPath         = Join-Path $PSScriptRoot "ColortoLayer.lsp"
 $SeedPath        = Join-Path $PSScriptRoot "SPC_Seed.dwg"
+
+function Resolve-AutoCADCoreConsole([string]$ExplicitPath) {
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) {
+        return $ExplicitPath
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:ACAD_CONSOLE_PATH)) {
+        return $env:ACAD_CONSOLE_PATH
+    }
+
+    $programFiles = if ($env:ProgramFiles) {
+        $env:ProgramFiles
+    } else {
+        "C:\Program Files"
+    }
+    $autodeskRoot = Join-Path $programFiles "Autodesk"
+    $candidates = @(
+        (Join-Path $autodeskRoot "AutoCAD 2026\accoreconsole.exe"),
+        (Join-Path $autodeskRoot "AutoCAD 2025\accoreconsole.exe")
+    )
+    if (Test-Path $autodeskRoot) {
+        $detected = Get-ChildItem $autodeskRoot -Directory -Filter "AutoCAD *" |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "accoreconsole.exe" }
+        $candidates += $detected
+    }
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+    return $candidates[0]
+}
+
+$AcadConsolePath = Resolve-AutoCADCoreConsole $AcadConsolePath
+Write-Host "AutoCAD Core Console: $AcadConsolePath"
 
 # How long (seconds) to wait for a headless (accoreconsole) job before giving up on it.
 $ConsoleTimeoutSec = 180
