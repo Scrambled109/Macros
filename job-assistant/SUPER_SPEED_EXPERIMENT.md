@@ -24,6 +24,10 @@ The stable `user` branch is unchanged. This experiment starts a dedicated,
 hidden SolidWorks COM session for each worker. A start barrier checks that every
 worker has a unique SolidWorks process ID before any macro is allowed to run.
 Each worker receives its own source, filtered, output, ready, and log files.
+Dedicated workers are launched from the SolidWorks executable configured in
+Job Assistant Settings and attached by their exact Windows process ID. COM-only
+creation requests can resolve back to the already-running SolidWorks session,
+so the controller deliberately does not use that approach.
 
 The compiled VBA currently attempts to reuse an active AutoCAD session. That is
 the biggest experimental risk: SolidWorks sessions are isolated, but their DWG
