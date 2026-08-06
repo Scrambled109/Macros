@@ -1,14 +1,18 @@
 @echo off
 echo Preparing safe script path...
 
-set "ACCORE=C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
+set "ACCORE="
+if defined ACAD_CONSOLE_PATH set "ACCORE=%ACAD_CONSOLE_PATH%"
+if not defined ACCORE if exist "%ProgramFiles%\Autodesk\AutoCAD 2026\accoreconsole.exe" set "ACCORE=%ProgramFiles%\Autodesk\AutoCAD 2026\accoreconsole.exe"
+if not defined ACCORE if exist "%ProgramFiles%\Autodesk\AutoCAD 2025\accoreconsole.exe" set "ACCORE=%ProgramFiles%\Autodesk\AutoCAD 2025\accoreconsole.exe"
+for /f "delims=" %%A in ('dir /b /ad /o-n "%ProgramFiles%\Autodesk\AutoCAD *" 2^>nul') do if not defined ACCORE if exist "%ProgramFiles%\Autodesk\%%A\accoreconsole.exe" set "ACCORE=%ProgramFiles%\Autodesk\%%A\accoreconsole.exe"
 if not exist "%ACCORE%" (
-    echo ERROR: AutoCAD Core Console was not found at:
-    echo %ACCORE%
-    echo Edit ACCORE near the top of this file if AutoCAD is installed elsewhere.
+    echo ERROR: AutoCAD Core Console was not found.
+    echo Install AutoCAD 2025/2026 or set ACAD_CONSOLE_PATH.
     pause
     exit /b 1
 )
+echo Using %ACCORE%
 
 :: Copy script to Windows Temp folder to avoid AutoCAD choking on the "&" and "#" in your folder name
 set "SAFE_SCRIPT=%TEMP%\zoom_save.scr"

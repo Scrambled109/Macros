@@ -115,6 +115,10 @@ The assistant proposes DXFs and initially excludes DWGs as likely manual shape
 sketches. Confirmed files are copied into
 `Working/DXF Orchestrator/<run>/001`, together with `Parts List.csv`.
 
+AutoCAD Core Console is detected automatically, preferring AutoCAD 2026 and
+falling back to AutoCAD 2025 or another installed version. An explicit Settings
+path still overrides detection.
+
 All drawings use two AutoCAD Core Console processes by default. Set **Parallel
 AutoCAD processes** from 1–4 in Settings; use 1 if licensing or workstation
 stability requires serial processing. Every process receives a unique AutoCAD
@@ -129,18 +133,16 @@ Graphical AutoCAD no longer opens for bevel review.
 ## SolidWorks plate models and modified Parts List properties
 
 For one reviewed material/thickness folder, the assistant asks for the
-thickness, configures source/filtered/output paths and extrusion depth, and
-invokes the compiled `Main.RunBatch.swp` through the SolidWorks API in a
-separate background process. The dashboard remains responsive while the batch
-runs.
+thickness and configures the source, filtered, output, and extrusion-depth
+settings used by `Main.RunBatch.swp`. If a SolidWorks executable is configured,
+the assistant starts it and opens the macro folder. Wait until SolidWorks has
+fully loaded, then run the compiled `.swp` manually. This avoids the unreliable
+Python/COM handoff and prevents the macro from extruding while SolidWorks is
+still starting.
 
-The runner first attaches to the already-running SolidWorks COM session. It
-starts SolidWorks only when no active session exists, hides the application and
-part windows during automation, then restores the same window for review. A new
-thickness only changes the run-time registry/environment value read when the
-macro begins; it does not require another SolidWorks instance. SolidWorks work
-remains serial because competing controllers in one session can activate or
-close the wrong document.
+SolidWorks plate work remains serial because competing controllers in one
+session can activate or close the wrong document. A new thickness only changes
+the registry/environment value read when the macro begins.
 
 The compiled `.swp` remains the production macro. Loose `.bas` changes, such as
 the added pin-stamp sketch display suppression, require importing the updated

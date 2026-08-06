@@ -21,9 +21,63 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
-DEFAULT_ACAD_CONSOLE = Path(
-    r"C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
-)
+SUPPORTED_AUTOCAD_YEARS = (2026, 2025)
+
+
+def autocad_console_candidates(program_files: Path | str | None = None) -> list[Path]:
+    """Return installed-version candidates from newest to oldest."""
+    root = Path(
+        program_files
+        if program_files is not None
+        else os.environ.get("ProgramFiles", r"C:\Program Files")
+    )
+    autodesk = root / "Autodesk"
+    candidates = [
+        autodesk / f"AutoCAD {year}" / "accoreconsole.exe"
+        for year in SUPPORTED_AUTOCAD_YEARS
+    ]
+    try:
+        installed = sorted(
+            (
+                path
+                for path in autodesk.glob("AutoCAD *")
+                if path.is_dir()
+            ),
+            key=lambda path: tuple(
+                int(part) for part in re.findall(r"\d+", path.name)
+            ) or (0,),
+            reverse=True,
+        )
+    except OSError:
+        installed = []
+
+    for folder in installed:
+        candidate = folder / "accoreconsole.exe"
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def detect_autocad_console(
+    explicit: Path | str | None = None,
+    program_files: Path | str | None = None,
+) -> Path:
+    """Resolve an override or select the newest installed Core Console."""
+    configured = explicit or os.environ.get("ACAD_CONSOLE_PATH")
+    if configured:
+        return Path(configured)
+
+    candidates = autocad_console_candidates(program_files)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    checked = "\n  ".join(str(path) for path in candidates)
+    raise FileNotFoundError(
+        "AutoCAD Core Console was not found. Install AutoCAD 2025/2026, "
+        "or set an explicit Core Console path. Checked:\n  "
+        f"{checked}"
+    )
 CONSOLE_TIMEOUT_SECONDS = 180
 MINIMUM_DWG_BYTES = 1024
 
@@ -408,7 +462,15 @@ def worker_count(value: str) -> int:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--acad-console-path", type=Path, default=DEFAULT_ACAD_CONSOLE)
+    parser.add_argument(
+        "--acad-console-path",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit accoreconsole.exe path. By default the newest installed "
+            "AutoCAD version is detected, preferring 2026 then 2025."
+        ),
+    )
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument(
         "--parts-list",
@@ -434,10 +496,15 @@ def main(argv: list[str] | None = None) -> int:
     script_dir = Path(__file__).resolve().parent
     workspace = args.workspace.resolve()
     parts_list = (args.parts_list or workspace / "Parts List.csv").resolve()
+    try:
+        acad_console = detect_autocad_console(args.acad_console_path)
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     required = {
         "Seed DWG": script_dir / "SPC_Seed.dwg",
         "ColorToLayer LISP": script_dir / "ColortoLayer.lsp",
-        "accoreconsole.exe": args.acad_console_path,
+        "accoreconsole.exe": acad_console,
         "Parts List CSV": parts_list,
     }
     missing = [(label, path) for label, path in required.items() if not path.is_file()]
@@ -460,6 +527,7 @@ def main(argv: list[str] | None = None) -> int:
     counts = {"clean": 0, "bevel": 0, "failed": 0}
 
     print("=== STARTING CAD WORKFLOW AUTOMATION ORCHESTRATOR (PYTHON) ===")
+    print(f"AutoCAD Core Console: {acad_console}")
     with tempfile.TemporaryDirectory(prefix="dxf-orchestrator-") as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         h2d_path = temp_dir / "HashToDash.lsp"
@@ -489,7 +557,7 @@ def main(argv: list[str] | None = None) -> int:
             workspace=workspace,
             archive_dir=archive_dir,
             log_dir=log_dir,
-            acad_console=args.acad_console_path,
+            acad_console=acad_console,
             lsp_path=required["ColorToLayer LISP"],
             seed_path=required["Seed DWG"],
             h2d_path=h2d_path,
