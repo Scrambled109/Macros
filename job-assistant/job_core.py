@@ -816,14 +816,15 @@ def dashboard_warnings(manifest: dict[str, Any]) -> list[str]:
 
 
 _CUT_FILE_PART_SUFFIX = re.compile(
-    r"^(?P<part>.+)_[^_]+_\d+(?:\(B\))?$", re.IGNORECASE
+    r"^(?:(?P<legacy>.+)_\d+-[^_]+_\d+|(?P<current>.+)_\d+)(?:\(B\))?$",
+    re.IGNORECASE,
 )
 
 
 def solidworks_part_stem(cut_file_stem: str) -> str:
-    """Return the original part number from an orchestrator cut-file stem."""
+    """Return the part number from legacy or current orchestrator filenames."""
     match = _CUT_FILE_PART_SUFFIX.fullmatch(cut_file_stem)
-    return match.group("part") if match else cut_file_stem
+    return (match.group("legacy") or match.group("current")) if match else cut_file_stem
 
 
 def normalize_plate_model_filenames(output_folder: Path) -> list[Path]:
