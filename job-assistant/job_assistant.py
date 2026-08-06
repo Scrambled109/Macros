@@ -2045,8 +2045,6 @@ class JobAssistant(tk.Tk):
                 runner_source = ""
             if "--normalize-output" in runner_source:
                 command.extend(["--normalize-output", str(output)])
-            if "--hide-during-run" in runner_source:
-                command.append("--hide-during-run")
         suffix = safe_name(source.name if source else stage)
         log = Path(self.manifest["workspace"]["logs"]) / f"solidworks-{suffix}.log"
         handle = log.open("a", encoding="utf-8")
@@ -2122,7 +2120,21 @@ class JobAssistant(tk.Tk):
             return
         rename_error = ""
         renamed_parts: list[Path] = []
-        if exit_code == 0 and stage == "plate_model" and output is not None:
+        runner_handles_normalization = False
+        if stage == "plate_model":
+            runner = self.repo / "solidworks/cad-batch-converter/run_macro.py"
+            try:
+                runner_handles_normalization = (
+                    "--normalize-output" in runner.read_text(encoding="utf-8")
+                )
+            except OSError:
+                pass
+        if (
+            exit_code == 0
+            and stage == "plate_model"
+            and output is not None
+            and not runner_handles_normalization
+        ):
             try:
                 renamed_parts = normalize_plate_model_filenames(output)
                 handle.write(
