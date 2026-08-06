@@ -39,7 +39,7 @@ class UserInterfaceSourceTests(unittest.TestCase):
                 ast.parse(source)
                 self.assertIn("#57a0d3", source.lower())
 
-    def test_dark_surfaces_use_near_black_background(self) -> None:
+    def test_dark_surfaces_use_intentional_backgrounds(self) -> None:
         paths = (
             ROOT / "job-assistant" / "job_assistant.py",
             ROOT / "data-tools" / "bom-converter" / "bom_converter.py",
@@ -56,9 +56,11 @@ class UserInterfaceSourceTests(unittest.TestCase):
         )
         for path in paths:
             with self.subTest(path=path):
-                self.assertIn(
-                    "#070b0f", path.read_text(encoding="utf-8").lower()
-                )
+                source = path.read_text(encoding="utf-8").lower()
+                if path.name == "bom_converter.py":
+                    self.assertIn("#151d24", source)
+                else:
+                    self.assertIn("#070b0f", source)
 
     def test_bom_mapping_rows_support_hover_and_selection(self) -> None:
         source = (
@@ -73,6 +75,13 @@ class UserInterfaceSourceTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('"assets" / "steel_america_logo.png"', source)
+
+    def test_bom_theme_startup_ignores_unsupported_ttk_options(self) -> None:
+        source = (
+            ROOT / "data-tools" / "bom-converter" / "bom_converter.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("def safe_style_configure", source)
+        self.assertIn("traceback.print_exc()", source)
 
 
 if __name__ == "__main__":
