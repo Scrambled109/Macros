@@ -1391,7 +1391,7 @@ class JobAssistant(tk.Tk):
         macro = self.repo / (
             "solidworks/cad-batch-converter/Main.RunBatch.swp"
             if stage == "plate_model"
-            else "solidworks/auto-bom/AutoBOMProperties.swp"
+            else "solidworks/utilities/(MOD)2(SECONDARY).swp"
         )
         if not macro.is_file():
             raise JobError(f"Macro was not found: {macro}")

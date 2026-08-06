@@ -27,7 +27,7 @@ STAGES = [
     ("bom", "Create Parts List from BOP/BOM"),
     ("dxf", "Review and prepare cut files"),
     ("plate_model", "Create automatic plate models"),
-    ("autobom", "Run AutoBOM and property review"),
+    ("autobom", "Apply modified Parts List properties"),
     ("comparison", "Compare production data"),
 ]
 
@@ -73,11 +73,11 @@ STAGE_GUIDANCE = {
         "review": "Inspect geometry, thickness, markings, and BatchLog.txt.",
     },
     "autobom": {
-        "need": "The reviewed assembly and writable part files.",
-        "action": "Run AutoBOM only after making a recoverable copy.",
-        "changes": "The macro updates properties and saves part files.",
-        "tool": "AutoBOM SolidWorks macro.",
-        "review": "Review model properties, bounding boxes, save results, and skipped files.",
+        "need": "The reviewed assembly, writable part files, and the modified Parts List workbook.",
+        "action": "Run the modified Parts List property macro only after making a recoverable model copy.",
+        "changes": "The macro maps spreadsheet columns to Description/Raw_Material, updates properties, and saves part files.",
+        "tool": "(MOD)2(SECONDARY) SolidWorks macro.",
+        "review": "Review mapped properties, unmatched parts, save failures, and skipped files.",
     },
     "comparison": {
         "need": "Parts List CSV, SolidWorks CSV, and nesting export folder.",

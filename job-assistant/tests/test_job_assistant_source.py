@@ -174,5 +174,16 @@ class JobAssistantSourceTests(unittest.TestCase):
         self.assertNotIn("Engineering Job Assistant.exe", launcher)
 
 
+    def test_autobom_launches_modified_parts_list_macro(self) -> None:
+        launch = _function(self.tree, "launch_solidworks_macro")
+        constants = {
+            node.value
+            for node in ast.walk(launch)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertIn("solidworks/utilities/(MOD)2(SECONDARY).swp", constants)
+        self.assertNotIn("solidworks/auto-bom/AutoBOMProperties.swp", constants)
+
+
 if __name__ == "__main__":
     unittest.main()
