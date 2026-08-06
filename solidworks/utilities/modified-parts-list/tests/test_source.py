@@ -6,7 +6,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = (ROOT / "ModifiedPartsListProperties.bas").read_text(encoding="utf-8")
-FORM = (ROOT / "ModifiedPartsListMapper.frm").read_text(encoding="utf-8")
 
 
 class ModifiedPartsListSourceTests(unittest.TestCase):
@@ -18,12 +17,14 @@ class ModifiedPartsListSourceTests(unittest.TestCase):
             MODULE.index("GetOpenFilename"),
         )
 
-    def test_mapping_form_is_shown_every_run(self) -> None:
-        self.assertIn("New ModifiedPartsListMapper", MODULE)
-        self.assertIn("mapper.Show vbModal", MODULE)
-        self.assertIn("Begin VB.ComboBox cboPartNumber", FORM)
-        self.assertIn("Begin VB.ComboBox cboDescription", FORM)
-        self.assertIn("Begin VB.ComboBox cboRawMaterial", FORM)
+    def test_mapping_dropdown_workbook_is_shown_every_run(self) -> None:
+        self.assertIn("PromptForMappings", MODULE)
+        self.assertIn('mappingSheet.Cells(2, 1).Value2 = "Part number / filename"', MODULE)
+        self.assertIn('mappingSheet.Cells(3, 1).Value2 = "Description property"', MODULE)
+        self.assertIn('mappingSheet.Cells(4, 1).Value2 = "Raw_Material property"', MODULE)
+        self.assertIn(".Validation.InCellDropdown = True", MODULE)
+        self.assertIn("mappingBook.Close False", MODULE)
+        self.assertNotIn("ModifiedPartsListMapper", MODULE)
 
     def test_selection_falls_back_to_whole_assembly(self) -> None:
         selection = MODULE.index("GetSelectedObjectCount2")
