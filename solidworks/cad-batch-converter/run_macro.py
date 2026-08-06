@@ -225,18 +225,35 @@ def _get_active_solidworks():
     return None
 
 
-def _dispatch_new_solidworks():
+def _running_solidworks_sessions() -> dict[int, object]:
+    """Return every SolidWorks COM session currently registered with Windows."""
+    import pythoncom
     import win32com.client
 
-    failures: list[str] = []
-    for prog_id in SOLIDWORKS_PROGIDS:
+    sessions: dict[int, object] = {}
+    table = pythoncom.GetRunningObjectTable()
+    enumerator = table.EnumRunning()
+    bind_context = pythoncom.CreateBindCtx(0)
+    while True:
+        monikers = enumerator.Next(1)
+        if not monikers:
+            break
+        moniker = monikers[0]
         try:
-            return win32com.client.DispatchEx(prog_id)
-        except Exception as exc:
-            failures.append(f"{prog_id}: {exc}")
-    raise SolidWorksRunnerError(
-        "Could not start a dedicated SolidWorks COM instance. " + "; ".join(failures)
-    )
+            display_name = moniker.GetDisplayName(bind_context, None)
+            if "sldworks" not in display_name.casefold():
+                continue
+            app = win32com.client.Dispatch(table.GetObject(moniker))
+            process_id_value = app.GetProcessID
+            process_id = int(
+                process_id_value()
+                if callable(process_id_value)
+                else process_id_value
+            )
+            sessions[process_id] = app
+        except Exception:
+            continue
+    return sessions
 
 
 def _dispatch_solidworks():
@@ -259,7 +276,7 @@ def connect_solidworks(
     timeout: float = 120.0,
     get_active: Callable[[], object | None] | None = None,
     dispatch: Callable[[], object] | None = None,
-    dispatch_new: Callable[[], object] | None = None,
+    get_sessions: Callable[[], dict[int, object]] | None = None,
     launch: Callable[..., object] | None = None,
     force_new: bool = False,
     monotonic: Callable[[], float] | None = None,
@@ -274,16 +291,46 @@ def connect_solidworks(
 
     get_active = get_active or _get_active_solidworks
     dispatch = dispatch or _dispatch_solidworks
-    dispatch_new = dispatch_new or _dispatch_new_solidworks
+    get_sessions = get_sessions or _running_solidworks_sessions
     launch = launch or subprocess.Popen
     monotonic = monotonic or time.monotonic
     sleep = sleep or time.sleep
 
     if force_new:
-        return SolidWorksConnection(
-            dispatch_new(),
-            reused=False,
-            launch_method="dedicated DispatchEx COM session",
+        if executable is None:
+            raise SolidWorksRunnerError(
+                "Dedicated SolidWorks workers require --solidworks-executable "
+                "so each worker can launch and attach to a real separate process."
+            )
+        executable = Path(executable).resolve()
+        if not executable.is_file():
+            raise SolidWorksRunnerError(
+                f"Configured SolidWorks executable was not found: {executable}"
+            )
+        process = launch(
+            [str(executable)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        launched_pid = int(process.pid)
+        deadline = monotonic() + max(timeout, 1.0)
+        while monotonic() < deadline:
+            app = get_sessions().get(launched_pid)
+            if app is not None:
+                return SolidWorksConnection(
+                    app,
+                    reused=False,
+                    launch_method=f"dedicated executable process {launched_pid}",
+                )
+            if process.poll() is not None:
+                raise SolidWorksRunnerError(
+                    f"SolidWorks process {launched_pid} exited before registering "
+                    "its COM session."
+                )
+            sleep(0.25)
+        raise SolidWorksRunnerError(
+            f"Dedicated SolidWorks process {launched_pid} did not register its "
+            f"COM session within {timeout:g} seconds."
         )
 
     app = get_active()
