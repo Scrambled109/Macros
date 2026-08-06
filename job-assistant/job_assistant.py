@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import uuid
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -1946,22 +1948,51 @@ class JobAssistant(tk.Tk):
             return
 
         run_name = safe_name(source.name)
-        filtered = (
-            Path(self.manifest["workspace"]["working"])
-            / "Filtered DWGs"
-            / run_name
-        )
         output = (
             Path(self.manifest["workspace"]["staging"])
             / "SolidWorks Parts"
             / run_name
         )
-        filtered.mkdir(parents=True, exist_ok=True)
         output.mkdir(parents=True, exist_ok=True)
+
+        local_base = Path(
+            os.environ.get(
+                "LOCALAPPDATA",
+                Path.home() / "AppData" / "Local",
+            )
+        ) / "EngineeringJobAssistant" / "PlateBatches"
+        local_run = (
+            local_base
+            / f"{safe_name(self.manifest['job']['number'])}-{run_name}-"
+            f"{uuid.uuid4().hex[:8]}"
+        )
+        local_source = local_run / "Source DWGs"
+        filtered = local_run / "Filtered DWGs"
+        automation_output = local_run / "SolidWorks Parts"
+        for folder in (local_source, filtered, automation_output):
+            folder.mkdir(parents=True, exist_ok=False)
+        (local_run / ".engineering-job-assistant-plate-batch").write_text(
+            "Temporary local plate batch; safe for the assistant to remove after "
+            "verified publication.\n",
+            encoding="utf-8",
+        )
+        copied = 0
+        try:
+            for drawing in source.iterdir():
+                if drawing.is_file() and drawing.suffix.casefold() == ".dwg":
+                    shutil.copy2(drawing, local_source / drawing.name)
+                    copied += 1
+        except OSError as exc:
+            raise JobError(
+                f"Could not stage DWGs on the local drive at {local_source}: {exc}"
+            ) from exc
+        if copied == 0:
+            raise JobError("No DWGs were copied into the local speed workspace.")
+
         values = {
-            "MACROS_SOURCE_FOLDER": str(source),
+            "MACROS_SOURCE_FOLDER": str(local_source),
             "MACROS_FILTERED_FOLDER": str(filtered),
-            "MACROS_OUTPUT_FOLDER": str(output),
+            "MACROS_OUTPUT_FOLDER": str(automation_output),
             "MACROS_EXTRUDE_DEPTH_METERS": format(thickness * 0.0254, ".12g"),
         }
         os.environ.update(values)
@@ -1989,7 +2020,10 @@ class JobAssistant(tk.Tk):
             stage=stage,
             macro=str(macro),
             source=str(source),
+            local_source=str(local_source),
+            local_output=str(automation_output),
             output=str(output),
+            local_dwgs=copied,
             thickness_inches=thickness,
         )
         self._start_solidworks_runner(
@@ -1998,6 +2032,8 @@ class JobAssistant(tk.Tk):
             runner,
             source=source,
             output=output,
+            automation_output=automation_output,
+            cleanup_workspace=local_run,
             thickness=thickness,
         )
 
@@ -2009,6 +2045,8 @@ class JobAssistant(tk.Tk):
         *,
         source: Path | None = None,
         output: Path | None = None,
+        automation_output: Path | None = None,
+        cleanup_workspace: Path | None = None,
         thickness: float | None = None,
     ) -> None:
         """Run one macro through the active SolidWorks COM session.
@@ -2043,8 +2081,13 @@ class JobAssistant(tk.Tk):
                 runner_source = runner.read_text(encoding="utf-8")
             except OSError:
                 runner_source = ""
+            normalize_output = automation_output or output
             if "--normalize-output" in runner_source:
-                command.extend(["--normalize-output", str(output)])
+                command.extend(["--normalize-output", str(normalize_output)])
+            if automation_output is not None and "--publish-output" in runner_source:
+                command.extend(["--publish-output", str(output)])
+            if cleanup_workspace is not None and "--cleanup-workspace" in runner_source:
+                command.extend(["--cleanup-workspace", str(cleanup_workspace)])
         suffix = safe_name(source.name if source else stage)
         log = Path(self.manifest["workspace"]["logs"]) / f"solidworks-{suffix}.log"
         handle = log.open("a", encoding="utf-8")
@@ -2052,7 +2095,11 @@ class JobAssistant(tk.Tk):
         if source:
             handle.write(f"Source: {source}\n")
         if output:
-            handle.write(f"Output: {output}\n")
+            handle.write(f"Published output: {output}\n")
+        if automation_output:
+            handle.write(f"Local automation output: {automation_output}\n")
+        if cleanup_workspace:
+            handle.write(f"Local speed workspace: {cleanup_workspace}\n")
         if thickness is not None:
             handle.write(f"Thickness: {thickness:g} in\n")
         handle.flush()
