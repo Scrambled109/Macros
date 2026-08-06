@@ -166,6 +166,20 @@ def configure_dark_style(root):
         style,
         "MappingActive.TLabel", background="#355d77", foreground="#ffffff"
     )
+    safe_style_configure(style, "TNotebook", background=DARK_BG, borderwidth=0)
+    safe_style_configure(
+        style,
+        "TNotebook.Tab",
+        background=DARK_SURFACE,
+        foreground=TEXT_MUTED,
+        padding=(14, 8),
+    )
+    safe_style_map(
+        style,
+        "TNotebook.Tab",
+        background=[("selected", "#31414d"), ("active", "#2b3944")],
+        foreground=[("selected", TEXT_PRIMARY), ("active", TEXT_PRIMARY)],
+    )
 
 STANDARD_TEMPLATE_HEADERS = {
     "ORDER #",
@@ -1668,18 +1682,16 @@ class BomConverterApp:
             text="Plate lb/sf weights use the supplied thickness table.",
         ).grid(row=5, column=3, columnspan=3, sticky="e", pady=(2, 0))
 
-        mapping_frame = ttk.LabelFrame(
-            self.root,
-            text="2. Tell the program where each source column goes",
-            padding=8,
-        )
-        mapping_frame.grid(
+        self.work_tabs = ttk.Notebook(self.root)
+        self.work_tabs.grid(
             row=1,
             column=0,
             sticky="nsew",
             padx=12,
             pady=6,
         )
+        mapping_frame = ttk.Frame(self.work_tabs, padding=8)
+        self.work_tabs.add(mapping_frame, text="2  Column mapping")
         mapping_frame.columnconfigure(0, weight=1)
         mapping_frame.rowconfigure(1, weight=1)
 
@@ -1739,6 +1751,54 @@ class BomConverterApp:
         )
         self.empty_mapping_label.grid(row=0, column=0, columnspan=3)
 
+        self.preview_frame = ttk.Frame(self.work_tabs, padding=8)
+        self.work_tabs.add(self.preview_frame, text="3  Mapped preview")
+        self.preview_frame.columnconfigure(0, weight=1)
+        self.preview_frame.rowconfigure(1, weight=1)
+        preview_header = ttk.Frame(self.preview_frame)
+        preview_header.grid(
+            row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8)
+        )
+        ttk.Label(
+            preview_header,
+            text="Review the mapped rows before writing the Parts List.",
+        ).pack(side="left")
+        ttk.Button(
+            preview_header,
+            text="Refresh Preview",
+            command=self.preview_output,
+        ).pack(side="right")
+        self.preview_tree = ttk.Treeview(
+            self.preview_frame,
+            columns=(),
+            show="headings",
+        )
+        preview_vertical = ttk.Scrollbar(
+            self.preview_frame,
+            orient="vertical",
+            command=self.preview_tree.yview,
+        )
+        preview_horizontal = ttk.Scrollbar(
+            self.preview_frame,
+            orient="horizontal",
+            command=self.preview_tree.xview,
+        )
+        self.preview_tree.configure(
+            yscrollcommand=preview_vertical.set,
+            xscrollcommand=preview_horizontal.set,
+        )
+        self.preview_tree.grid(row=1, column=0, sticky="nsew")
+        preview_vertical.grid(row=1, column=1, sticky="ns")
+        preview_horizontal.grid(row=2, column=0, sticky="ew")
+        self.preview_status = tk.StringVar(
+            value="Build a preview to check the mapped output. No files will be changed."
+        )
+        ttk.Label(
+            self.preview_frame,
+            textvariable=self.preview_status,
+            padding=(2, 8, 2, 2),
+        ).grid(row=3, column=0, columnspan=2, sticky="w")
+
         actions = ttk.Frame(self.root, padding=(12, 6, 12, 12))
         actions.grid(row=2, column=0, sticky="ew")
         actions.columnconfigure(0, weight=1)
@@ -1752,7 +1812,7 @@ class BomConverterApp:
         ttk.Button(actions, text="Clear mappings", command=self.clear_mappings).grid(
             row=0, column=2, padx=4
         )
-        ttk.Button(actions, text="Preview output", command=self.preview_output).grid(
+        ttk.Button(actions, text="Build Preview", command=self.preview_output).grid(
             row=0, column=3, padx=4
         )
         ttk.Checkbutton(
@@ -2038,41 +2098,20 @@ class BomConverterApp:
         except Exception as error:
             self.show_error("Cannot build the preview", error)
             return
-
-        preview = tk.Toplevel(self.root)
-        preview.title(f"Mapped Output Preview — {len(records):,} rows")
-        preview.geometry("1100x520")
-        preview.rowconfigure(0, weight=1)
-        preview.columnconfigure(0, weight=1)
+        if not records:
+            self.show_error(
+                "Cannot build the preview",
+                "No source rows matched the current prefixes and mappings.",
+            )
+            return
 
         columns = list(records[0])
-        tree = ttk.Treeview(
-            preview,
-            columns=columns,
-            show="headings",
-        )
-        vertical = ttk.Scrollbar(
-            preview,
-            orient="vertical",
-            command=tree.yview,
-        )
-        horizontal = ttk.Scrollbar(
-            preview,
-            orient="horizontal",
-            command=tree.xview,
-        )
-        tree.configure(
-            yscrollcommand=vertical.set,
-            xscrollcommand=horizontal.set,
-        )
-
-        tree.grid(row=0, column=0, sticky="nsew")
-        vertical.grid(row=0, column=1, sticky="ns")
-        horizontal.grid(row=1, column=0, sticky="ew")
-
+        tree = self.preview_tree
+        tree.delete(*tree.get_children())
+        tree.configure(columns=columns)
         for column in columns:
-            tree.heading(column, text=column)
-            tree.column(column, width=170, minwidth=100)
+            tree.heading(column, text=column, anchor="w")
+            tree.column(column, width=165, minwidth=100, anchor="w")
 
         for record in records[:PREVIEW_ROWS]:
             tree.insert(
@@ -2081,16 +2120,11 @@ class BomConverterApp:
                 values=[record[column] for column in columns],
             )
 
-        footer = ttk.Label(
-            preview,
-            text=(
-                f"Showing {min(len(records), PREVIEW_ROWS):,} of "
-                f"{len(records):,} mapped rows. This preview does not change "
-                "any files."
-            ),
-            padding=8,
+        self.preview_status.set(
+            f"Showing {min(len(records), PREVIEW_ROWS):,} of "
+            f"{len(records):,} mapped rows. This preview does not change any files."
         )
-        footer.grid(row=2, column=0, columnspan=2, sticky="w")
+        self.work_tabs.select(self.preview_frame)
 
     def save_mapping(self):
         mapping = {
