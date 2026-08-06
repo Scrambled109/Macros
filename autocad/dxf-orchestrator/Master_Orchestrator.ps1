@@ -261,8 +261,8 @@ Get-ChildItem -Directory | Where-Object { $_.Name -match '^(\d+)' -and $_.Name -
         $workingName = $workingName -replace '_\d+-[A-Za-z0-9-]+_\d+$', ''
         $workingName = $workingName -replace '_\d+_\d+$', ''
 
-        # Append the correct target folder and quantity
-        $workingName = "${workingName}_${targetFolderName}_$quantity"
+        # Material/thickness belongs in the sorting folder, not the DWG name.
+        $workingName = "${workingName}_$quantity"
         $workingName = Get-SafeName $workingName
         if ($isBeveled) { $workingName = "${workingName}(B)" }
 
