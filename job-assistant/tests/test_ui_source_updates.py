@@ -83,6 +83,14 @@ class UserInterfaceSourceTests(unittest.TestCase):
         self.assertIn("def safe_style_configure", source)
         self.assertIn("traceback.print_exc()", source)
 
+    def test_bom_preview_is_integrated_into_main_window(self) -> None:
+        source = (
+            ROOT / "data-tools" / "bom-converter" / "bom_converter.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("self.work_tabs = ttk.Notebook", source)
+        self.assertIn('text="3  Mapped preview"', source)
+        self.assertNotIn('preview = tk.Toplevel(self.root)', source)
+
 
 if __name__ == "__main__":
     unittest.main()
