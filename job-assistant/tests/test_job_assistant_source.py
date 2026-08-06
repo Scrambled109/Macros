@@ -42,6 +42,44 @@ class JobAssistantSourceTests(unittest.TestCase):
         self.assertNotIn("process.communicate", calls)
         self.assertIn("self._poll_comparison_process", calls)
 
+    def test_bom_launch_captures_converter_errors(self) -> None:
+        launch = _function(self.tree, "run_bom")
+        poll = _function(self.tree, "_poll_bom_process")
+        launch_names = {
+            _qualified_name(node.func)
+            for node in ast.walk(launch)
+            if isinstance(node, ast.Call)
+        }
+        poll_names = {
+            _qualified_name(node.func)
+            for node in ast.walk(poll)
+            if isinstance(node, ast.Call)
+        }
+        self.assertIn("subprocess.Popen", launch_names)
+        self.assertIn("log.open", launch_names)
+        self.assertIn("handle.close", poll_names)
+        self.assertIn("record_artifact", poll_names)
+
+    def test_workflow_table_stays_compact(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn('self.workflow_card.pack(fill="x")', source)
+        self.assertIn("height=len(STAGES)", source)
+        self.assertIn('self.tree.pack(fill="x", padx=1)', source)
+
+    def test_stale_repository_setting_falls_back_to_running_checkout(self) -> None:
+        repo = next(
+            node
+            for node in ast.walk(self.tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "repo"
+        )
+        constants = {
+            node.value
+            for node in ast.walk(repo)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertIn("job-assistant", constants)
+        self.assertIn("job_core.py", constants)
+
     def test_dxf_launch_is_nonblocking(self) -> None:
         launch = _function(self.tree, "run_dxf")
         launch_calls = {
