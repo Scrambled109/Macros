@@ -24,6 +24,11 @@ class ModifiedPartsListSourceTests(unittest.TestCase):
         self.assertIn('mappingSheet.Cells(4, 1).Value2 = "Raw_Material property"', MODULE)
         self.assertIn(".Validation.InCellDropdown = True", MODULE)
         self.assertIn("mappingBook.Close False", MODULE)
+        self.assertNotIn('mappingSheet.Range("B2").Select', MODULE)
+        self.assertLess(
+            MODULE.index("mappingSheet.Activate"),
+            MODULE.index("choiceSheet.Visible = 2"),
+        )
         self.assertNotIn("ModifiedPartsListMapper", MODULE)
 
     def test_selection_falls_back_to_whole_assembly(self) -> None:
