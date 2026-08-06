@@ -10,8 +10,10 @@ spreadsheet values into SolidWorks part properties.
    the macro opens a workbook picker and loads the selected workbook read-only.
 3. The `Parts_List` worksheet is preferred. If it is absent, the active sheet
    (or first worksheet) is used.
-4. A mapping form appears every run. Choose the part-number/filename column and
-   the columns that should populate `Description` and `Raw_Material`.
+4. A temporary Excel mapping sheet appears every run. Use its three dropdowns
+   to choose the part-number/filename column and the columns that should
+   populate `Description` and `Raw_Material`, then return to SolidWorks and
+   click **OK**. The temporary mapping workbook closes without saving.
 5. If components are selected, only those components are processed. With no
    component selection, every unique part/configuration in the assembly is
    processed.
@@ -29,13 +31,17 @@ Source edits do not change the compiled `.swp` automatically.
 
 1. In SolidWorks, choose **Tools > Macro > Edit** and open
    `solidworks\utilities\(MOD)2(SECONDARY).swp`.
-2. Remove the old `Module_MOD_2_SECONDARY_` module.
-3. Import `ModifiedPartsListProperties.bas` and
-   `ModifiedPartsListMapper.frm` from this folder.
-4. Choose **Debug > Compile VBAProject**.
-5. Save the SWP.
-6. Test on a copied assembly and copied parts before using production files.
+2. If the broken mapper was previously imported, remove
+   `ModifiedPartsListMapper`. Raw lines beginning with `VERSION 5.00` or
+   `Begin VB.UserForm` must not remain in any code module.
+3. Remove the old `Module_MOD_2_SECONDARY_` or
+   `ModifiedPartsListProperties` module.
+4. Choose **File > Import File**, then import only
+   `ModifiedPartsListProperties.bas` from this folder.
+5. Choose **Debug > Compile VBAProject**.
+6. Save the SWP.
+7. Test on a copied assembly and copied parts before using production files.
 
-The module uses the existing SolidWorks type-library references and late-bound
-Excel automation. The form contains no images or binary assets, so it does not
-require a companion `.frx` file.
+The macro uses the existing SolidWorks type-library references and late-bound
+Excel automation. The mapping UI is generated in a temporary Excel workbook,
+so no VBA UserForm or binary `.frx` dependency is required.
