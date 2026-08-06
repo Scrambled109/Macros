@@ -26,9 +26,9 @@ HEADER_SCAN_ROWS = 50
 PREVIEW_ROWS = 100
 SETTINGS_FILE = Path(__file__).resolve().with_name("bom_converter_mapping.json")
 STEEL_BLUE = "#57a0d3"
-DARK_BG = "#101820"
-DARK_SURFACE = "#18232d"
-DARK_INPUT = "#111a22"
+DARK_BG = "#070b0f"
+DARK_SURFACE = "#0d141a"
+DARK_INPUT = "#080d12"
 TEXT_PRIMARY = "#eef5f9"
 TEXT_MUTED = "#a9bac6"
 

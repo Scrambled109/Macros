@@ -50,10 +50,10 @@ from job_core import (
 HERE = Path(__file__).resolve().parent
 DEFAULT_REPO = HERE.parent
 STEEL_BLUE = "#57a0d3"
-DARK_BG = "#101820"
-DARK_SURFACE = "#18232d"
-DARK_CARD = "#202d38"
-DARK_INPUT = "#111a22"
+DARK_BG = "#070b0f"
+DARK_SURFACE = "#0d141a"
+DARK_CARD = "#121b23"
+DARK_INPUT = "#080d12"
 TEXT_PRIMARY = "#eef5f9"
 TEXT_MUTED = "#a9bac6"
 
