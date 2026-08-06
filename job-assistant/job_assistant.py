@@ -2100,6 +2100,12 @@ class JobAssistant(tk.Tk):
                     "Parallel SolidWorks mode is missing its local source, "
                     "workspace, output, or thickness configuration."
                 )
+            solidworks = self.settings.get("solidworks_executable", "").strip()
+            if not solidworks or not Path(solidworks).is_file():
+                raise JobError(
+                    "Parallel SolidWorks mode requires a valid SolidWorks "
+                    "executable in Job Assistant Settings."
+                )
             command = [
                 sys.executable,
                 "-u",
@@ -2108,6 +2114,8 @@ class JobAssistant(tk.Tk):
                 str(macro),
                 "--runner",
                 str(runner),
+                "--solidworks-executable",
+                solidworks,
                 "--source",
                 str(automation_source),
                 "--workspace",
