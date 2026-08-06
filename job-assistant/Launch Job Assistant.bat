@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+set "MACROS_REPO=%~dp0.."
+cd /d "%MACROS_REPO%"
 
 where py >nul 2>nul || (
   echo ERROR: Python was not found.
@@ -17,7 +18,7 @@ py -c "import openpyxl" >nul 2>nul || (
   exit /b 1
 )
 
-py job_assistant.py
+py job-assistant\job_assistant.py
 if errorlevel 1 pause
 exit /b %errorlevel%
 

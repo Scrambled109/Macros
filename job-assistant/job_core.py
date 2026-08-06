@@ -1,8 +1,9 @@
-"""Testable workflow services for the Engineering Job Assistant beta."""
+"""Testable workflow services for the Engineering Job Assistant."""
 
 from __future__ import annotations
 
 import csv
+import filecmp
 import getpass
 import json
 import os
@@ -18,21 +19,26 @@ from typing import Any, Iterable, Sequence
 import openpyxl
 
 MANIFEST_NAME = "job_manifest.json"
-MANIFEST_VERSION = 3
-SETTINGS_VERSION = 1
+MANIFEST_VERSION = 4
+SETTINGS_VERSION = 3
 ASSISTANT_DIR = "_JOB_ASSISTANT"
 
 STAGES = [
     ("bom", "Create Parts List from BOP/BOM"),
     ("dxf", "Review and prepare cut files"),
     ("plate_model", "Create automatic plate models"),
-    ("manual_model", "Create shape and specialized models"),
-    ("assembly", "Build and review assembly"),
-    ("autobom", "Run AutoBOM and property review"),
-    ("nesting", "Create nesting outputs"),
+    ("autobom", "Apply modified Parts List properties"),
     ("comparison", "Compare production data"),
-    ("final", "Review discrepancies and finalize"),
 ]
+
+# Older manifests retain these completed/manual checkpoints for audit history,
+# but they are no longer shown as work performed by the assistant.
+REMOVED_STAGES = {
+    "manual_model": "Create shape and specialized models",
+    "assembly": "Build and review assembly",
+    "nesting": "Create nesting outputs",
+    "final": "Review discrepancies and finalize",
+}
 
 WORKSPACE_NAMES = {
     "assistant": ASSISTANT_DIR,
@@ -57,42 +63,21 @@ STAGE_GUIDANCE = {
         "action": "Review every proposed file. DXFs start selected; DWGs start excluded.",
         "changes": "Selected files are copied into numbered working folder 001. Originals are untouched.",
         "tool": "Python DXF orchestrator, run against working copies.",
-        "review": "Review every staged DWG and the orchestrator logs; bevel drawings require FINISH in AutoCAD.",
+        "review": "Review every generated DWG and the orchestrator logs; detected bevel drawings are identified by the (B) filename suffix.",
     },
     "plate_model": {
         "need": "Reviewed, prepared DWGs.",
-        "action": "Select one material/thickness DWG folder, then follow the guided SolidWorks macro steps.",
-        "changes": "The macro writes filtered drawings and SLDPRT files only in assistant staging.",
-        "tool": "Guided CAD batch converter macro; the assistant does not claim to run the SWP.",
+        "action": "Select one material/thickness DWG folder and confirm its extrusion thickness.",
+        "changes": "The assistant prepares the macro settings and staging folders, starts SolidWorks when configured, and opens the macro folder for an operator-controlled run.",
+        "tool": "Configured operator-run compiled CAD batch converter macro.",
         "review": "Inspect geometry, thickness, markings, and BatchLog.txt.",
     },
-    "manual_model": {
-        "need": "Shape sketches and other specialized part information.",
-        "action": "Create the remaining models in the selected 3D Model folder.",
-        "changes": "Manual CAD work may modify production models.",
-        "tool": "SolidWorks manual workflow.",
-        "review": "Verify shape, material, length, orientation, and part number.",
-    },
-    "assembly": {
-        "need": "Reviewed plate and shape models.",
-        "action": "Build the assembly in the selected 3D Model folder.",
-        "changes": "Manual SolidWorks assembly work.",
-        "tool": "SolidWorks.",
-        "review": "Check quantities, mates, missing/suppressed components, and revision.",
-    },
     "autobom": {
-        "need": "The reviewed assembly and writable part files.",
-        "action": "Run AutoBOM only after making a recoverable copy.",
-        "changes": "The macro updates properties and saves part files.",
-        "tool": "AutoBOM SolidWorks macro.",
-        "review": "Review model properties, bounding boxes, save results, and skipped files.",
-    },
-    "nesting": {
-        "need": "Accepted model/Parts List data and a Nesting folder.",
-        "action": "Select or create the Nesting folder when this stage begins.",
-        "changes": "Nesting is an external/manual workflow.",
-        "tool": "Your normal nesting software.",
-        "review": "Review quantities, stock, remnants, and export the comparison data.",
+        "need": "The reviewed assembly, writable part files, and the modified Parts List workbook.",
+        "action": "Run the modified Parts List property macro only after making a recoverable model copy.",
+        "changes": "The macro maps spreadsheet columns to Description/Raw_Material, updates properties, and saves part files.",
+        "tool": "AutoBOMProperties SolidWorks macro.",
+        "review": "Review mapped properties, unmatched parts, save failures, and skipped files.",
     },
     "comparison": {
         "need": "Parts List CSV, SolidWorks CSV, and nesting export folder.",
@@ -101,67 +86,13 @@ STAGE_GUIDANCE = {
         "tool": "Existing production comparison tool.",
         "review": "Open Excel/HTML reports and resolve errors; launch alone is not a pass.",
     },
-    "final": {
-        "need": "Reviewed discrepancy reports and accepted production artifacts.",
-        "action": "Resolve or explicitly accept every outstanding item.",
-        "changes": "Approved staged files can be copied with conflict backups.",
-        "tool": "Assistant promotion plus engineering review.",
-        "review": "Confirm revision, backups, final locations, and comparison disposition.",
-    },
 }
-
-
-def plate_run_folders(root: Path) -> list[Path]:
-    """Return immediate orchestrator output folders that contain plate DWGs."""
-    if not root.is_dir():
-        return []
-    return sorted(
-        (
-            folder
-            for folder in root.iterdir()
-            if folder.is_dir()
-            and re.match(r"^\d+-", folder.name)
-            and (any(folder.glob("*.dwg")) or any(folder.glob("*.DWG")))
-        ),
-        key=lambda folder: folder.name.lower(),
-    )
 
 
 def inferred_plate_thickness(source: Path) -> float | None:
     """Infer inches from the orchestrator's leading-mils folder convention."""
     match = re.match(r"^(\d+)-", source.name)
     return int(match.group(1)) / 1000 if match else None
-
-
-def plate_macro_instructions(
-    source: Path, macro: Path, thickness_inches: float, run_count: int
-) -> str:
-    """Describe the honest, operator-controlled CAD batch workflow."""
-    thickness = f"{thickness_inches:g} in ({thickness_inches * 0.0254:g} m)"
-    return (
-        "This is one thickness-group run. The assistant configured the input "
-        "and staging folders, but it cannot prove that opening an SWP executes "
-        "its entry point.\n\n"
-        f"Source folder:\n{source}\n\n"
-        f"Expected extrusion depth: {thickness}\n\n"
-        f"Material/thickness folders detected beside this folder: {run_count}. "
-        "Run the assistant once for each folder.\n\n"
-        "In SolidWorks:\n"
-        "1. Choose Tools > Macro > Run.\n"
-        f"2. Select {macro}. The macro starts automatically; there is no "
-        "procedure name to choose.\n"
-        "3. Wait while it converts the DWGs and then stamps the marking text.\n"
-        "4. Confirm the supplied extrusion depth appears in BatchLog.txt.\n"
-        "5. Inspect BatchLog.txt and representative parts before selecting "
-        "the next thickness folder."
-    )
-
-for _guidance in STAGE_GUIDANCE.values():
-    _guidance["action"] += (
-        " Use Check This Step first, Start This Step to begin, and "
-        "Open This Step's Folder to inspect the relevant location."
-    )
-
 
 class JobError(RuntimeError):
     """A problem that can be explained and corrected by the operator."""
@@ -183,11 +114,12 @@ class DrawingCandidate:
 
 
 @dataclass(frozen=True)
-class PromotionItem:
+class OutputMoveItem:
     source: Path
     destination: Path
+    category: str
+    run_name: str
     conflict: bool
-    action: str = "skip"
 
 
 def utc_now() -> str:
@@ -229,8 +161,8 @@ def default_settings(repo_root: Path | None = None) -> dict[str, Any]:
         "macros_repo": str(repo_root.resolve()) if repo_root else "",
         "parts_list_template": "",
         "default_jobs_parent": "",
-        "autocad_executable": "",
         "autocad_console": "",
+        "autocad_workers": 2,
         "solidworks_executable": "",
     }
 
@@ -249,6 +181,12 @@ def load_settings(
     if not isinstance(loaded, dict):
         raise JobError(f"Local settings at {target} are not a JSON object.")
     settings.update({key: value for key, value in loaded.items() if key in settings})
+    try:
+        settings["autocad_workers"] = max(
+            1, min(4, int(settings.get("autocad_workers", 2)))
+        )
+    except (TypeError, ValueError):
+        settings["autocad_workers"] = 2
     settings["settings_version"] = SETTINGS_VERSION
     return settings
 
@@ -272,6 +210,12 @@ def _atomic_json(data: dict[str, Any], target: Path) -> Path:
 def save_settings(settings: dict[str, Any], path: Path | None = None) -> Path:
     clean = default_settings()
     clean.update({key: value for key, value in settings.items() if key in clean})
+    try:
+        clean["autocad_workers"] = max(
+            1, min(4, int(clean.get("autocad_workers", 2)))
+        )
+    except (TypeError, ValueError):
+        clean["autocad_workers"] = 2
     clean["settings_version"] = SETTINGS_VERSION
     return _atomic_json(clean, path or settings_path())
 
@@ -320,6 +264,8 @@ def new_manifest(
             key: str((root / value).resolve()) for key, value in WORKSPACE_NAMES.items()
         },
         "stages": {key: _stage(label) for key, label in STAGES},
+        "legacy_stages": {},
+        "output_moves": [],
         "events": [],
         "recent_files": [],
         "comparison": None,
@@ -399,6 +345,13 @@ def migrate_manifest(raw: dict[str, Any], source: Path | None = None) -> dict[st
             workspace[key] = old_paths[old_key]
     raw["paths"], raw["workspace"] = paths, workspace
     stages = raw.setdefault("stages", {})
+    legacy_stages = raw.setdefault("legacy_stages", {})
+    for key, label in REMOVED_STAGES.items():
+        if key not in stages:
+            continue
+        legacy_item = dict(stages.pop(key))
+        legacy_item.setdefault("label", label)
+        legacy_stages.setdefault(key, legacy_item)
     for key, label in STAGES:
         base = _stage(label)
         base.update(stages.get(key, {}))
@@ -406,6 +359,7 @@ def migrate_manifest(raw: dict[str, Any], source: Path | None = None) -> dict[st
         stages[key] = base
     raw.setdefault("events", [])
     raw.setdefault("recent_files", [])
+    raw.setdefault("output_moves", [])
     raw.setdefault("comparison", None)
     if version != MANIFEST_VERSION:
         record_event(
@@ -630,19 +584,22 @@ def command_dxf(
     workspace: Path,
     parts_list_csv: Path,
     autocad_console: Path | str | None = None,
-    autocad_gui: Path | str | None = None,
     tool_executable: Path | None = None,
+    workers: int = 2,
 ) -> list[str]:
     command = (
         [str(tool_executable)]
         if tool_executable
-        else [str(python), str(repo / "autocad/dxf-orchestrator/Master_Orchestrator.py")]
+        else [
+            str(python),
+            "-u",
+            str(repo / "autocad/dxf-orchestrator/Master_Orchestrator.py"),
+        ]
     )
     command.extend(["--workspace", str(workspace), "--parts-list", str(parts_list_csv)])
+    command.extend(["--workers", str(max(1, min(4, int(workers))))])
     if autocad_console:
         command.extend(["--acad-console-path", str(autocad_console)])
-    if autocad_gui:
-        command.extend(["--acad-gui-path", str(autocad_gui)])
     return command
 
 
@@ -660,6 +617,7 @@ def command_comparison(
         if tool_executable
         else [
             str(python),
+            "-u",
             str(repo / "data-tools/production-comparison/compare_production_parts.py"),
         ]
     )
@@ -828,7 +786,7 @@ def recommended_next_action(manifest: dict[str, Any]) -> str:
             return f"Review the results for: {label}."
         if status != "complete":
             return f"Next: {label}. Select the stage to see what is needed."
-    return "All stages are complete. Confirm final records and backups."
+    return "All assistant steps are complete. Move completed outputs when ready."
 
 
 def dashboard_warnings(manifest: dict[str, Any]) -> list[str]:
@@ -857,66 +815,183 @@ def dashboard_warnings(manifest: dict[str, Any]) -> list[str]:
     return warnings
 
 
-def plan_promotions(
-    sources: Iterable[Path], destination_folder: Path
-) -> list[PromotionItem]:
-    return [
-        PromotionItem(
-            source.resolve(),
-            (destination_folder / source.name).resolve(),
-            (destination_folder / source.name).exists(),
-            "skip" if (destination_folder / source.name).exists() else "copy",
+def plan_completed_outputs(manifest: dict[str, Any]) -> list[OutputMoveItem]:
+    """Find reviewed cut files and plate models that are ready for production.
+
+    Cut-file material folders are merged below the selected Cut Files folder.
+    Plate models are moved directly into the selected 3D Model folder so an
+    assembly does not need to search through thickness-group subfolders.
+    """
+
+    planned: list[OutputMoveItem] = []
+    seen_destinations: set[str] = set()
+
+    def add(source: Path, destination: Path, category: str, run_name: str) -> None:
+        key = os.path.normcase(str(destination.resolve()))
+        conflict = destination.exists() or key in seen_destinations
+        seen_destinations.add(key)
+        planned.append(
+            OutputMoveItem(
+                source.resolve(),
+                destination.resolve(),
+                category,
+                run_name,
+                conflict,
+            )
         )
-        for source in sources
-    ]
+
+    if manifest["stages"]["dxf"]["status"] == "complete":
+        orchestrator_root = (
+            Path(manifest["workspace"]["working"]) / "DXF Orchestrator"
+        )
+        cut_root = Path(manifest["paths"]["cut_files"])
+        if orchestrator_root.is_dir():
+            for run in sorted(
+                (path for path in orchestrator_root.iterdir() if path.is_dir()),
+                key=lambda path: path.name.casefold(),
+            ):
+                for group in sorted(
+                    (
+                        path
+                        for path in run.iterdir()
+                        if path.is_dir() and re.match(r"^\d+-\S", path.name)
+                    ),
+                    key=lambda path: path.name.casefold(),
+                ):
+                    for source in sorted(
+                        (
+                            path
+                            for path in group.iterdir()
+                            if path.is_file() and path.suffix.casefold() == ".dwg"
+                        ),
+                        key=lambda path: path.name.casefold(),
+                    ):
+                        add(
+                            source,
+                            cut_root / group.name / source.name,
+                            "cut_file",
+                            run.name,
+                        )
+
+    if manifest["stages"]["plate_model"]["status"] == "complete":
+        plate_root = (
+            Path(manifest["workspace"]["staging"]) / "SolidWorks Parts"
+        )
+        model_root = Path(manifest["paths"]["model_3d"])
+        if plate_root.is_dir():
+            for source in sorted(
+                (
+                    path
+                    for path in plate_root.rglob("*")
+                    if path.is_file() and path.suffix.casefold() == ".sldprt"
+                ),
+                key=lambda path: str(path).casefold(),
+            ):
+                relative = source.relative_to(plate_root)
+                run_name = relative.parts[0] if len(relative.parts) > 1 else "plates"
+                add(
+                    source,
+                    model_root / source.name,
+                    "plate_model",
+                    run_name,
+                )
+
+    return planned
 
 
-def promote_files(
-    manifest: dict[str, Any], items: Iterable[PromotionItem]
+def _remove_empty_output_parents(path: Path, stop: Path) -> None:
+    current = path.parent
+    stop = stop.resolve()
+    while current != stop and current.is_relative_to(stop):
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
+
+
+def move_completed_outputs(
+    manifest: dict[str, Any], items: Iterable[OutputMoveItem]
 ) -> list[dict[str, Any]]:
-    results = []
-    staging_root = Path(manifest["workspace"]["staging"]).resolve()
-    backup_root = Path(manifest["workspace"]["backups"]) / datetime.now().strftime(
-        "%Y%m%d-%H%M%S"
-    )
+    """Safely move completed output files with automatic conflict backups."""
+
+    orchestrator_root = (
+        Path(manifest["workspace"]["working"]) / "DXF Orchestrator"
+    ).resolve()
+    plate_root = (
+        Path(manifest["workspace"]["staging"]) / "SolidWorks Parts"
+    ).resolve()
+    cut_root = Path(manifest["paths"]["cut_files"]).resolve()
+    model_root = Path(manifest["paths"]["model_3d"]).resolve()
+    roots = {
+        "cut_file": (orchestrator_root, cut_root),
+        "plate_model": (plate_root, model_root),
+    }
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_root = Path(manifest["workspace"]["backups"]) / stamp
+    results: list[dict[str, Any]] = []
+
     for item in items:
-        result = {
+        result: dict[str, Any] = {
             "source": str(item.source),
             "destination": str(item.destination),
-            "action": item.action,
-            "status": "skipped",
+            "category": item.category,
+            "run_name": item.run_name,
+            "status": "failed",
             "backup": "",
         }
+        temporary: Path | None = None
         try:
-            if item.action == "skip":
-                pass
-            elif not item.source.is_file():
-                raise JobError("Staged source no longer exists.")
-            elif not item.source.resolve().is_relative_to(staging_root):
-                raise JobError(
-                    "Approved-file promotion only accepts files inside the "
-                    "assistant Staging folder."
-                )
+            if item.category not in roots:
+                raise JobError(f"Unknown completed-output category: {item.category}")
+            source_root, destination_root = roots[item.category]
+            source = item.source.resolve()
+            destination = item.destination.resolve()
+            if not source.is_file():
+                raise JobError("Completed output no longer exists.")
+            if not source.is_relative_to(source_root):
+                raise JobError("Completed output is outside its controlled workspace.")
+            if not destination.is_relative_to(destination_root):
+                raise JobError("Production destination is outside the selected job folder.")
+
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists() and filecmp.cmp(source, destination, shallow=False):
+                source.unlink()
+                result["status"] = "already_current"
             else:
-                item.destination.parent.mkdir(parents=True, exist_ok=True)
-                if item.destination.exists():
-                    if item.action != "backup_replace":
-                        raise JobError(
-                            "Destination conflict was not approved for backup and replacement."
-                        )
-                    backup_root.mkdir(parents=True, exist_ok=True)
-                    backup = backup_root / item.destination.name
+                if destination.exists():
+                    relative = destination.relative_to(destination_root)
+                    backup = backup_root / item.category / relative
+                    backup.parent.mkdir(parents=True, exist_ok=True)
                     if backup.exists():
                         backup = backup.with_name(
                             f"{backup.stem}_{uuid.uuid4().hex[:8]}{backup.suffix}"
                         )
-                    shutil.copy2(item.destination, backup)
+                    shutil.copy2(destination, backup)
                     result["backup"] = str(backup)
-                shutil.copy2(item.source, item.destination)
-                result["status"] = "replaced" if result["backup"] else "copied"
+
+                temporary = destination.with_name(
+                    f".{destination.name}.{uuid.uuid4().hex}.moving"
+                )
+                shutil.copy2(source, temporary)
+                if temporary.stat().st_size != source.stat().st_size:
+                    raise JobError("Copied output size did not match its source.")
+                os.replace(temporary, destination)
+                temporary = None
+                source.unlink()
+                result["status"] = "replaced" if result["backup"] else "moved"
+
+            _remove_empty_output_parents(source, source_root)
         except (OSError, JobError) as exc:
-            result.update(status="failed", error=str(exc))
+            result["error"] = str(exc)
+        finally:
+            if temporary is not None and temporary.exists():
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
         results.append(result)
+
     report = {
         "schema_version": 1,
         "created_at": utc_now(),
@@ -925,25 +1000,47 @@ def promote_files(
         "revision": manifest["job"]["revision"],
         "counts": {
             status: sum(result["status"] == status for result in results)
-            for status in ("copied", "replaced", "skipped", "failed")
+            for status in (
+                "moved",
+                "replaced",
+                "already_current",
+                "failed",
+            )
         },
         "results": results,
     }
     report_path = Path(manifest["workspace"]["logs"]) / (
-        f"promotion-{datetime.now().strftime('%Y%m%d-%H%M%S')}-"
-        f"{uuid.uuid4().hex[:8]}.json"
+        f"completed-output-move-{stamp}-{uuid.uuid4().hex[:8]}.json"
     )
+    report_path_value = ""
     try:
         _atomic_json(report, report_path)
+        report_path_value = str(report_path)
     except OSError as exc:
         for result in results:
             result.setdefault("report_warning", str(exc))
-        report_path_value = ""
-    else:
-        report_path_value = str(report_path)
+
+    successful = {
+        "moved",
+        "replaced",
+        "already_current",
+    }
+    manifest.setdefault("output_moves", []).extend(
+        {
+            "at": utc_now(),
+            "source": result["source"],
+            "destination": result["destination"],
+            "category": result["category"],
+            "run_name": result["run_name"],
+            "status": result["status"],
+            "backup": result.get("backup", ""),
+        }
+        for result in results
+        if result["status"] in successful
+    )
     record_event(
         manifest,
-        "promotion_finished",
+        "completed_outputs_moved",
         results=results,
         report=report_path_value,
     )

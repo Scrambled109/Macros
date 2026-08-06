@@ -1,6 +1,7 @@
 # CAD Batch Converter
 
-`Main.RunBatch.swp` is the runnable SolidWorks macro. It processes prepared DWG
+`Main.RunBatch.swp` is the runnable SolidWorks macro. It supports AutoCAD 2025
+or 2026 and processes prepared DWG
 profiles, creates SolidWorks plate parts, and recreates pin-stamp text/line
 marking as an unconsumed sketch on each part.
 
@@ -8,7 +9,9 @@ marking as an unconsumed sketch on each part.
 
 Use the Engineering Job Assistant. Select one reviewed material/thickness DWG
 folder and confirm the plate thickness. The assistant supplies the source,
-filtered-DWG, output, and extrusion-depth settings at run time.
+filtered-DWG, output, and extrusion-depth settings at run time, starts
+SolidWorks when configured, and opens the macro folder. Wait until SolidWorks
+has fully loaded before running the `.swp`.
 
 Then in SolidWorks:
 

@@ -8,8 +8,11 @@ Current workflow macros:
 
 - `cad-batch-converter/Main.RunBatch.swp` — converts prepared DWGs into plate
   parts; normally launched as part of the Job Assistant workflow
-- `auto-bom/AutoBOMProperties.swp` and `auto-bom/AUTOBOMACTUAL.swp` — update BOM
-  properties and save models; validate which one is approved for the job
+- `auto-bom/AutoBOMProperties.swp` — applies dynamically mapped modified Parts
+  List values to selected components, or the whole assembly when none are
+  selected; it saves parts, so use a recoverable copy
+- `auto-bom/AUTOBOMACTUAL.swp` — retained alternate AutoBOM workflow; validate
+  approval before use
 - `drawing-automation/drawing_auto.swp` — drawing automation
 - `utilities/hide sketches.swp` — focused utility macro
 - `drawing_auto.swp` and `flip_dwg.swp` — additional runnable uploads retained

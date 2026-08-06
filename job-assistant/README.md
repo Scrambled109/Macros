@@ -42,15 +42,19 @@ not silently deleted.
 
 ## CAD stages
 
-- The DXF stage launches the Python orchestrator and leaves results and logs in
-  the selected job's controlled workspace.
-- For the CAD Batch Converter, the assistant supplies the selected DWG folder,
-  filtered-DWG folder, output folder, and confirmed plate thickness at run
-  time. In SolidWorks choose **Tools > Macro > Run** and select
+- The DXF stage runs the Python orchestrator against controlled copies. AutoCAD
+  Core Console is detected automatically, preferring 2026 and falling back to
+  2025 or another installed version. Bevel drawings stay headless and receive a
+  `(B)` filename suffix.
+- For plate models, the assistant prepares source, filtered-DWG, output, and
+  extrusion-depth settings, starts SolidWorks when configured, and opens the
+  macro folder. Wait for SolidWorks to finish loading, then manually run
   `solidworks/cad-batch-converter/Main.RunBatch.swp`.
-- AutoBOM changes properties and saves models. Use a recoverable CAD copy and
-  review skipped/save results.
-- Production comparison runs separately so the Job Assistant window stays
+- The modified Parts List property step launches
+  `solidworks/auto-bom/AutoBOMProperties.swp`. It uses the active Excel
+  workbook or asks for one, shows mapping dropdowns, and processes selected
+  components—or the whole assembly when none are selected.
+- Production comparison runs in the background so the Job Assistant remains
   responsive. Review the Excel or HTML report before completing the stage.
 
 ## Finishing a stage

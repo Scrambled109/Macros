@@ -42,7 +42,7 @@ still require the matching desktop software: AutoCAD 2026 and/or SolidWorks
 | Compare production data | Double-click `data-tools/production-comparison/compare_production_parts.py` | None beyond Python |
 | Convert a BOP/BOM to a Parts List | Double-click `data-tools/bom-converter/bom_converter.py` | Python packages above |
 | Convert EPLs using required BOP scope | Double-click `data-tools/epl_converter/main.py` | Python packages above |
-| Prepare and sort DXF files | Run `autocad/dxf-orchestrator/Master_Orchestrator.py` | AutoCAD 2026 |
+| Prepare and sort DXF files | Run `autocad/dxf-orchestrator/Master_Orchestrator.py` | AutoCAD 2025 or 2026 |
 | Export flat SolidWorks parts to layered DXFs | Double-click `solidworks/cutfile-exporter/Launch Cut File Exporter.bat` | SolidWorks 2025 |
 | Run a SolidWorks macro | SolidWorks **Tools > Macro > Run**, then select a `.swp` | SolidWorks 2025 |
 
@@ -60,8 +60,10 @@ keeps working files, logs, reports, and backups together.
   Orchestrator.
 - Keep the complete `solidworks/cutfile-exporter` folder together; its Python
   modules and launcher are all required.
-- The `.swp` files are the runnable SolidWorks macros. Loose `.bas` files are
-  developer source and are intentionally not present on this branch.
+- The `.swp` files are the runnable SolidWorks macros. The current modified
+  Parts List property macro is `solidworks/auto-bom/AutoBOMProperties.swp`.
+  Loose `.bas` files are developer source and are intentionally not present on
+  this branch.
 - Generated reports, job drawings, workbooks, logs, and processed files should
   remain outside this repository.
 
@@ -75,8 +77,9 @@ tool also has a README in its own folder.
   `py -m pip install -r requirements.txt`.
 - **PowerShell blocks a script:** use the exact command in the tool's README;
   do not permanently lower Windows security settings.
-- **AutoCAD or SolidWorks is not found:** open Job Assistant settings and browse
-  to the installed executable.
+- **AutoCAD or SolidWorks is not found:** AutoCAD is detected automatically
+  (2026 first, then 2025). If detection fails, open Job Assistant settings and
+  browse to the installed executable.
 - **A CAD run fails partway through:** keep the originals, read the generated
   log, and retry only failed parts after correcting the cause.
 

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Python implementation of the AutoCAD DXF master orchestrator.
 
-This is an alternative entry point to Master_Orchestrator.ps1.  It intentionally
-uses only the Python standard library and preserves the PowerShell workflow's
-input, output, archive, logging, and manual bevel-review behavior.
+This is the implementation launched by the Engineering Job Assistant. It uses
+only the Python standard library and keeps input, output, archive, and logging
+behavior deterministic across unattended runs.
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import csv
 import os
 import re
@@ -18,18 +17,69 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import NamedTuple
 
 
-DEFAULT_ACAD_CONSOLE = Path(
-    r"C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"
-)
-DEFAULT_ACAD_GUI = Path(r"C:\Program Files\Autodesk\AutoCAD 2026\acad.exe")
+SUPPORTED_AUTOCAD_YEARS = (2026, 2025)
+
+
+def autocad_console_candidates(program_files: Path | str | None = None) -> list[Path]:
+    """Return installed-version candidates from newest to oldest."""
+    root = Path(
+        program_files
+        if program_files is not None
+        else os.environ.get("ProgramFiles", r"C:\Program Files")
+    )
+    autodesk = root / "Autodesk"
+    candidates = [
+        autodesk / f"AutoCAD {year}" / "accoreconsole.exe"
+        for year in SUPPORTED_AUTOCAD_YEARS
+    ]
+    try:
+        installed = sorted(
+            (
+                path
+                for path in autodesk.glob("AutoCAD *")
+                if path.is_dir()
+            ),
+            key=lambda path: tuple(
+                int(part) for part in re.findall(r"\d+", path.name)
+            ) or (0,),
+            reverse=True,
+        )
+    except OSError:
+        installed = []
+
+    for folder in installed:
+        candidate = folder / "accoreconsole.exe"
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def detect_autocad_console(
+    explicit: Path | str | None = None,
+    program_files: Path | str | None = None,
+) -> Path:
+    """Resolve an override or select the newest installed Core Console."""
+    configured = explicit or os.environ.get("ACAD_CONSOLE_PATH")
+    if configured:
+        return Path(configured)
+
+    candidates = autocad_console_candidates(program_files)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    checked = "\n  ".join(str(path) for path in candidates)
+    raise FileNotFoundError(
+        "AutoCAD Core Console was not found. Install AutoCAD 2025/2026, "
+        "or set an explicit Core Console path. Checked:\n  "
+        f"{checked}"
+    )
 CONSOLE_TIMEOUT_SECONDS = 180
-BEVEL_REVIEW_TIMEOUT_SECONDS = 3600
 MINIMUM_DWG_BYTES = 1024
-AUTOMATION_RETRY_ATTEMPTS = 600
 
 HASH_TO_DASH_LISP = """(defun c:HashToDash ( / ss i ent oldStr newStr)
   (if (setq ss (ssget "X" '((0 . "TEXT,MTEXT"))))
@@ -78,8 +128,8 @@ def safe_name(value: str) -> str:
 def has_bevel_annotation(value: str) -> bool:
     """Recognize conservative bevel/snipe notes from drawing text.
 
-    Missing a manual gate is more costly than opening one unnecessarily, so
-    this intentionally accepts punctuation, spacing, common shop synonyms,
+    Missing the filename marker is more costly than marking one extra drawing,
+    so this intentionally accepts punctuation, spacing, common shop synonyms,
     and arrow glyphs used in exported callouts.
     """
     return bool(
@@ -113,9 +163,9 @@ def is_beveled_dxf(path: Path) -> bool:
                 return True
             entity_type = value.strip().upper()
             # LEADER/MLEADER entities explicitly attach an arrow to a note.
-            # Route them through manual review even when their annotation text
-            # is stored in a referenced block rather than inline in the DXF.
-            if entity_type in {"LEADER", "MLEADER"}:
+            # Mark them as bevel drawings even when their annotation text is
+            # stored in a referenced block rather than inline in the DXF.
+            if entity_type in {"LEADER", "MLEADER", "MULTILEADER"}:
                 return True
             text_chunks = []
         elif code in {"1", "3"} and entity_type in {"TEXT", "MTEXT"}:
@@ -140,16 +190,6 @@ def wait_file_stable(path: Path, timeout_seconds: float = 30) -> bool:
             pass
         time.sleep(0.4)
     return False
-
-
-def output_stamp(path: Path) -> tuple[int, int] | None:
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    if stat.st_size <= MINIMUM_DWG_BYTES:
-        return None
-    return stat.st_size, stat.st_mtime_ns
 
 
 def load_parts(path: Path) -> dict[str, dict[str, str]]:
@@ -192,131 +232,14 @@ def write_script(path: Path, lines: list[str]) -> None:
         handle.write("\r\n".join(lines) + "\r\n")
 
 
-def open_review_drawing(acad_gui: Path, dxf: Path, script_path: Path) -> bool:
-    """Open a review in the running AutoCAD session, starting it if necessary.
-
-    Calling acad.exe for every drawing can create another application process,
-    even though FINISH deliberately leaves the current process alive.  AutoCAD's
-    COM automation object lets us add the next document to that existing session.
-    PowerShell supplies the COM bridge while keeping this module dependency-free.
-    """
-    dxf_value = str(dxf.resolve()).replace("'", "''")
-    script_value = autocad_path(script_path).replace("'", "''")
-    acad_value = str(acad_gui.resolve()).replace("'", "''")
-    powershell = f"""
-$ErrorActionPreference = 'Stop'
-$acad = $null
-for ($attempt = 0; $attempt -lt 40; $attempt++) {{
-    try {{
-        $acad = [Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application')
-        break
-    }} catch {{
-        # AutoCAD can have a process before it has registered its COM object.
-        # Give that process time to finish starting rather than launching a
-        # second instance immediately.
-        if (-not (Get-Process -Name acad -ErrorAction SilentlyContinue)) {{ break }}
-        Start-Sleep -Milliseconds 500
-    }}
-}}
-if ($null -eq $acad) {{
-    if (Get-Process -Name acad -ErrorAction SilentlyContinue) {{ exit 2 }}
-    # Start an empty application and open the document through that process's
-    # COM object. Passing the DXF to acad.exe can both forward the file to an
-    # existing session and leave the newly started process as a blank second
-    # instance, which then displays a misleading read-only prompt.
-    Start-Process -FilePath '{acad_value}'
-    for ($attempt = 0; $attempt -lt 120; $attempt++) {{
-        Start-Sleep -Milliseconds 500
-        try {{
-            $acad = [Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application')
-            break
-        }} catch {{ }}
-    }}
-    if ($null -eq $acad) {{ exit 3 }}
-}}
-$acad.Visible = $true
-# Opening a document and sending its script are deliberately separate retry
-# phases. Documents.Open can succeed before AutoCAD becomes busy running the
-# drawing's startup work. Retrying the *whole* operation at that point opens a
-# second, read-only tab for the same DXF.
-$document = $null
-for ($attempt = 0; $attempt -lt {AUTOMATION_RETRY_ATTEMPTS}; $attempt++) {{
-    try {{
-        # A previous automation attempt may have opened the drawing and then
-        # lost its COM call while AutoCAD was busy. Reuse that tab rather than
-        # opening a duplicate/read-only copy when this operation is retried.
-        foreach ($candidate in $acad.Documents) {{
-            if ($candidate.FullName -eq '{dxf_value}') {{
-                $document = $candidate
-                break
-            }}
-        }}
-        if ($null -eq $document) {{
-            $document = $acad.Documents.Open('{dxf_value}')
-        }}
-        break
-    }} catch {{
-        Start-Sleep -Milliseconds 500
-    }}
-}}
-if ($null -eq $document) {{ exit 4 }}
-
-# AutoCAD may reject automation calls temporarily while the document finishes
-# opening. Keep the document reference and retry only activation/script setup;
-# never call Documents.Open again for this review.
-for ($attempt = 0; $attempt -lt {AUTOMATION_RETRY_ATTEMPTS}; $attempt++) {{
-    try {{
-        $document.Activate()
-        $document.SetVariable('FILEDIA', 0)
-        $document.SendCommand("_.SCRIPT`n`\"{script_value}`\"`n")
-        exit 0
-    }} catch {{
-        Start-Sleep -Milliseconds 500
-    }}
-}}
-exit 4
-"""
-    encoded = base64.b64encode(powershell.encode("utf-16le")).decode("ascii")
-    attached = subprocess.run(
-        [
-            "powershell.exe", "-NoProfile", "-NonInteractive",
-            "-EncodedCommand", encoded,
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    if attached.returncode == 0:
-        print("    --> Review opened through the AutoCAD automation session.")
-        return True
-
-    if attached.returncode == 2:
-        print(
-            "    [X] AutoCAD is open but its automation interface is not "
-            "available. Close that session or run this tool at the same "
-            "privilege level; a second AutoCAD instance was not opened."
-        )
-        return False
-
-    print(
-        "    [X] AutoCAD did not publish its automation interface in time. "
-        "The review drawing was not opened."
-    )
-    return False
-
-
-class ReviewJob(NamedTuple):
-    dxf: Path
-    final_dwg: Path
-    target_name: str
-    previous_stamp: tuple[int, int] | None
-    started_at: float
-
-
 def output_details(
-    dxf: Path, parts: dict[str, dict[str, str]], workspace: Path
+    dxf: Path,
+    parts: dict[str, dict[str, str]],
+    workspace: Path,
+    *,
+    beveled: bool = False,
 ) -> tuple[str, Path]:
-    """Return the sorting directory name and final DWG path for a DXF."""
+    """Return the sorting directory and suffix-aware final DWG path."""
     original_stem = dxf.stem
     part = parts.get(original_stem)
     if part:
@@ -333,6 +256,8 @@ def output_details(
     working_name = re.sub(r"_\d+-[A-Za-z0-9-]+_\d+$", "", working_name)
     working_name = re.sub(r"_\d+_\d+$", "", working_name)
     working_name = safe_name(f"{working_name}_{target_name}_{quantity}")
+    if beveled:
+        working_name += "(B)"
     target_dir = workspace / target_name
     target_dir.mkdir(exist_ok=True)
     return target_name, target_dir / f"{working_name}.dwg"
@@ -340,8 +265,10 @@ def output_details(
 
 def archive_original(source: Path, archive_dir: Path) -> None:
     destination = archive_dir / source.name
-    if destination.exists():
-        destination.unlink()
+    suffix = 2
+    while destination.exists():
+        destination = archive_dir / f"{source.stem}_{suffix}{source.suffix}"
+        suffix += 1
     shutil.move(str(source), str(destination))
 
 
@@ -352,15 +279,19 @@ def process_file(
     archive_dir: Path,
     log_dir: Path,
     acad_console: Path,
-    acad_gui: Path,
     lsp_path: Path,
     seed_path: Path,
     h2d_path: Path,
     script_path: Path,
     console_timeout: int,
-    review_timeout: int,
 ) -> str:
-    target_name, final_dwg = output_details(dxf, parts, workspace)
+    beveled = is_beveled_dxf(dxf)
+    target_name, final_dwg = output_details(
+        dxf,
+        parts,
+        workspace,
+        beveled=beveled,
+    )
     escaped_dwg = autocad_path(final_dwg)
     preamble = [
         "FILEDIA", "0", "SECURELOAD", "0", "-INSERT",
@@ -368,46 +299,30 @@ def process_file(
         "ERASE", "L", "", f'(load "{autocad_path(lsp_path)}")',
         "ColorToLayer", f'(load "{autocad_path(h2d_path)}")', "HashToDash",
     ]
-
-    if is_beveled_dxf(dxf):
-        print("    [!] BEVEL DETECTED. Loading into AutoCAD for manual check...")
-        finish_lisp = (
-            '(defun c:SPCFINISH ( / oldFileDia) '
-            '(setq oldFileDia (getvar "FILEDIA")) (setvar "FILEDIA" 0) '
-            f'(if (findfile "{escaped_dwg}") '
-            f'(command "_.SAVEAS" "2018" "{escaped_dwg}" "Y") '
-            f'(command "_.SAVEAS" "2018" "{escaped_dwg}")) '
-            '(setvar "FILEDIA" oldFileDia) (command "_.CLOSE") (princ))'
+    result_kind = "bevel" if beveled else "clean"
+    if beveled:
+        print(
+            "    [B] Bevel detected. Marking the DWG with (B) and running "
+            "through AutoCAD Core Console...",
+            flush=True,
         )
-        write_script(script_path, preamble + [
-            finish_lisp, "SECURELOAD", "1", "FILEDIA", "1",
-        ])
-        previous = output_stamp(final_dwg)
-        if not open_review_drawing(acad_gui, dxf, script_path):
-            return "failed"
-        print("    --> Review in AutoCAD, then type SPCFINISH (Enter) to save & sort...")
-        deadline = time.monotonic() + review_timeout
-        saved = False
-        while time.monotonic() < deadline:
-            current = output_stamp(final_dwg)
-            if current is not None and current != previous:
-                saved = True
-                break
-            time.sleep(0.5)
-        if saved and wait_file_stable(final_dwg):
-            archive_original(dxf, archive_dir)
-            print(f"    [SUCCESS] Saved and sorted to {target_name}")
-            return "bevel"
-        print(f"    [X] SPCFINISH did not produce a valid DWG within {review_timeout}s. Original DXF kept.")
-        return "failed"
-
-    print("    [+] Clean Part. Running in background core console...")
+    else:
+        print(
+            "    [+] Standard part. Running through AutoCAD Core Console...",
+            flush=True,
+        )
+    save_lisp = (
+        f'(if (findfile "{escaped_dwg}") '
+        f'(command "_.SAVEAS" "2018" "{escaped_dwg}" "Y") '
+        f'(command "_.SAVEAS" "2018" "{escaped_dwg}"))'
+    )
     write_script(script_path, preamble + [
-        "_SAVEAS", "2018", f'"{escaped_dwg}"', "SECURELOAD", "1",
+        save_lisp, "SECURELOAD", "1",
         "FILEDIA", "1", "_QUIT", "Y",
     ])
-    log_path = log_dir / f"{dxf.stem}.log"
-    error_path = log_dir / f"{dxf.stem}.err.log"
+    log_key = safe_name(f"{dxf.stem}_{script_path.stem}")
+    log_path = log_dir / f"{log_key}.log"
+    error_path = log_dir / f"{log_key}.err.log"
     with log_path.open("w", encoding="utf-8") as stdout, error_path.open(
         "w", encoding="utf-8"
     ) as stderr:
@@ -426,81 +341,136 @@ def process_file(
 
     if exit_code == 0 and wait_file_stable(final_dwg):
         archive_original(dxf, archive_dir)
-        print(f"    [SUCCESS] Converted and sorted to {target_name}")
-        return "clean"
+        print(f"    [SUCCESS] Converted to {final_dwg.name} in {target_name}")
+        return result_kind
     print(f"    [X] ERROR: exit={exit_code}; DWG missing or too small. Original DXF kept. Log: {log_path}")
     return "failed"
 
 
-def launch_review(
-    dxf: Path,
+def split_output_collisions(
+    files: list[Path],
     parts: dict[str, dict[str, str]],
     workspace: Path,
-    acad_gui: Path,
+) -> tuple[list[Path], list[Path]]:
+    """Keep inputs with unique output paths and reject ambiguous duplicates."""
+
+    by_destination: dict[str, list[Path]] = {}
+    for dxf in files:
+        _target, destination = output_details(
+            dxf,
+            parts,
+            workspace,
+            beveled=is_beveled_dxf(dxf),
+        )
+        key = os.path.normcase(str(destination.resolve()))
+        by_destination.setdefault(key, []).append(dxf)
+
+    collisions = {
+        dxf
+        for grouped_files in by_destination.values()
+        if len(grouped_files) > 1
+        for dxf in grouped_files
+    }
+    safe_files = [dxf for dxf in files if dxf not in collisions]
+    return safe_files, sorted(collisions, key=lambda path: str(path).casefold())
+
+
+def process_files(
+    files: list[Path],
+    *,
+    parts: dict[str, dict[str, str]],
+    workspace: Path,
+    archive_dir: Path,
+    log_dir: Path,
+    acad_console: Path,
     lsp_path: Path,
     seed_path: Path,
     h2d_path: Path,
-    script_path: Path,
-) -> ReviewJob | None:
-    """Prepare and open one beveled drawing without waiting for its review."""
-    target_name, final_dwg = output_details(dxf, parts, workspace)
-    escaped_dwg = autocad_path(final_dwg)
-    finish_lisp = (
-        '(defun c:SPCFINISH ( / oldFileDia) '
-        '(setq oldFileDia (getvar "FILEDIA")) (setvar "FILEDIA" 0) '
-        f'(if (findfile "{escaped_dwg}") '
-        f'(command "_.SAVEAS" "2018" "{escaped_dwg}" "Y") '
-        f'(command "_.SAVEAS" "2018" "{escaped_dwg}")) '
-        '(setvar "FILEDIA" oldFileDia) (command "_.CLOSE") (princ))'
-    )
-    preamble = [
-        "FILEDIA", "0", "SECURELOAD", "0", "-INSERT",
-        f'"{autocad_path(seed_path)}"', "0,0", "1", "1", "0",
-        "ERASE", "L", "", f'(load "{autocad_path(lsp_path)}")',
-        "ColorToLayer", f'(load "{autocad_path(h2d_path)}")', "HashToDash",
-    ]
-    write_script(
-        script_path,
-        preamble + [finish_lisp, "SECURELOAD", "1", "FILEDIA", "1"],
-    )
-    previous = output_stamp(final_dwg)
-    if not open_review_drawing(acad_gui, dxf, script_path):
-        return None
-    return ReviewJob(dxf, final_dwg, target_name, previous, time.monotonic())
+    temp_dir: Path,
+    workers: int,
+    console_timeout: int,
+) -> dict[str, int]:
+    """Run standard and bevel-marked DXFs through bounded console workers."""
 
+    counts = {"clean": 0, "bevel": 0, "failed": 0}
+    safe_files, collisions = split_output_collisions(files, parts, workspace)
+    for dxf in collisions:
+        print(
+            f"    [X] {dxf}: another input resolves to the same production DWG. "
+            "Neither duplicate was processed; rename or remove the stale input.",
+            flush=True,
+        )
+        counts["failed"] += 1
 
-def wait_for_reviews(
-    jobs: list[ReviewJob], archive_dir: Path, review_timeout: int
-) -> tuple[int, int]:
-    """Watch all open review tabs, allowing the operator to finish any order."""
-    pending = list(jobs)
-    completed = failed = 0
-    while pending:
-        now = time.monotonic()
-        for job in pending[:]:
-            current = output_stamp(job.final_dwg)
-            if current is not None and current != job.previous_stamp:
-                if wait_file_stable(job.final_dwg):
-                    archive_original(job.dxf, archive_dir)
-                    print(f"    [SUCCESS] {job.dxf.name} saved and sorted to {job.target_name}")
-                    completed += 1
-                    pending.remove(job)
-            elif now - job.started_at >= review_timeout:
+    if not safe_files:
+        return counts
+
+    worker_count = max(1, min(4, workers))
+    print(
+        f"\n=== RUNNING {len(safe_files)} DXF FILE(S) WITH "
+        f"{worker_count} AUTOCAD CORE WORKER(S) ===",
+        flush=True,
+    )
+    with ThreadPoolExecutor(
+        max_workers=worker_count,
+        thread_name_prefix="autocad-core",
+    ) as executor:
+        futures = {}
+        for index, dxf in enumerate(safe_files, start=1):
+            script_path = temp_dir / f"job_{index:04d}.scr"
+            future = executor.submit(
+                process_file,
+                dxf,
+                parts,
+                workspace,
+                archive_dir,
+                log_dir,
+                acad_console,
+                lsp_path,
+                seed_path,
+                h2d_path,
+                script_path,
+                console_timeout,
+            )
+            futures[future] = dxf
+
+        for future in as_completed(futures):
+            dxf = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
                 print(
-                    f"    [X] {job.dxf.name}: SPCFINISH did not produce a valid "
-                    f"DWG within {review_timeout}s. Original DXF kept."
+                    f"    [X] {dxf.name}: unexpected worker error: {exc}. "
+                    "Original DXF kept.",
+                    file=sys.stderr,
+                    flush=True,
                 )
-                failed += 1
-                pending.remove(job)
-        if pending:
-            time.sleep(0.5)
-    return completed, failed
+                result = "failed"
+            counts[result if result in counts else "failed"] += 1
+    return counts
+
+
+def worker_count(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("workers must be an integer from 1 to 4") from exc
+    if not 1 <= parsed <= 4:
+        raise argparse.ArgumentTypeError("workers must be from 1 to 4")
+    return parsed
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--acad-console-path", type=Path, default=DEFAULT_ACAD_CONSOLE)
-    parser.add_argument("--acad-gui-path", type=Path, default=DEFAULT_ACAD_GUI)
+    parser.add_argument(
+        "--acad-console-path",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit accoreconsole.exe path. By default the newest installed "
+            "AutoCAD version is detected, preferring 2026 then 2025."
+        ),
+    )
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument(
         "--parts-list",
@@ -509,7 +479,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Required CSV Parts List (defaults to 'Parts List.csv' in the workspace).",
     )
     parser.add_argument("--console-timeout", type=int, default=CONSOLE_TIMEOUT_SECONDS)
-    parser.add_argument("--review-timeout", type=int, default=BEVEL_REVIEW_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--workers",
+        type=worker_count,
+        default=2,
+        help=(
+            "Concurrent AutoCAD Core Console jobs for all drawings (1-4; "
+            "default 2). Detected bevel drawings are named with (B)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -518,11 +496,15 @@ def main(argv: list[str] | None = None) -> int:
     script_dir = Path(__file__).resolve().parent
     workspace = args.workspace.resolve()
     parts_list = (args.parts_list or workspace / "Parts List.csv").resolve()
+    try:
+        acad_console = detect_autocad_console(args.acad_console_path)
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     required = {
         "Seed DWG": script_dir / "SPC_Seed.dwg",
-        "ColorToLayer LISP": script_dir / "ColorToLayer.lsp",
-        "accoreconsole.exe": args.acad_console_path,
-        "acad.exe": args.acad_gui_path,
+        "ColorToLayer LISP": script_dir / "ColortoLayer.lsp",
+        "accoreconsole.exe": acad_console,
         "Parts List CSV": parts_list,
     }
     missing = [(label, path) for label, path in required.items() if not path.is_file()]
@@ -545,12 +527,12 @@ def main(argv: list[str] | None = None) -> int:
     counts = {"clean": 0, "bevel": 0, "failed": 0}
 
     print("=== STARTING CAD WORKFLOW AUTOMATION ORCHESTRATOR (PYTHON) ===")
+    print(f"AutoCAD Core Console: {acad_console}")
     with tempfile.TemporaryDirectory(prefix="dxf-orchestrator-") as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         h2d_path = temp_dir / "HashToDash.lsp"
         h2d_path.write_text(HASH_TO_DASH_LISP, encoding="ascii")
-        script_path = temp_dir / "automation_job.scr"
-        review_files: list[Path] = []
+        input_files: list[Path] = []
         folders = sorted(
             (
                 path for path in workspace.iterdir()
@@ -567,50 +549,33 @@ def main(argv: list[str] | None = None) -> int:
                 print("  -> No DXF files found in this folder.")
             for dxf in files:
                 print(f"  Processing: {dxf.name}...")
-                if is_beveled_dxf(dxf):
-                    print("    [!] BEVEL DETECTED. Queued for manual check...")
-                    review_files.append(dxf)
-                    continue
-                result = process_file(
-                    dxf, parts, workspace, archive_dir, log_dir,
-                    args.acad_console_path, args.acad_gui_path,
-                    required["ColorToLayer LISP"], required["Seed DWG"],
-                    h2d_path, script_path, args.console_timeout, args.review_timeout,
-                )
-                counts[result] += 1
+                input_files.append(dxf)
 
-        if review_files:
-            print(
-                f"\n=== OPENING {len(review_files)} BEVEL REVIEWS IN AUTOCAD ==="
-            )
-            jobs: list[ReviewJob] = []
-            for index, dxf in enumerate(review_files):
-                review_script = temp_dir / f"review_{index}.scr"
-                job = launch_review(
-                    dxf, parts, workspace, args.acad_gui_path,
-                    required["ColorToLayer LISP"], required["Seed DWG"],
-                    h2d_path, review_script,
-                )
-                if job is None:
-                    counts["failed"] += 1
-                else:
-                    jobs.append(job)
-            if jobs:
-                print(
-                    "\n--> All available reviews are open. Review each tab, then "
-                    "type SPCFINISH (Enter) in that tab. You may finish them in any order."
-                )
-                completed, failed = wait_for_reviews(
-                    jobs, archive_dir, args.review_timeout
-                )
-                counts["bevel"] += completed
-                counts["failed"] += failed
+        processed_counts = process_files(
+            input_files,
+            parts=parts,
+            workspace=workspace,
+            archive_dir=archive_dir,
+            log_dir=log_dir,
+            acad_console=acad_console,
+            lsp_path=required["ColorToLayer LISP"],
+            seed_path=required["Seed DWG"],
+            h2d_path=h2d_path,
+            temp_dir=temp_dir,
+            workers=args.workers,
+            console_timeout=args.console_timeout,
+        )
+        for result, count in processed_counts.items():
+            counts[result] += count
 
     if counts["failed"]:
         print("\n=== PROCESSING COMPLETE WITH FAILURES; ORIGINAL DXFS WERE KEPT ===")
     else:
         print("\n=== ALL PARTS PROCESSED, SORTED, AND SAVED! ===")
-    print(f"=== Clean: {counts['clean']}  Bevel: {counts['bevel']}  Failed: {counts['failed']} ===")
+    print(
+        f"=== Standard: {counts['clean']}  Bevel-marked: {counts['bevel']}  "
+        f"Failed: {counts['failed']} ==="
+    )
     print("=== Originals archived in _PROCESSED_DXF_ARCHIVE ===")
     return 1 if counts["failed"] else 0
 
