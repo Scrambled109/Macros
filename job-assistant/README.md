@@ -16,7 +16,7 @@ that work.
 1. Create a Parts List from the BOP/BOM.
 2. Review and prepare cut files with the DXF orchestrator.
 3. Guide automatic SolidWorks plate-model creation.
-4. Launch AutoBOM and record the property review.
+4. Apply modified Parts List properties and record the review.
 5. Compare Parts List, SolidWorks, and nesting production data.
 
 Existing manifests are migrated without losing history. Former manual stages
@@ -126,7 +126,7 @@ suffix `(B)` before `.dwg`. Bevel callout text and all leader arrows are moved
 to `PLOT`, while ordinary pin-stamp entities retain their normal layers.
 Graphical AutoCAD no longer opens for bevel review.
 
-## SolidWorks plate models and AutoBOM
+## SolidWorks plate models and modified Parts List properties
 
 For one reviewed material/thickness folder, the assistant asks for the
 thickness, configures source/filtered/output paths and extrusion depth, and
@@ -147,9 +147,11 @@ the added pin-stamp sketch display suppression, require importing the updated
 modules and rebuilding the `.swp` on a SolidWorks workstation before those VBA
 source improvements take effect.
 
-Plate parts are staged below `Staging/SolidWorks Parts/<group>`. AutoBOM is a
-high-impact step because it updates properties and saves models. Work from a
-recoverable model copy and account for every skipped or failed file.
+Plate parts are staged below `Staging/SolidWorks Parts/<group>`. The property
+step launches `solidworks/utilities/(MOD)2(SECONDARY).swp`. It uses the active
+Excel workbook or asks for one, then maps spreadsheet columns to SolidWorks
+properties. This is a high-impact step because it saves part files. Work from a
+recoverable model copy and account for every unmatched, skipped, or failed file.
 
 ## Move completed outputs
 
