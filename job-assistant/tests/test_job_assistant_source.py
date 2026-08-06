@@ -134,7 +134,7 @@ class JobAssistantSourceTests(unittest.TestCase):
         }
         self.assertIn("Move Completed Outputs…", constants)
 
-    def test_plate_macro_runs_in_a_polled_background_process(self) -> None:
+    def test_plate_macro_uses_operator_controlled_swp_run(self) -> None:
         launch = _function(self.tree, "launch_solidworks_macro")
         launch_calls = {
             _qualified_name(node.func)
@@ -146,24 +146,22 @@ class JobAssistantSourceTests(unittest.TestCase):
             for node in ast.walk(launch)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         }
-        self.assertIn("subprocess.Popen", launch_calls)
-        self.assertNotIn("subprocess.run", launch_calls)
-        self.assertIn("self._poll_solidworks_process", launch_calls)
-        self.assertIn("solidworks/cad-batch-converter/run_macro.py", constants)
-        self.assertIn("--macro", constants)
-        self.assertNotIn("Run one SolidWorks thickness group", constants)
+        self.assertIn("open_path", launch_calls)
+        self.assertIn("messagebox.showinfo", launch_calls)
+        self.assertNotIn("self._poll_solidworks_process", launch_calls)
+        self.assertNotIn(
+            "solidworks/cad-batch-converter/run_macro.py", constants
+        )
+        self.assertIn("Run one SolidWorks thickness group", constants)
+        self.assertNotIn(
+            "_poll_solidworks_process",
+            {
+                node.name
+                for node in ast.walk(self.tree)
+                if isinstance(node, ast.FunctionDef)
+            },
+        )
 
-        poll = _function(self.tree, "_poll_solidworks_process")
-        poll_calls = {
-            _qualified_name(node.func)
-            for node in ast.walk(poll)
-            if isinstance(node, ast.Call)
-        }
-        self.assertIn("process.poll", poll_calls)
-        self.assertIn("self.after", poll_calls)
-        self.assertIn("self.post_background_notice", poll_calls)
-        self.assertNotIn("messagebox.showinfo", poll_calls)
-        self.assertNotIn("messagebox.showerror", poll_calls)
 
     def test_launcher_uses_shared_source_checkout(self) -> None:
         launcher = SOURCE.with_name("Launch Job Assistant.bat").read_text(
