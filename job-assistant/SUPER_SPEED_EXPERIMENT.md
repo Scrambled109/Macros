@@ -8,8 +8,11 @@ instead of running imports and saves directly inside OneDrive.
 1. Download or switch to `agent/super-speed-boost`.
 2. Move aside any contaminated plate staging folder from an earlier failed run.
 3. Start the Engineering Job Assistant normally and run one plate thickness.
+   Choose the number of parallel SolidWorks instances when prompted. Four is
+   the aggressive default; use two first if workstation memory is limited.
 4. Confirm the log shows:
    - a local speed workspace below `%LOCALAPPDATA%\EngineeringJobAssistant\PlateBatches`;
+   - one unique SolidWorks process ID for every requested worker;
    - `Verified N current-batch part(s)`;
    - `Macro time: ... s`;
    - `Published N verified part(s)`;
@@ -17,9 +20,16 @@ instead of running imports and saves directly inside OneDrive.
 5. Review the published parts in the job's normal
    `_JOB_ASSISTANT\Staging\SolidWorks Parts\<group>` folder.
 
-The stable `user` branch is unchanged. This experiment keeps one visible,
-reused SolidWorks instance. It does not use multiple instances or hide the
-SolidWorks application.
+The stable `user` branch is unchanged. This experiment starts a dedicated,
+hidden SolidWorks COM session for each worker. A start barrier checks that every
+worker has a unique SolidWorks process ID before any macro is allowed to run.
+Each worker receives its own source, filtered, output, ready, and log files.
+
+The compiled VBA currently attempts to reuse an active AutoCAD session. That is
+the biggest experimental risk: SolidWorks sessions are isolated, but their DWG
+imports may still contend for AutoCAD. Exact output-set validation prevents a
+bad or mixed batch from being published. If the trial hangs, fails, or is not
+faster, return to the stable `user` branch.
 
 If the macro fails or publication cannot be verified, the local workspace is
 preserved for recovery and the runner returns a nonzero exit code.
