@@ -12,6 +12,7 @@ import argparse
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -30,6 +31,71 @@ DISP_E_PARAMNOTOPTIONAL = -2147352561
 
 class SolidWorksRunnerError(RuntimeError):
     """A SolidWorks startup or macro error that can be shown to the operator."""
+
+
+_CUT_FILE_PART_SUFFIX = re.compile(
+    r"^(?P<part>.+)_[^_]+_\d+(?:\(B\))?$", re.IGNORECASE
+)
+
+
+def solidworks_part_stem(cut_file_stem: str) -> str:
+    """Return the original part number from an orchestrator cut-file stem."""
+    match = _CUT_FILE_PART_SUFFIX.fullmatch(cut_file_stem)
+    return match.group("part") if match else cut_file_stem
+
+
+def normalize_plate_model_filenames(output_folder: Path) -> list[Path]:
+    """Remove material and quantity suffixes from generated .SLDPRT files."""
+    output_folder = Path(output_folder)
+    if not output_folder.is_dir():
+        raise SolidWorksRunnerError(
+            f"SolidWorks output folder does not exist: {output_folder}"
+        )
+
+    plan: list[tuple[Path, Path]] = []
+    destinations: dict[str, Path] = {}
+    for source in sorted(
+        (
+            path
+            for path in output_folder.rglob("*")
+            if path.is_file() and path.suffix.casefold() == ".sldprt"
+        ),
+        key=lambda path: str(path).casefold(),
+    ):
+        target = source.with_name(f"{solidworks_part_stem(source.stem)}{source.suffix}")
+        if target == source:
+            continue
+        key = os.path.normcase(str(target.resolve()))
+        previous = destinations.get(key)
+        if previous is not None:
+            raise SolidWorksRunnerError(
+                "Two generated SolidWorks parts would have the same original "
+                f"name: {previous.name} and {source.name} -> {target.name}"
+            )
+        if target.exists():
+            raise SolidWorksRunnerError(
+                f"Cannot rename {source.name} to {target.name} because that file "
+                "already exists."
+            )
+        destinations[key] = source
+        plan.append((source, target))
+
+    renamed: list[Path] = []
+    try:
+        for source, target in plan:
+            source.rename(target)
+            renamed.append(target)
+    except OSError as exc:
+        for target in reversed(renamed):
+            source = next(old for old, new in plan if new == target)
+            try:
+                target.rename(source)
+            except OSError:
+                pass
+        raise SolidWorksRunnerError(
+            f"Could not normalize SolidWorks part filenames: {exc}"
+        ) from exc
+    return renamed
 
 
 @dataclass(frozen=True)
@@ -329,6 +395,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--connect-timeout", type=float, default=120.0)
     parser.add_argument("--ready-timeout", type=float, default=120.0)
     parser.add_argument(
+        "--normalize-output",
+        type=Path,
+        help=(
+            "After a successful CAD batch, remove the orchestrator material and "
+            "quantity suffix from generated SolidWorks part filenames."
+        ),
+    )
+    parser.add_argument(
         "--leave-hidden",
         action="store_true",
         help="Keep SolidWorks hidden after the macro instead of restoring it for review.",
@@ -368,6 +442,18 @@ def main(argv: list[str] | None = None) -> int:
             ready_timeout=args.ready_timeout,
             show_after_run=not args.leave_hidden,
         )
+        output_folder = args.normalize_output
+        if output_folder is None and args.macro.name.casefold() == "main.runbatch.swp":
+            configured = os.environ.get("MACROS_OUTPUT_FOLDER", "").strip()
+            output_folder = Path(configured) if configured else None
+        if output_folder is not None:
+            renamed = normalize_plate_model_filenames(output_folder)
+            print(
+                f"Normalized {len(renamed)} SolidWorks part filename(s).",
+                flush=True,
+            )
+            for part in renamed:
+                print(f"  {part.name}", flush=True)
         print(f"SolidWorks macro {module}.{procedure} completed.", flush=True)
         return 0
     except SolidWorksRunnerError as exc:
