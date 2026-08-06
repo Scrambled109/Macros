@@ -134,7 +134,7 @@ class JobAssistantSourceTests(unittest.TestCase):
         }
         self.assertIn("Move Completed Outputs…", constants)
 
-    def test_plate_macro_uses_operator_controlled_swp_run(self) -> None:
+    def test_plate_macro_uses_reusable_background_runner(self) -> None:
         launch = _function(self.tree, "launch_solidworks_macro")
         launch_calls = {
             _qualified_name(node.func)
@@ -146,14 +146,12 @@ class JobAssistantSourceTests(unittest.TestCase):
             for node in ast.walk(launch)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         }
-        self.assertIn("open_path", launch_calls)
-        self.assertIn("messagebox.showinfo", launch_calls)
-        self.assertNotIn("self._poll_solidworks_process", launch_calls)
-        self.assertNotIn(
+        self.assertIn("self._start_solidworks_runner", launch_calls)
+        self.assertIn(
             "solidworks/cad-batch-converter/run_macro.py", constants
         )
-        self.assertIn("Run one SolidWorks thickness group", constants)
-        self.assertNotIn(
+        self.assertNotIn("open_path", launch_calls)
+        self.assertIn(
             "_poll_solidworks_process",
             {
                 node.name
@@ -161,6 +159,34 @@ class JobAssistantSourceTests(unittest.TestCase):
                 if isinstance(node, ast.FunctionDef)
             },
         )
+
+    def test_solidworks_completion_prompts_for_next_folder(self) -> None:
+        poll = _function(self.tree, "_poll_solidworks_process")
+        calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(poll)
+            if isinstance(node, ast.Call)
+        }
+        constants = {
+            node.value
+            for node in ast.walk(poll)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertIn("process.poll", calls)
+        self.assertIn("self.after", calls)
+        self.assertIn("messagebox.askyesno", calls)
+        self.assertIn("Process another thickness folder?", constants)
+
+    def test_review_results_open_and_offer_one_click_completion(self) -> None:
+        review = _function(self.tree, "open_review_and_offer_completion")
+        calls = {
+            _qualified_name(node.func)
+            for node in ast.walk(review)
+            if isinstance(node, ast.Call)
+        }
+        self.assertIn("open_path", calls)
+        self.assertIn("messagebox.askyesno", calls)
+        self.assertIn("complete_stage", calls)
 
 
     def test_launcher_uses_shared_source_checkout(self) -> None:

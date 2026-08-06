@@ -68,9 +68,9 @@ STAGE_GUIDANCE = {
     "plate_model": {
         "need": "Reviewed, prepared DWGs.",
         "action": "Select one material/thickness DWG folder and confirm its extrusion thickness.",
-        "changes": "The assistant prepares the macro settings and staging folders, starts SolidWorks when configured, and opens the macro folder for an operator-controlled run.",
-        "tool": "Configured operator-run compiled CAD batch converter macro.",
-        "review": "Inspect geometry, thickness, markings, and BatchLog.txt.",
+        "changes": "The assistant writes per-run settings, reuses the active SolidWorks instance (or starts one once), and runs each selected folder through the background controller.",
+        "tool": "Compiled CAD batch converter macro through the reusable SolidWorks Python runner.",
+        "review": "The result folder opens after every batch. Inspect geometry, thickness, markings, and BatchLog.txt before selecting the next folder.",
     },
     "autobom": {
         "need": "The reviewed assembly, writable part files, and the modified Parts List workbook.",

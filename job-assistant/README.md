@@ -52,7 +52,8 @@ assistant opens it rather than replacing its audit history.
 
 ## Dashboard design
 
-The default view intentionally shows only the job, recommended next action,
+The dark dashboard uses Steel America's blue as its action color and includes
+the Steel America banner logo. The default view intentionally shows only the job, recommended next action,
 overall progress, five workflow statuses, and one selected-step action. Use the
 selected step's **More** menu for readiness, folders, file recording,
 completion, reopening, technical details, and **Move Completed Outputs**.
@@ -63,15 +64,16 @@ Background-process text is hidden while nothing is running and appears beside
 the job heading only while AutoCAD, SolidWorks, or the comparison tool is
 active.
 
-Background AutoCAD/comparison completion is posted in the green or amber
-dashboard banner with an **Open Result** button. It does not use a modal
-completion dialog, which prevents a hidden Windows dialog from disabling the
-entire Tk dashboard and making it appear frozen.
+Background completion is posted in the green or amber dashboard banner with an
+**Open Result** button. The button targets the generated output—not the process
+log. Successful required-review steps open their result automatically and ask
+whether the operator wants to mark the step complete; no typed note is required
+for this completion path.
 
 Statuses distinguish Not Started, Ready, In Progress, Needs Review, Complete,
-and Warning. **Mark Complete** requires a review note. **Reopen Step** preserves
-event history. Events and warning overrides include the Windows username and
-UTC time.
+and Warning. The manual **Mark Complete** action remains available when review
+is performed later. **Reopen Step** preserves event history. Events and warning
+overrides include the Windows username and UTC time.
 
 ## Assistant-owned data
 
@@ -134,15 +136,21 @@ Graphical AutoCAD no longer opens for bevel review.
 
 For one reviewed material/thickness folder, the assistant asks for the
 thickness and configures the source, filtered, output, and extrusion-depth
-settings used by `Main.RunBatch.swp`. If a SolidWorks executable is configured,
-the assistant starts it and opens the macro folder. Wait until SolidWorks has
-fully loaded, then run the compiled `.swp` manually. This avoids the unreliable
-Python/COM handoff and prevents the macro from extruding while SolidWorks is
-still starting.
+settings used by `Main.RunBatch.swp`. The folder picker starts in the selected
+production **Cut Files** folder, so moved orchestrator outputs remain easy to
+find.
+
+The assistant then launches `run_macro.py`. The runner checks for an active
+SolidWorks COM session first and reuses it; only when none exists does it start
+one instance. It waits until the VBA host can inspect the compiled `.swp`, runs
+the macro in the background, restores the same SolidWorks window for review,
+and never opens or rewrites the batch-converter source folder.
 
 SolidWorks plate work remains serial because competing controllers in one
-session can activate or close the wrong document. A new thickness only changes
-the registry/environment value read when the macro begins.
+session can activate or close the wrong document. When one thickness folder
+finishes, its output opens and the assistant asks whether to select the next
+folder. A new thickness only changes the registry/environment value read when
+the next macro begins; it does not open another SolidWorks instance.
 
 The compiled `.swp` remains the production macro. Loose `.bas` changes, such as
 the added pin-stamp sketch display suppression, require importing the updated
