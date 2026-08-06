@@ -77,7 +77,7 @@ STAGE_GUIDANCE = {
         "action": "Run the modified Parts List property macro only after making a recoverable model copy.",
         "changes": "The macro maps spreadsheet columns to Description/Raw_Material, updates properties, and saves part files.",
         "tool": "(MOD)2(SECONDARY) SolidWorks macro.",
-        "review": "Review mapped properties, unmatched parts, save failures, and skipped files."
+        "review": "Review mapped properties, unmatched parts, save failures, and skipped files.",
     },
     "comparison": {
         "need": "Parts List CSV, SolidWorks CSV, and nesting export folder.",
