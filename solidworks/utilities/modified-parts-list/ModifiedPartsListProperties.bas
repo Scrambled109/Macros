@@ -319,7 +319,11 @@ Private Sub ProcessComponent(ByVal component As SldWorks.Component2, _
 
     Dim model As SldWorks.ModelDoc2
     Set model = component.GetModelDoc2
-    If model Is Nothing Or model.GetType <> SW_DOC_PART Then
+    If model Is Nothing Then
+        skipped = skipped + 1
+        Exit Sub
+    End If
+    If model.GetType <> SW_DOC_PART Then
         skipped = skipped + 1
         Exit Sub
     End If
