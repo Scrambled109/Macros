@@ -25,9 +25,10 @@ back to 2025 or another installed AutoCAD folder. Use --acad-console-path only
 for a nonstandard installation. Use --workspace when the terminal is not open
 in the job workspace.
 
-The default is two parallel AutoCAD Core Console processes. Use --workers 1
-through --workers 4 to change concurrency; use 1 if licensing or workstation
-stability requires serial processing.
+The default is two parallel AutoCAD Core Console processes. Use --workers with
+any positive whole number to change concurrency. There is no software cap; the
+operator is responsible for choosing a value the workstation and AutoCAD
+licensing can support. Use 1 for serial processing.
 
 Every DXF is processed headlessly. Detected bevel drawings do not open graphical
 AutoCAD; they receive the suffix "(B)" before ".dwg". Bevel callout text and
