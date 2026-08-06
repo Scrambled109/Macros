@@ -266,10 +266,10 @@ Private Function PromptForMappings( _
         Array("raw material", "material", "material spec"), False)
 
     mappingSheet.Columns("A:B").AutoFit
-    mappingSheet.Range("B2").Select
+    mappingBook.Activate
+    mappingSheet.Activate
     choiceSheet.Visible = 2
     xlApp.Visible = True
-    mappingBook.Activate
 
     Dim response As VbMsgBoxResult
     response = MsgBox( _
