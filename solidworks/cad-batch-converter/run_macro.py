@@ -34,14 +34,15 @@ class SolidWorksRunnerError(RuntimeError):
 
 
 _CUT_FILE_PART_SUFFIX = re.compile(
-    r"^(?P<part>.+)_[^_]+_\d+(?:\(B\))?$", re.IGNORECASE
+    r"^(?:(?P<legacy>.+)_\d+-[^_]+_\d+|(?P<current>.+)_\d+)(?:\(B\))?$",
+    re.IGNORECASE,
 )
 
 
 def solidworks_part_stem(cut_file_stem: str) -> str:
-    """Return the original part number from an orchestrator cut-file stem."""
+    """Return the part number from legacy or current orchestrator filenames."""
     match = _CUT_FILE_PART_SUFFIX.fullmatch(cut_file_stem)
-    return match.group("part") if match else cut_file_stem
+    return (match.group("legacy") or match.group("current")) if match else cut_file_stem
 
 
 def normalize_plate_model_filenames(output_folder: Path) -> list[Path]:
@@ -332,6 +333,7 @@ def run_macro(
     procedure: str = "main",
     ready_timeout: float = 120.0,
     show_after_run: bool = True,
+    hide_during_run: bool = False,
     ready: Callable[..., list[str]] | None = None,
     invoke: Callable[[object, Path, str, str], tuple[bool, int]] | None = None,
 ) -> tuple[str, str]:
@@ -346,6 +348,7 @@ def run_macro(
     ready = ready or wait_until_macro_ready
     invoke = invoke or _invoke_macro
     command_flag_set = False
+    window_hidden = False
     available = ready(app, macro, timeout=ready_timeout)
     resolved_module, resolved_procedure = resolve_entry_point(
         available,
@@ -361,6 +364,18 @@ def run_macro(
             command_flag_set = True
         except Exception as exc:
             print(f"WARNING: could not enable CommandInProgress: {exc}")
+
+        if hide_during_run:
+            try:
+                app.Visible = False
+                app.UserControl = False
+                window_hidden = True
+                print(
+                    "SolidWorks window hidden during plate creation to reduce redraw.",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(f"WARNING: could not hide SolidWorks during the batch: {exc}")
 
         succeeded, error_code = invoke(
             app, macro, resolved_module, resolved_procedure
@@ -380,6 +395,8 @@ def run_macro(
             try:
                 app.Visible = True
                 app.UserControl = True
+                if window_hidden:
+                    print("SolidWorks window restored for review.", flush=True)
             except Exception as exc:
                 print(f"WARNING: could not restore the SolidWorks window: {exc}")
 
@@ -400,6 +417,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "After a successful CAD batch, remove the orchestrator material and "
             "quantity suffix from generated SolidWorks part filenames."
+        ),
+    )
+    parser.add_argument(
+        "--hide-during-run",
+        action="store_true",
+        help=(
+            "Hide the SolidWorks application window while the macro runs to "
+            "reduce redraw overhead; it is restored afterward unless --leave-hidden."
         ),
     )
     parser.add_argument(
@@ -441,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             procedure=args.procedure,
             ready_timeout=args.ready_timeout,
             show_after_run=not args.leave_hidden,
+            hide_during_run=args.hide_during_run,
         )
         output_folder = args.normalize_output
         if output_folder is None and args.macro.name.casefold() == "main.runbatch.swp":
