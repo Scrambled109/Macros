@@ -128,6 +128,25 @@ def abort_workers(workers: list[Worker], start_signal: Path) -> None:
             worker.handle = None
 
 
+def wait_for_worker_session(worker: Worker, timeout: float) -> int:
+    """Wait for one controller to attach to its newly launched SolidWorks PID."""
+    deadline = time.monotonic() + max(timeout, 1.0)
+    while time.monotonic() < deadline:
+        if worker.ready.is_file():
+            data = json.loads(worker.ready.read_text(encoding="utf-8"))
+            return int(data["solidworks_pid"])
+        if worker.process is not None and worker.process.poll() is not None:
+            raise SolidWorksRunnerError(
+                f"Worker {worker.number} exited before its SolidWorks session "
+                f"became ready. Review {worker.log}"
+            )
+        time.sleep(0.2)
+    raise SolidWorksRunnerError(
+        f"Worker {worker.number} timed out while starting its dedicated "
+        f"SolidWorks session. Review {worker.log}"
+    )
+
+
 def wait_for_unique_sessions(
     workers: list[Worker], start_signal: Path, timeout: float
 ) -> dict[int, int]:
@@ -200,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(expected)} DWG(s).",
             flush=True,
         )
+        sessions: dict[int, int] = {}
         for worker in workers:
             environment = os.environ.copy()
             environment.update(
@@ -226,9 +246,22 @@ def main(argv: list[str] | None = None) -> int:
                 stdout=worker.handle,
                 stderr=subprocess.STDOUT,
             )
-        sessions = wait_for_unique_sessions(
-            workers, start_signal, args.startup_timeout
-        )
+            solidworks_pid = wait_for_worker_session(
+                worker, args.startup_timeout
+            )
+            if solidworks_pid in sessions.values():
+                abort_workers(workers, start_signal)
+                raise SolidWorksRunnerError(
+                    f"Worker {worker.number} attached to already-claimed "
+                    f"SolidWorks PID {solidworks_pid}. No macro was run and "
+                    "nothing was published."
+                )
+            sessions[worker.number] = solidworks_pid
+            print(
+                f"Worker {worker.number} ready on unique SolidWorks PID "
+                f"{solidworks_pid}; starting the next instance.",
+                flush=True,
+            )
         print(
             "Verified unique SolidWorks PIDs: "
             + ", ".join(str(pid) for pid in sessions.values()),
@@ -293,9 +326,19 @@ def main(argv: list[str] | None = None) -> int:
         print("Removed verified local parallel workspace.", flush=True)
         return 0
     except SolidWorksRunnerError as exc:
+        if any(
+            worker.process is not None and worker.process.poll() is None
+            for worker in workers
+        ):
+            abort_workers(workers, start_signal)
         print(f"ERROR: {exc}", file=sys.stderr, flush=True)
         return 1
     except Exception as exc:
+        if any(
+            worker.process is not None and worker.process.poll() is None
+            for worker in workers
+        ):
+            abort_workers(workers, start_signal)
         print(f"ERROR: unexpected parallel-controller failure: {exc}", file=sys.stderr)
         return 1
     finally:
