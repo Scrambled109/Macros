@@ -270,32 +270,12 @@ def _dispatch_solidworks():
     )
 
 
-def _dispatch_new_solidworks():
-    """Create a separate COM server instead of attaching to an existing one."""
-    import win32com.client
-
-    failures: list[str] = []
-    for prog_id in SOLIDWORKS_PROGIDS:
-        try:
-            # Dispatch can reuse the active local server. DispatchEx calls
-            # CoCreateInstanceEx, which gives each parallel worker its own
-            # SolidWorks application object and process.
-            return win32com.client.DispatchEx(prog_id)
-        except Exception as exc:
-            failures.append(f"{prog_id}: {exc}")
-    raise SolidWorksRunnerError(
-        "Could not create a dedicated SolidWorks COM instance. "
-        + "; ".join(failures)
-    )
-
-
 def connect_solidworks(
     executable: Path | None = None,
     *,
     timeout: float = 120.0,
     get_active: Callable[[], object | None] | None = None,
     dispatch: Callable[[], object] | None = None,
-    dispatch_new: Callable[[], object] | None = None,
     get_sessions: Callable[[], dict[int, object]] | None = None,
     launch: Callable[..., object] | None = None,
     force_new: bool = False,
@@ -311,7 +291,6 @@ def connect_solidworks(
 
     get_active = get_active or _get_active_solidworks
     dispatch = dispatch or _dispatch_solidworks
-    dispatch_new = dispatch_new or _dispatch_new_solidworks
     get_sessions = get_sessions or _running_solidworks_sessions
     launch = launch or subprocess.Popen
     monotonic = monotonic or time.monotonic
@@ -321,7 +300,7 @@ def connect_solidworks(
         if executable is None:
             raise SolidWorksRunnerError(
                 "Dedicated SolidWorks workers require --solidworks-executable "
-                "so the configured installation can be validated."
+                "so each worker can launch a separate desktop process."
             )
         executable = Path(executable).resolve()
         if not executable.is_file():
@@ -330,25 +309,49 @@ def connect_solidworks(
             )
 
         sessions_before = set(get_sessions())
-        app = dispatch_new()
-        process_id_value = app.GetProcessID
-        process_id = int(
-            process_id_value() if callable(process_id_value) else process_id_value
+        # /r suppresses startup dialogs, including the journal-file warning
+        # shown by additional SolidWorks sessions. Without it, a hidden worker
+        # can wait forever behind a modal dialog before registering with COM.
+        process = launch(
+            [str(executable), "/r"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        if process_id in sessions_before:
-            try:
-                app.ExitApp()
-            except Exception:
-                pass
-            raise SolidWorksRunnerError(
-                "SolidWorks COM returned an already-running process while a "
-                "dedicated worker was requested. Refusing to share PID "
-                f"{process_id} between parallel workers."
-            )
-        return SolidWorksConnection(
-            app,
-            reused=False,
-            launch_method=f"dedicated COM server process {process_id}",
+        launched_pid = int(process.pid)
+        deadline = monotonic() + max(timeout, 1.0)
+        last_seen = set(sessions_before)
+        while monotonic() < deadline:
+            sessions = get_sessions()
+            last_seen = set(sessions)
+            app = sessions.get(launched_pid)
+            if app is not None:
+                return SolidWorksConnection(
+                    app,
+                    reused=False,
+                    launch_method=(
+                        f"dedicated suppressed-dialog process {launched_pid}"
+                    ),
+                )
+
+            new_process_ids = sorted(last_seen - sessions_before)
+            if len(new_process_ids) == 1:
+                actual_pid = new_process_ids[0]
+                return SolidWorksConnection(
+                    sessions[actual_pid],
+                    reused=False,
+                    launch_method=(
+                        f"dedicated suppressed-dialog child process {actual_pid} "
+                        f"(launcher {launched_pid})"
+                    ),
+                )
+            sleep(0.25)
+
+        exit_code = process.poll()
+        raise SolidWorksRunnerError(
+            f"SolidWorks launcher PID {launched_pid} did not register one new "
+            f"COM session within {timeout:g} seconds (launcher exit code: "
+            f"{exit_code}). Registered before launch: "
+            f"{sorted(sessions_before)}; last registered: {sorted(last_seen)}."
         )
 
     app = get_active()
