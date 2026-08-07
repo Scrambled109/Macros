@@ -31,6 +31,10 @@ so the controller deliberately does not use that approach.
 Workers are opened one at a time and held at the start barrier. This avoids
 concurrent SolidWorks startup requests collapsing into the same session; the
 actual plate macros still run together after every unique session is ready.
+Session discovery probes each Windows Running Object Table object for the
+SolidWorks `GetProcessID` API instead of relying on release-dependent moniker
+names. If `SLDWORKS.exe` starts a child process, the single newly registered
+SolidWorks PID is accepted because startup is serialized.
 
 The compiled VBA currently attempts to reuse an active AutoCAD session. That is
 the biggest experimental risk: SolidWorks sessions are isolated, but their DWG
