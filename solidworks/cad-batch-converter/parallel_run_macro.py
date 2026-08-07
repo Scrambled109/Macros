@@ -90,6 +90,8 @@ def worker_command(
     macro: Path,
     solidworks_executable: Path,
     start_signal: Path,
+    startup_timeout: float,
+    barrier_timeout: float,
 ) -> list[str]:
     return [
         sys.executable,
@@ -102,6 +104,10 @@ def worker_command(
         "--normalize-output",
         str(worker.output),
         "--new-instance",
+        "--connect-timeout",
+        format(startup_timeout, ".12g"),
+        "--worker-start-timeout",
+        format(barrier_timeout, ".12g"),
         "--quit-after-run",
         "--leave-hidden",
         "--worker-ready-file",
@@ -220,6 +226,13 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         sessions: dict[int, int] = {}
+        # Earlier workers wait at the start barrier while later SolidWorks
+        # processes start one at a time. Size that wait for the whole launch,
+        # not just for one worker.
+        barrier_timeout = max(
+            args.startup_timeout * len(workers) + 60.0,
+            300.0,
+        )
         for worker in workers:
             environment = os.environ.copy()
             environment.update(
@@ -240,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
                     macro=args.macro,
                     solidworks_executable=args.solidworks_executable,
                     start_signal=start_signal,
+                    startup_timeout=args.startup_timeout,
+                    barrier_timeout=barrier_timeout,
                 ),
                 cwd=str(args.runner.parent),
                 env=environment,
