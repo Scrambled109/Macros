@@ -48,6 +48,29 @@ from job_core import (
     suggest_job_number,
 )
 
+
+SOLIDWORKS_RUNTIME_ENV_NAMES = (
+    "MACROS_SOURCE_FOLDER",
+    "MACROS_FILTERED_FOLDER",
+    "MACROS_OUTPUT_FOLDER",
+    "MACROS_EXTRUDE_DEPTH_METERS",
+)
+
+
+def solidworks_runner_environment(
+    environ: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return an environment that cannot pin a reused SW session to one batch.
+
+    The VBA macro reads current values from HKCU on every run.  If these names
+    reach the long-lived SolidWorks process, however, VBA's Environ$ lookup
+    permanently shadows later registry updates with the first thickness folder.
+    """
+    result = dict(os.environ if environ is None else environ)
+    for name in SOLIDWORKS_RUNTIME_ENV_NAMES:
+        result.pop(name, None)
+    return result
+
 HERE = Path(__file__).resolve().parent
 DEFAULT_REPO = HERE.parent
 STEEL_BLUE = "#57a0d3"
@@ -1964,7 +1987,6 @@ class JobAssistant(tk.Tk):
             "MACROS_OUTPUT_FOLDER": str(output),
             "MACROS_EXTRUDE_DEPTH_METERS": format(thickness * 0.0254, ".12g"),
         }
-        os.environ.update(values)
         if sys.platform == "win32":
             import winreg
 
@@ -2039,6 +2061,8 @@ class JobAssistant(tk.Tk):
                 )
             command.extend(["--solidworks-executable", solidworks])
         if stage == "plate_model" and output is not None:
+            if source is not None:
+                command.extend(["--source-folder", str(source)])
             try:
                 runner_source = runner.read_text(encoding="utf-8")
             except OSError:
@@ -2062,6 +2086,7 @@ class JobAssistant(tk.Tk):
                 cwd=existing_working_directory(self.repo),
                 stdout=handle,
                 stderr=subprocess.STDOUT,
+                env=solidworks_runner_environment(),
             )
         except Exception:
             handle.close()
