@@ -240,15 +240,9 @@ def _running_solidworks_sessions() -> dict[int, object]:
             break
         moniker = monikers[0]
         try:
-            display_name = moniker.GetDisplayName(bind_context, None)
-            normalized_name = display_name.casefold()
-            # Depending on the release and COM registration path, SolidWorks
-            # exposes ROT monikers as either SldWorks... or SolidWorks_PID....
-            if not any(
-                marker in normalized_name
-                for marker in ("sldworks", "solidworks")
-            ):
-                continue
+            # Do not filter by moniker text. Different SolidWorks releases have
+            # used SldWorks..., SolidWorks_PID..., and opaque ROT names. Probe
+            # the object itself for the SolidWorks GetProcessID API instead.
             app = win32com.client.Dispatch(table.GetObject(moniker))
             process_id_value = app.GetProcessID
             process_id = int(
@@ -313,6 +307,7 @@ def connect_solidworks(
             raise SolidWorksRunnerError(
                 f"Configured SolidWorks executable was not found: {executable}"
             )
+        sessions_before = set(get_sessions())
         process = launch(
             [str(executable)],
             stdout=subprocess.DEVNULL,
@@ -320,23 +315,33 @@ def connect_solidworks(
         )
         launched_pid = int(process.pid)
         deadline = monotonic() + max(timeout, 1.0)
+        last_seen: set[int] = set()
         while monotonic() < deadline:
-            app = get_sessions().get(launched_pid)
+            sessions = get_sessions()
+            last_seen = set(sessions)
+            app = sessions.get(launched_pid)
             if app is not None:
                 return SolidWorksConnection(
                     app,
                     reused=False,
                     launch_method=f"dedicated executable process {launched_pid}",
                 )
-            if process.poll() is not None:
-                raise SolidWorksRunnerError(
-                    f"SolidWorks process {launched_pid} exited before registering "
-                    "its COM session."
+            new_process_ids = sorted(last_seen - sessions_before)
+            if len(new_process_ids) == 1:
+                actual_pid = new_process_ids[0]
+                return SolidWorksConnection(
+                    sessions[actual_pid],
+                    reused=False,
+                    launch_method=(
+                        f"dedicated executable child process {actual_pid} "
+                        f"(launcher {launched_pid})"
+                    ),
                 )
             sleep(0.25)
         raise SolidWorksRunnerError(
-            f"Dedicated SolidWorks process {launched_pid} did not register its "
-            f"COM session within {timeout:g} seconds."
+            f"SolidWorks launcher PID {launched_pid} did not produce one "
+            f"identifiable new COM session within {timeout:g} seconds. "
+            f"Registered SolidWorks PIDs seen: {sorted(last_seen)}."
         )
 
     app = get_active()
