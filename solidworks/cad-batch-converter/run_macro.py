@@ -434,6 +434,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--connect-timeout", type=float, default=120.0)
     parser.add_argument("--ready-timeout", type=float, default=120.0)
     parser.add_argument(
+        "--source-folder",
+        type=Path,
+        help=(
+            "Selected source DWG folder, used to verify that this run created "
+            "the intended parts without relying on SolidWorks process environment."
+        ),
+    )
+    parser.add_argument(
         "--normalize-output",
         type=Path,
         help=(
@@ -474,13 +482,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{action} SolidWorks via {connection.launch_method}.", flush=True)
         print(f"Waiting for the SolidWorks VBA host and {args.macro.name}.", flush=True)
         output_folder = args.normalize_output
-        source_folder = None
+        source_folder = args.source_folder
         if args.macro.name.casefold() == "main.runbatch.swp":
             if output_folder is None:
                 configured_output = os.environ.get("MACROS_OUTPUT_FOLDER", "").strip()
                 output_folder = Path(configured_output) if configured_output else None
-            configured_source = os.environ.get("MACROS_SOURCE_FOLDER", "").strip()
-            source_folder = Path(configured_source) if configured_source else None
+            if source_folder is None:
+                configured_source = os.environ.get("MACROS_SOURCE_FOLDER", "").strip()
+                source_folder = Path(configured_source) if configured_source else None
         before_models = snapshot_plate_models(output_folder)
         expected_before_run = expected_part_stems(source_folder)
         if expected_before_run:
