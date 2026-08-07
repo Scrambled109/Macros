@@ -2060,7 +2060,6 @@ class JobAssistant(tk.Tk):
         automation_source: Path | None = None,
         automation_output: Path | None = None,
         cleanup_workspace: Path | None = None,
-        workers: int = 1,
         thickness: float | None = None,
     ) -> None:
         """Run one verified macro batch through one persistent SolidWorks session."""
@@ -2131,7 +2130,8 @@ class JobAssistant(tk.Tk):
             macro=str(macro),
             source=str(source) if source else "",
             output=str(output) if output else "",
-            solidworks_workers=workers,
+            solidworks_mode="single_persistent_local_session",
+            solidworks_workers=1,
             log=str(log),
         )
         self.running_processes[process.pid] = {
