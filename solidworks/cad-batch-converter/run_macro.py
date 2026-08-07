@@ -239,11 +239,36 @@ def _running_solidworks_sessions() -> dict[int, object]:
         if not monikers:
             break
         moniker = monikers[0]
+
+        display_name = ""
         try:
-            # Do not filter by moniker text. Different SolidWorks releases have
-            # used SldWorks..., SolidWorks_PID..., and opaque ROT names. Probe
-            # the object itself for the SolidWorks GetProcessID API instead.
+            display_name = str(
+                moniker.GetDisplayName(bind_context, None) or ""
+            )
+        except Exception:
+            pass
+
+        # Additional SolidWorks sessions are registered under PID-specific ROT
+        # monikers. Read the PID from that name before probing GetProcessID:
+        # generated pywin32 wrappers can reject the latter even though the ROT
+        # object itself is valid.
+        pid_match = re.search(
+            r"(?:solidworks|sldworks)[_-]pid[_-](\d+)$",
+            display_name,
+            flags=re.IGNORECASE,
+        )
+        try:
             app = win32com.client.Dispatch(table.GetObject(moniker))
+        except Exception:
+            continue
+
+        if pid_match is not None:
+            sessions[int(pid_match.group(1))] = app
+            continue
+
+        # Retain the object-probe fallback for releases that use opaque or
+        # differently formatted moniker names.
+        try:
             process_id_value = app.GetProcessID
             process_id = int(
                 process_id_value()
